@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>fernando</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1e1e1e">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; overflow: hidden; }
+        body { font-family: monospace; background: #1e1e1e; color: #fff; display: flex; flex-direction: column; }
+        
+        .top-bar {
+            background: #252526;
+            border-bottom: 1px solid #3e3e42;
+            padding: 4px 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 28px;
+        }
+        
+        .top-bar-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .top-bar-title {
+            font-size: 14px;
+            font-weight: bold;
+        }
+        
+        .top-bar button {
+            background: #0e639c;
+            border: none;
+            color: white;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        
+        .top-bar button:hover {
+            background: #1177bb;
+        }
+        
+        .content-wrapper {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        
+        .sidebar {
+            width: 250px;
+            background: #252526;
+            border-right: 1px solid #3e3e42;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            transition: transform 0.3s;
+        }
+        
+        .sidebar-header {
+            display: none;
+        }
+        
+        .sidebar-toggle {
+            display: none;
+        }
+        
+        @media (max-width: 500px) {
+            .sidebar {
+                position: fixed;
+                left: 0;
+                top: 28px;
+                bottom: 0;
+                z-index: 999;
+                transform: translateX(-100%);
+            }
+            
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            
+            .sidebar-toggle {
+                display: block;
+            }
+        }
+        
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid #3e3e42;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .session-item {
+            padding: 12px 15px;
+            cursor: pointer;
+            border-bottom: 1px solid #3e3e42;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .session-item:hover {
+            background: #2a2d2e;
+        }
+        
+        .session-item.active {
+            background: #094771;
+        }
+        
+        .session-name {
+            flex: 1;
+        }
+        
+        .close-btn {
+            background: #c72e2e;
+            border: none;
+            color: white;
+            padding: 4px 8px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+        
+        .close-btn:hover {
+            background: #e81123;
+        }
+        
+        .new-session {
+            padding: 15px;
+            border-top: 1px solid #3e3e42;
+        }
+        
+        .new-session input {
+            width: 100%;
+            padding: 8px;
+            background: #3c3c3c;
+            border: 1px solid #3e3e42;
+            color: #fff;
+            margin-bottom: 8px;
+        }
+        
+        .new-session button {
+            width: 100%;
+            padding: 8px;
+            background: #0e639c;
+            border: none;
+            color: white;
+            cursor: pointer;
+        }
+        
+        .new-session button:hover {
+            background: #1177bb;
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .terminals-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .terminal-container {
+            flex: 1;
+            position: relative;
+            border-bottom: 1px solid #3e3e42;
+            border: 2px solid transparent;
+            cursor: pointer;
+        }
+        
+        .terminal-container:last-child {
+            border-bottom: none;
+        }
+        
+        .terminal-container.hidden {
+            display: none;
+        }
+        
+        .terminal-container.active {
+            border: 2px solid #0e639c;
+        }
+        
+        .terminal {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+        }
+        
+        .terminal .xterm {
+            width: 100% !important;
+            height: 100% !important;
+        }
+        
+        .split-controls {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <div class="top-bar-left">
+            <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
+            <span class="top-bar-title">fernando</span>
+        </div>
+        <button onclick="toggleSplit()">Split</button>
+    </div>
+    <div class="content-wrapper">
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">fernando</div>
+            <div class="session-list" id="sessionList">
+                {% for session in sessions %}
+                <div class="session-item" data-session="{{ session }}">
+                    <span class="session-name">{{ session }}</span>
+                    <button class="close-btn" onclick="closeSession(event, '{{ session }}')">✕</button>
+                </div>
+                {% endfor %}
+            </div>
+            <div class="new-session">
+                <input type="text" id="newSessionName" placeholder="New session name" />
+                <button onclick="createSession()">Create Session</button>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="terminals-wrapper">
+                <div class="terminal-container active" id="terminal1-container">
+                    <div class="terminal" id="terminal1"></div>
+                </div>
+                <div class="terminal-container hidden" id="terminal2-container">
+                    <div class="terminal" id="terminal2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+    
+    <script>
+        const socket = io({
+            path: window.location.pathname.replace(/\/$/, '') + '/socket.io'
+        });
+        
+        let isSplit = false;
+        let activeTerminal = 1;
+        
+        const term1 = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            theme: { background: '#1e1e1e' }
+        });
+        
+        const term2 = new Terminal({
+            cursorBlink: true,
+            fontSize: 14,
+            fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+            theme: { background: '#1e1e1e' }
+        });
+        
+        term1.open(document.getElementById('terminal1'));
+        term2.open(document.getElementById('terminal2'));
+        
+        console.log('Terminals opened');
+        console.log('Terminal1 element:', document.getElementById('terminal1'));
+        console.log('Terminal2 element:', document.getElementById('terminal2'));
+        
+        const fitAddon1 = new FitAddon.FitAddon();
+        const fitAddon2 = new FitAddon.FitAddon();
+        term1.loadAddon(fitAddon1);
+        term2.loadAddon(fitAddon2);
+        
+        console.log('Fit addons loaded');
+        
+        function doFit() {
+            console.log('doFit called');
+            fitAddon1.fit();
+            console.log('Term1 fitted:', term1.rows, term1.cols);
+            socket.emit('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
+            if (isSplit) {
+                fitAddon2.fit();
+                console.log('Term2 fitted:', term2.rows, term2.cols);
+                socket.emit('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
+            }
+        }
+        
+        let currentSession1 = null;
+        let currentSession2 = null;
+        
+        term1.onData(data => {
+            socket.emit('input', { terminal: 1, data: data });
+        });
+        
+        term2.onData(data => {
+            socket.emit('input', { terminal: 2, data: data });
+        });
+        
+        socket.on('output', data => {
+            console.log('Received output for terminal', data.terminal, 'length:', data.data.length);
+            if (data.terminal === 1) {
+                term1.write(data.data);
+            } else if (data.terminal === 2) {
+                term2.write(data.data);
+            }
+        });
+        
+        socket.on('session_created', data => {
+            location.reload();
+        });
+        
+        socket.on('session_closed', data => {
+            location.reload();
+        });
+        
+        function attachSession(sessionName) {
+            console.log('Attaching session:', sessionName, 'to terminal:', activeTerminal);
+            
+            // Check if this session is already attached to the other terminal
+            if (activeTerminal === 1 && currentSession2 === sessionName) {
+                alert('This session is already attached to Terminal 2. Tmux sessions will mirror each other when attached multiple times.');
+            } else if (activeTerminal === 2 && currentSession1 === sessionName) {
+                alert('This session is already attached to Terminal 1. Tmux sessions will mirror each other when attached multiple times.');
+            }
+            
+            const term = activeTerminal === 1 ? term1 : term2;
+            term.clear();
+            
+            if (activeTerminal === 1) {
+                currentSession1 = sessionName;
+            } else {
+                currentSession2 = sessionName;
+            }
+            
+            socket.emit('attach_session', { terminal: activeTerminal, session: sessionName });
+            console.log('Emitted attach_session');
+            
+            setTimeout(doFit, 100);
+        }
+        
+        function toggleSplit() {
+            isSplit = !isSplit;
+            const container2 = document.getElementById('terminal2-container');
+            
+            if (isSplit) {
+                container2.classList.remove('hidden');
+                setActiveTerminal(2);
+            } else {
+                container2.classList.add('hidden');
+                setActiveTerminal(1);
+            }
+            
+            setTimeout(doFit, 100);
+        }
+        
+        function setActiveTerminal(termNum) {
+            console.log('Setting active terminal to:', termNum);
+            activeTerminal = termNum;
+            document.getElementById('terminal1-container').classList.toggle('active', termNum === 1);
+            document.getElementById('terminal2-container').classList.toggle('active', termNum === 2);
+        }
+        
+        // Click handlers to switch active terminal
+        document.getElementById('terminal1-container').addEventListener('click', (e) => {
+            console.log('Terminal 1 clicked');
+            setActiveTerminal(1);
+            e.stopPropagation();
+        });
+        
+        document.getElementById('terminal2-container').addEventListener('click', (e) => {
+            console.log('Terminal 2 clicked');
+            if (isSplit) {
+                setActiveTerminal(2);
+            }
+            e.stopPropagation();
+        });
+        
+        function createSession() {
+            const name = document.getElementById('newSessionName').value.trim();
+            if (!name) {
+                alert('Enter session name');
+                return;
+            }
+            socket.emit('create_session', { name: name });
+            document.getElementById('newSessionName').value = '';
+        }
+        
+        function closeSession(event, sessionName) {
+            event.stopPropagation();
+            if (confirm(`Close session "${sessionName}"?`)) {
+                socket.emit('close_session', { session: sessionName });
+            }
+        }
+        
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+        
+        // Click handler for session items
+        document.querySelectorAll('.session-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const sessionName = this.dataset.session;
+                attachSession(sessionName);
+                // Close sidebar on mobile after selection
+                if (window.innerWidth <= 500) {
+                    document.getElementById('sidebar').classList.remove('open');
+                }
+            });
+        });
+        
+        // Auto-attach to first session if exists
+        const firstSession = document.querySelector('.session-item');
+        if (firstSession) {
+            attachSession(firstSession.dataset.session);
+        }
+        
+        // Fit on window resize
+        let resizeTimeout;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(doFit, 100);
+        });
+        
+        // Force initial fit multiple times to ensure it works
+        setTimeout(doFit, 100);
+        setTimeout(doFit, 300);
+        setTimeout(doFit, 500);
+        setTimeout(doFit, 1000);
+    </script>
+</body>
+</html>
