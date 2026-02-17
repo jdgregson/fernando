@@ -7,6 +7,7 @@
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.8.0/lib/xterm-addon-web-links.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -35,17 +36,18 @@
         }
         
         .top-bar button {
-            background: #0e639c;
+            background: #4e9a06;
             border: none;
-            color: white;
+            color: #2e3436;
             padding: 4px 10px;
             cursor: pointer;
-            border-radius: 3px;
+            border-radius: 0;
             font-size: 12px;
+            font-family: monospace;
         }
         
         .top-bar button:hover {
-            background: #1177bb;
+            background: #5fb207;
         }
         
         .content-wrapper {
@@ -117,7 +119,7 @@
         }
         
         .session-item.active {
-            background: #094771;
+            background: #4e9a06;
         }
         
         .session-name {
@@ -155,14 +157,16 @@
         .new-session button {
             width: 100%;
             padding: 8px;
-            background: #0e639c;
+            background: #4e9a06;
             border: none;
-            color: white;
+            color: #2e3436;
             cursor: pointer;
+            border-radius: 0;
+            font-family: monospace;
         }
         
         .new-session button:hover {
-            background: #1177bb;
+            background: #5fb207;
         }
         
         .main-content {
@@ -182,7 +186,6 @@
             position: relative;
             border-bottom: 1px solid #3e3e42;
             border: 2px solid transparent;
-            cursor: pointer;
         }
         
         .terminal-container:last-child {
@@ -193,8 +196,8 @@
             display: none;
         }
         
-        .terminal-container.active {
-            border: 2px solid #0e639c;
+        .terminal-container.active.split-mode {
+            border: 2px solid #4e9a06;
         }
         
         .terminal {
@@ -210,8 +213,50 @@
             height: 100% !important;
         }
         
+        .browser-pane {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #1e1e1e;
+        }
+        
+        .browser-pane.hidden {
+            display: none;
+        }
+        
+        .browser-pane iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        
+        .pane-type-selector {
+            display: none;
+        }
+        
         .split-controls {
             display: none;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #c72e2e;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 4px;
+            z-index: 1000;
+            animation: fadeInOut 2s ease-in-out;
+        }
+        
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(10px); }
+            10% { opacity: 1; transform: translateY(0); }
+            90% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(10px); }
         }
     </style>
 </head>
@@ -221,7 +266,10 @@
             <button class="sidebar-toggle" onclick="toggleSidebar()">☰</button>
             <span class="top-bar-title">fernando</span>
         </div>
-        <button onclick="toggleSplit()">Split</button>
+        <div>
+            <button onclick="toggleDesktop()">Desktop</button>
+            <button onclick="toggleSplit()">Split</button>
+        </div>
     </div>
     <div class="content-wrapper">
         <div class="sidebar" id="sidebar">
@@ -244,9 +292,11 @@
             <div class="terminals-wrapper">
                 <div class="terminal-container active" id="terminal1-container">
                     <div class="terminal" id="terminal1"></div>
+                    <div class="browser-pane hidden" id="browser1"></div>
                 </div>
                 <div class="terminal-container hidden" id="terminal2-container">
                     <div class="terminal" id="terminal2"></div>
+                    <div class="browser-pane hidden" id="browser2"></div>
                 </div>
             </div>
         </div>
@@ -256,11 +306,77 @@
     
     <script>
         const socket = io({
-            path: window.location.pathname.replace(/\/$/, '') + '/socket.io'
+            path: window.location.pathname.replace(/\/$/, '') + '/socket.io',
+            reconnection: true,
+            reconnectionDelay: 500,
+            reconnectionAttempts: 10
         });
         
         let isSplit = false;
         let activeTerminal = 1;
+        let paneTypes = { 1: 'terminal', 2: 'terminal' };
+        let desktopMode = false;
+        let isReconnecting = false;
+        
+        // Handle iOS backgrounding/foregrounding
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                console.log('App foregrounded, reconnecting...');
+                handleForeground();
+            }
+        });
+        
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) {
+                console.log('Page restored from cache, reconnecting...');
+                handleForeground();
+            }
+        });
+        
+        function handleForeground() {
+            // Reconnect socket if disconnected
+            if (!socket.connected) {
+                socket.connect();
+            }
+            
+            // Reattach sessions
+            if (currentSession1 && paneTypes[1] === 'terminal') {
+                setTimeout(() => {
+                    term1.clear();
+                    socket.emit('attach_session', { terminal: 1, session: currentSession1 });
+                    setTimeout(doFit, 100);
+                }, 200);
+            }
+            
+            if (currentSession2 && paneTypes[2] === 'terminal' && isSplit) {
+                setTimeout(() => {
+                    term2.clear();
+                    socket.emit('attach_session', { terminal: 2, session: currentSession2 });
+                    setTimeout(doFit, 100);
+                }, 200);
+            }
+            
+            // Reload browser iframes
+            reloadBrowserPanes();
+        }
+        
+        function reloadBrowserPanes() {
+            [1, 2].forEach(paneNum => {
+                if (paneTypes[paneNum] === 'browser') {
+                    const browser = document.getElementById(`browser${paneNum}`);
+                    const iframe = browser.querySelector('iframe');
+                    if (iframe) {
+                        console.log(`Reloading browser pane ${paneNum}`);
+                        iframe.src = iframe.src; // Force reload
+                    }
+                }
+            });
+        }
+        
+        socket.on('reconnect', () => {
+            console.log('Socket reconnected');
+            handleForeground();
+        });
         
         const term1 = new Terminal({
             cursorBlink: true,
@@ -285,17 +401,77 @@
         
         const fitAddon1 = new FitAddon.FitAddon();
         const fitAddon2 = new FitAddon.FitAddon();
+        const webLinksAddon1 = new WebLinksAddon.WebLinksAddon();
+        const webLinksAddon2 = new WebLinksAddon.WebLinksAddon();
         term1.loadAddon(fitAddon1);
+        term1.loadAddon(webLinksAddon1);
         term2.loadAddon(fitAddon2);
+        term2.loadAddon(webLinksAddon2);
         
         console.log('Fit addons loaded');
         
+        function toggleDesktop() {
+            const activePane = activeTerminal;
+            const browser = document.getElementById(`browser${activePane}`);
+            const terminal = document.getElementById(`terminal${activePane}`);
+            
+            if (paneTypes[activePane] === 'terminal') {
+                paneTypes[activePane] = 'browser';
+                terminal.classList.add('hidden');
+                browser.classList.remove('hidden');
+                
+                // Clear session tracking when switching to browser
+                if (activePane === 1) {
+                    currentSession1 = null;
+                } else {
+                    currentSession2 = null;
+                }
+                
+                // Remove existing iframe and create fresh one
+                browser.innerHTML = '';
+                const iframe = document.createElement('iframe');
+                iframe.src = '/kasm/?resize=remote';
+                iframe.allow = 'autoplay; clipboard-read; clipboard-write';
+                browser.appendChild(iframe);
+            } else {
+                paneTypes[activePane] = 'terminal';
+                terminal.classList.remove('hidden');
+                browser.classList.add('hidden');
+                setTimeout(doFit, 100);
+            }
+        }
+        
+        function setPaneType(paneNum, type) {
+            paneTypes[paneNum] = type;
+            const container = document.getElementById(`terminal${paneNum}-container`);
+            const terminal = document.getElementById(`terminal${paneNum}`);
+            const browser = document.getElementById(`browser${paneNum}`);
+            const buttons = container.querySelectorAll('.pane-type-selector button');
+            
+            buttons.forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            if (type === 'terminal') {
+                terminal.classList.remove('hidden');
+                browser.classList.add('hidden');
+                setTimeout(doFit, 100);
+            } else {
+                terminal.classList.add('hidden');
+                browser.classList.remove('hidden');
+                if (!browser.querySelector('iframe')) {
+                    browser.innerHTML = '<iframe src="/kasm/?resize=remote"></iframe>';
+                }
+            }
+        }
+        
         function doFit() {
             console.log('doFit called');
-            fitAddon1.fit();
-            console.log('Term1 fitted:', term1.rows, term1.cols);
-            socket.emit('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
-            if (isSplit) {
+            if (paneTypes[1] === 'terminal') {
+                fitAddon1.fit();
+                console.log('Term1 fitted:', term1.rows, term1.cols);
+                socket.emit('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
+            }
+            if (isSplit && paneTypes[2] === 'terminal') {
                 fitAddon2.fit();
                 console.log('Term2 fitted:', term2.rows, term2.cols);
                 socket.emit('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
@@ -330,14 +506,28 @@
             location.reload();
         });
         
+        function showToast(message) {
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
+        }
+        
         function attachSession(sessionName) {
             console.log('Attaching session:', sessionName, 'to terminal:', activeTerminal);
             
-            // Check if this session is already attached to the other terminal
+            // If browser is showing, switch to terminal first
+            if (paneTypes[activeTerminal] === 'browser') {
+                toggleDesktop();
+            }
+            
             if (activeTerminal === 1 && currentSession2 === sessionName) {
-                alert('This session is already attached to Terminal 2. Tmux sessions will mirror each other when attached multiple times.');
+                showToast('Session already attached to Terminal 2');
+                return;
             } else if (activeTerminal === 2 && currentSession1 === sessionName) {
-                alert('This session is already attached to Terminal 1. Tmux sessions will mirror each other when attached multiple times.');
+                showToast('Session already attached to Terminal 1');
+                return;
             }
             
             const term = activeTerminal === 1 ? term1 : term2;
@@ -373,8 +563,20 @@
         function setActiveTerminal(termNum) {
             console.log('Setting active terminal to:', termNum);
             activeTerminal = termNum;
-            document.getElementById('terminal1-container').classList.toggle('active', termNum === 1);
-            document.getElementById('terminal2-container').classList.toggle('active', termNum === 2);
+            const term1Container = document.getElementById('terminal1-container');
+            const term2Container = document.getElementById('terminal2-container');
+            
+            term1Container.classList.toggle('active', termNum === 1);
+            term2Container.classList.toggle('active', termNum === 2);
+            
+            // Add split-mode class to both when split
+            if (isSplit) {
+                term1Container.classList.add('split-mode');
+                term2Container.classList.add('split-mode');
+            } else {
+                term1Container.classList.remove('split-mode');
+                term2Container.classList.remove('split-mode');
+            }
         }
         
         // Click handlers to switch active terminal

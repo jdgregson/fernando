@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  kasm-noble:
+    build:
+      context: .
+      dockerfile: Dockerfile.kasm
+    ports:
+      - "6901:6901"
+    environment:
+      - VNC_PW=password
+      - KASM_PORT=6901
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - VNC_RESIZE=scale
+    volumes:
+      - ./data/desktop:/home/kasm-user:rw
+    shm_size: 512m
+    restart: unless-stopped
+    user: "1000:1000"

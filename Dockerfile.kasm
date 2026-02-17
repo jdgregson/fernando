@@ -1,0 +1,5 @@
+FROM kasmweb/desktop:1.18.0-rolling-daily
+
+USER root
+RUN apt-get update && apt-get install -y scrot && rm -rf /var/lib/apt/lists/*
+USER kasm-user

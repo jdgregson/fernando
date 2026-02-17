@@ -2,13 +2,49 @@ from flask import request
 from flask_socketio import emit
 import os
 import select
+import ssl
+import websocket as ws_client
 from src.services.tmux import tmux_service
+from src.services.docker import docker_service
+import threading
+import base64
 
 def register_handlers(socketio):
     
     @socketio.on('connect')
     def handle_connect():
         emit('connected', {'data': 'Connected'})
+    
+    @socketio.on('kasm_ws')
+    def handle_kasm_ws(data):
+        """Proxy WebSocket messages to Kasm"""
+        path = data.get('path', '')
+        client_sid = request.sid
+        
+        # Create WebSocket connection to Kasm
+        auth_str = base64.b64encode(b'kasm_user:password').decode('ascii')
+        ws_url = f'wss://localhost:6901/{path}'
+        
+        ws = ws_client.WebSocket(sslopt={"cert_reqs": ssl.CERT_NONE})
+        ws.connect(ws_url, header=[f'Authorization: Basic {auth_str}'])
+        
+        def forward_from_kasm():
+            while True:
+                try:
+                    msg = ws.recv()
+                    if msg:
+                        socketio.emit('kasm_data', {'data': msg}, room=client_sid)
+                except:
+                    break
+        
+        threading.Thread(target=forward_from_kasm, daemon=True).start()
+        
+        @socketio.on('kasm_send')
+        def send_to_kasm(msg):
+            try:
+                ws.send(msg['data'])
+            except:
+                pass
     
     @socketio.on('attach_session')
     def attach_session(data):

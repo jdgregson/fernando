@@ -5,3 +5,12 @@ __pycache__/
 .env
 .venv/
 venv/
+tmp/
+*.log
+*.pid
+venv/
+__pycache__/
+*.pyc
+nginx-*.log
+data/
+nohup.out
