@@ -12,7 +12,7 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
-        body { font-family: monospace; background: #1e1e1e; color: #fff; display: flex; flex-direction: column; }
+        body { font-family: monospace; background: #1e1e1e; color: #fff; display: flex; flex-direction: column; position: fixed; width: 100%; }
         
         .top-bar {
             background: #252526;
@@ -213,6 +213,11 @@
             height: 100% !important;
         }
         
+        .terminal .xterm .xterm-viewport {
+            overflow-y: scroll !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+        
         .browser-pane {
             position: absolute;
             top: 0;
@@ -382,18 +387,101 @@
             cursorBlink: true,
             fontSize: 14,
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            theme: { background: '#1e1e1e' }
+            theme: { background: '#1e1e1e' },
+            scrollback: 10000,
+            allowTransparency: false
         });
         
         const term2 = new Terminal({
             cursorBlink: true,
             fontSize: 14,
             fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-            theme: { background: '#1e1e1e' }
+            theme: { background: '#1e1e1e' },
+            scrollback: 10000,
+            allowTransparency: false
         });
         
         term1.open(document.getElementById('terminal1'));
         term2.open(document.getElementById('terminal2'));
+        
+        // iOS touch scrolling - send tmux scroll commands
+        setTimeout(() => {
+            document.querySelectorAll('.xterm').forEach((xtermEl, idx) => {
+                const term = idx === 0 ? term1 : term2;
+                const termNum = idx + 1;
+                let startY = 0;
+                let lastY = 0;
+                let lastTime = 0;
+                let isScrolling = false;
+                let hasMoved = false;
+                let keyboardOpen = false;
+                
+                // Track keyboard state
+                const textarea = xtermEl.querySelector('.xterm-helper-textarea');
+                if (textarea) {
+                    textarea.addEventListener('focus', () => {
+                        // Always try to exit copy mode, then backspace the 'q' if not in copy mode
+                        socket.emit('input', { terminal: termNum, data: 'q\x7f' }); // q + backspace
+                        isScrolling = false;
+                        keyboardOpen = true;
+                    });
+                    textarea.addEventListener('blur', () => {
+                        keyboardOpen = false;
+                    });
+                }
+                
+                xtermEl.addEventListener('touchstart', (e) => {
+                    if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
+                    
+                    startY = lastY = e.touches[0].clientY;
+                    lastTime = Date.now();
+                    hasMoved = false;
+                    isScrolling = false;
+                }, { passive: false });
+                
+                xtermEl.addEventListener('touchmove', (e) => {
+                    if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
+                    
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const currentY = e.touches[0].clientY;
+                    const currentTime = Date.now();
+                    const deltaY = lastY - currentY;
+                    const deltaTime = Math.max(1, currentTime - lastTime);
+                    const velocity = Math.abs(deltaY) / deltaTime;
+                    
+                    if (Math.abs(startY - currentY) > 10) {
+                        hasMoved = true;
+                    }
+                    
+                    lastY = currentY;
+                    lastTime = currentTime;
+                    
+                    if (!isScrolling && hasMoved) {
+                        socket.emit('input', { terminal: termNum, data: '\x02[' });
+                        isScrolling = true;
+                    }
+                    
+                    if (isScrolling && Math.abs(deltaY) > 0.5) {
+                        const multiplier = Math.min(3, 1 + velocity * 2);
+                        const lines = Math.max(1, Math.round(Math.abs(deltaY) * multiplier / 3));
+                        const key = deltaY > 0 ? '\x1b[B' : '\x1b[A';
+                        for (let i = 0; i < lines; i++) {
+                            socket.emit('input', { terminal: termNum, data: key });
+                        }
+                    }
+                }, { passive: false });
+                
+                xtermEl.addEventListener('touchend', (e) => {
+                    if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
+                    
+                    if (isScrolling) {
+                        socket.emit('input', { terminal: termNum, data: 'q' });
+                        isScrolling = false;
+                    }
+                }, { passive: false });
+            });
+        }, 100);
         
         console.log('Terminals opened');
         console.log('Terminal1 element:', document.getElementById('terminal1'));

@@ -85,16 +85,16 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="scroll",
-            description="Scroll the mouse wheel up or down at current position or specified coordinates",
+            description="Scroll the mouse wheel up or down at specified coordinates. You must specify where to scroll.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "x": {"type": "integer", "description": "X coordinate to scroll at"},
+                    "y": {"type": "integer", "description": "Y coordinate to scroll at"},
                     "direction": {"type": "string", "description": "Direction to scroll: 'up' or 'down'", "enum": ["up", "down"]},
-                    "amount": {"type": "integer", "description": "Number of scroll clicks (default: 3)", "default": 3},
-                    "x": {"type": "integer", "description": "X coordinate to scroll at (optional, moves mouse first)"},
-                    "y": {"type": "integer", "description": "Y coordinate to scroll at (optional, moves mouse first)"}
+                    "amount": {"type": "integer", "description": "Number of scroll clicks (default: 3)", "default": 3}
                 },
-                "required": ["direction"]
+                "required": ["x", "y", "direction"]
             }
         ),
         Tool(
@@ -174,6 +174,18 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}}
         ),
         Tool(
+            name="set_screen_size",
+            description="Set desktop screen resolution",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "width": {"type": "integer", "description": "Screen width in pixels"},
+                    "height": {"type": "integer", "description": "Screen height in pixels"}
+                },
+                "required": ["width", "height"]
+            }
+        ),
+        Tool(
             name="get_clipboard",
             description="Get text content from clipboard",
             inputSchema={"type": "object", "properties": {}}
@@ -244,20 +256,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Screenshot saved to: {host_path}")]
     
     elif name == "scroll":
+        x = arguments["x"]
+        y = arguments["y"]
         direction = arguments["direction"]
         amount = arguments.get("amount", 3)
         button = "4" if direction == "up" else "5"
-        x = arguments.get("x")
-        y = arguments.get("y")
         
-        cmd = "DISPLAY=:1 xdotool "
-        if x is not None and y is not None:
-            cmd += f"mousemove {x} {y} "
-        cmd += f"click --repeat {amount} {button}"
+        cmd = f"DISPLAY=:1 xdotool mousemove {x} {y} click --repeat {amount} {button}"
         
         result = exec_in_kasm(cmd)
-        pos = f" at ({x}, {y})" if x is not None and y is not None else ""
-        return [TextContent(type="text", text=f"Scrolled {direction} {amount} times{pos}\n{result}")]
+        return [TextContent(type="text", text=f"Scrolled {direction} {amount} times at ({x}, {y})\n{result}")]
     
     elif name == "move_mouse":
         x = arguments["x"]
@@ -320,6 +328,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_screen_size":
         result = exec_in_kasm("DISPLAY=:1 xdpyinfo | grep dimensions")
         return [TextContent(type="text", text=f"Screen size:\n{result}")]
+    
+    elif name == "set_screen_size":
+        width = arguments["width"]
+        height = arguments["height"]
+        # Use xrandr to add and set custom resolution
+        result = exec_in_kasm(f"DISPLAY=:1 xrandr --output VNC-0 --fb {width}x{height}")
+        return [TextContent(type="text", text=f"Set screen size to {width}x{height}\n{result}")]
     
     elif name == "get_clipboard":
         result = exec_in_kasm("DISPLAY=:1 xclip -selection clipboard -o")
