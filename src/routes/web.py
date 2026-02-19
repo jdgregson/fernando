@@ -60,3 +60,11 @@ def kasm_proxy(path):
 def session_history(session_name):
     history = tmux_service.get_history(session_name)
     return render_template('history.html', session=session_name, history=history)
+
+@bp.route('/restart-desktop', methods=['POST'])
+def restart_desktop():
+    try:
+        docker_service.restart_kasm()
+        return {'message': 'Desktop container restarted successfully'}
+    except Exception as e:
+        return {'error': str(e)}, 500

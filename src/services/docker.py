@@ -10,15 +10,15 @@ class DockerService:
     
     def is_kasm_running(self):
         try:
-            result = subprocess.run(['docker', 'ps', '--filter', 'name=kasm-noble', '--format', '{{.Names}}'],
+            result = subprocess.run(['docker', 'ps', '--filter', 'name=fernando-desktop', '--format', '{{.Names}}'],
                                   capture_output=True, text=True)
-            return 'kasm-noble' in result.stdout
+            return 'fernando-desktop' in result.stdout
         except:
             return False
     
     def start_kasm(self):
         if not self.is_kasm_running():
-            subprocess.run(['docker-compose', 'up', '-d', 'kasm-noble'], 
+            subprocess.run(['docker-compose', 'up', '-d', 'fernando-desktop'], 
                          cwd='/home/coder/fernando')
         
         # Wait for service to be ready
@@ -34,5 +34,10 @@ class DockerService:
     
     def get_kasm_url(self):
         return self.kasm_url
+    
+    def restart_kasm(self):
+        subprocess.run(['docker', 'restart', 'fernando-desktop'], check=True)
+        time.sleep(2)
+        return self.start_kasm()
 
 docker_service = DockerService()

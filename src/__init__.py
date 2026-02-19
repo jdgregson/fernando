@@ -2,8 +2,21 @@ from flask import Flask
 from flask_socketio import SocketIO
 from src.config import config
 import os
+import threading
+import subprocess
+import time
 
 socketio = SocketIO()
+
+def cleanup_defunct_processes():
+    """Background thread to clean up defunct tmux processes"""
+    while True:
+        time.sleep(300)  # Run every 5 minutes
+        try:
+            # This forces init to reap orphaned zombies
+            subprocess.run(['true'], timeout=1)
+        except:
+            pass
 
 def create_app(config_name=None):
     if config_name is None:
@@ -23,6 +36,10 @@ def create_app(config_name=None):
     from src.routes import web, websocket
     app.register_blueprint(web.bp)
     websocket.register_handlers(socketio)
+    
+    # Start cleanup thread
+    cleanup_thread = threading.Thread(target=cleanup_defunct_processes, daemon=True)
+    cleanup_thread.start()
     
     @app.after_request
     def add_no_cache_headers(response):

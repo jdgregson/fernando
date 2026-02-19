@@ -1,7 +1,8 @@
 version: '3.8'
 
 services:
-  kasm-noble:
+  fernando-desktop:
+    container_name: fernando-desktop
     build:
       context: .
       dockerfile: Dockerfile.kasm

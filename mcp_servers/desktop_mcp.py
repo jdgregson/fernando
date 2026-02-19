@@ -13,7 +13,7 @@ app = Server("kasm-desktop")
 def exec_in_kasm(cmd):
     """Execute command inside Kasm container"""
     result = subprocess.run(
-        ['docker', 'exec', 'fernando-kasm-noble-1', 'bash', '-c', cmd],
+        ['docker', 'exec', 'fernando-desktop', 'bash', '-c', cmd],
         capture_output=True,
         text=True
     )

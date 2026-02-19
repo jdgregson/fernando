@@ -2,18 +2,23 @@
 <html>
 <head>
     <title>fernando</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#1e1e1e">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#252526">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.8.0/lib/xterm-addon-web-links.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
         html, body { height: 100%; overflow: hidden; }
-        body { font-family: monospace; background: #1e1e1e; color: #fff; display: flex; flex-direction: column; position: fixed; width: 100%; }
-        
+
+        @supports (height: 100dvh) {
+            html, body { height: 100dvh; }
+        }
+        body { font-family: monospace; background: #252526; color: #fff; display: flex; flex-direction: column; position: fixed; width: 100%; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+
         .top-bar {
             background: #252526;
             border-bottom: 1px solid #3e3e42;
@@ -23,18 +28,18 @@
             align-items: center;
             height: 28px;
         }
-        
+
         .top-bar-left {
             display: flex;
             align-items: center;
             gap: 10px;
         }
-        
+
         .top-bar-title {
             font-size: 14px;
             font-weight: bold;
         }
-        
+
         .top-bar button {
             background: #4e9a06;
             border: none;
@@ -45,17 +50,17 @@
             font-size: 12px;
             font-family: monospace;
         }
-        
+
         .top-bar button:hover {
             background: #5fb207;
         }
-        
+
         .content-wrapper {
             flex: 1;
             display: flex;
             overflow: hidden;
         }
-        
+
         .sidebar {
             width: 250px;
             background: #252526;
@@ -65,46 +70,46 @@
             height: 100%;
             transition: transform 0.3s;
         }
-        
+
         .sidebar-header {
             display: none;
         }
-        
+
         .sidebar-toggle {
             display: none;
         }
-        
+
         @media (max-width: 500px) {
             .sidebar {
                 position: fixed;
                 left: 0;
-                top: 28px;
-                bottom: 0;
-                z-index: 999;
+                top: calc(28px + env(safe-area-inset-top));
+                bottom: calc(50px + env(safe-area-inset-bottom));
+                z-index: 1002;
                 transform: translateX(-100%);
             }
-            
+
             .sidebar.open {
                 transform: translateX(0);
             }
-            
+
             .sidebar-toggle {
                 display: block;
             }
         }
-        
+
         .sidebar-header {
             padding: 15px;
             border-bottom: 1px solid #3e3e42;
             font-size: 18px;
             font-weight: bold;
         }
-        
+
         .session-list {
             flex: 1;
             overflow-y: auto;
         }
-        
+
         .session-item {
             padding: 12px 15px;
             cursor: pointer;
@@ -113,19 +118,19 @@
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .session-item:hover {
             background: #2a2d2e;
         }
-        
+
         .session-item.active {
             background: #4e9a06;
         }
-        
+
         .session-name {
             flex: 1;
         }
-        
+
         .close-btn {
             background: #c72e2e;
             border: none;
@@ -135,16 +140,17 @@
             border-radius: 3px;
             font-size: 11px;
         }
-        
+
         .close-btn:hover {
             background: #e81123;
         }
-        
+
         .new-session {
             padding: 15px;
+            padding-bottom: 45px;
             border-top: 1px solid #3e3e42;
         }
-        
+
         .new-session input {
             width: 100%;
             padding: 8px;
@@ -153,7 +159,7 @@
             color: #fff;
             margin-bottom: 8px;
         }
-        
+
         .new-session button {
             width: 100%;
             padding: 8px;
@@ -163,43 +169,132 @@
             cursor: pointer;
             border-radius: 0;
             font-family: monospace;
+            margin-bottom: 8px;
         }
-        
+
+        .new-session button:last-child {
+            margin-bottom: 0;
+        }
+
         .new-session button:hover {
             background: #5fb207;
         }
-        
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal.open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: #252526;
+            padding: 20px;
+            border: 1px solid #3e3e42;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .modal-header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .modal-body button {
+            width: 100%;
+            padding: 10px;
+            background: #4e9a06;
+            border: none;
+            color: #2e3436;
+            cursor: pointer;
+            margin-bottom: 10px;
+            font-family: monospace;
+        }
+
+        .modal-body button:hover {
+            background: #5fb207;
+        }
+
+        .modal-close {
+            background: #c72e2e !important;
+            color: white !important;
+        }
+
+        .modal-close:hover {
+            background: #e81123 !important;
+        }
+
+        .session-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .session-card {
+            background: #3c3c3c;
+            border: 1px solid #3e3e42;
+            padding: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .session-card:hover {
+            background: #4e4e4e;
+        }
+
+        .session-card-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .session-card-desc {
+            font-size: 12px;
+            color: #ccc;
+        }
+
         .main-content {
             flex: 1;
             display: flex;
             flex-direction: column;
         }
-        
+
         .terminals-wrapper {
             flex: 1;
             display: flex;
             flex-direction: column;
         }
-        
+
         .terminal-container {
             flex: 1;
             position: relative;
             border-bottom: 1px solid #3e3e42;
             border: 2px solid transparent;
         }
-        
+
         .terminal-container:last-child {
             border-bottom: none;
         }
-        
+
         .terminal-container.hidden {
             display: none;
         }
-        
+
         .terminal-container.active.split-mode {
             border: 2px solid #4e9a06;
         }
-        
+
         .terminal {
             position: absolute;
             top: 0;
@@ -207,17 +302,17 @@
             right: 0;
             bottom: 0;
         }
-        
+
         .terminal .xterm {
             width: 100% !important;
             height: 100% !important;
         }
-        
+
         .terminal .xterm .xterm-viewport {
             overflow-y: scroll !important;
             -webkit-overflow-scrolling: touch !important;
         }
-        
+
         .browser-pane {
             position: absolute;
             top: 0;
@@ -225,26 +320,28 @@
             right: 0;
             bottom: 0;
             background: #1e1e1e;
+            pointer-events: auto;
         }
-        
+
         .browser-pane.hidden {
             display: none;
         }
-        
+
         .browser-pane iframe {
             width: 100%;
             height: 100%;
             border: none;
+            touch-action: auto;
         }
-        
+
         .pane-type-selector {
             display: none;
         }
-        
+
         .split-controls {
             display: none;
         }
-        
+
         .toast {
             position: fixed;
             bottom: 20px;
@@ -256,12 +353,54 @@
             z-index: 1000;
             animation: fadeInOut 2s ease-in-out;
         }
-        
+
         @keyframes fadeInOut {
             0% { opacity: 0; transform: translateY(10px); }
             10% { opacity: 1; transform: translateY(0); }
             90% { opacity: 1; transform: translateY(0); }
             100% { opacity: 0; transform: translateY(10px); }
+        }
+
+        .mobile-controls {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #000;
+            border: 1.5px solid #eee;
+            border-radius: 50px;
+            padding: 8px 12px;
+            z-index: 1001;
+            gap: 6px;
+            justify-content: center;
+            margin-bottom: calc(10px + env(safe-area-inset-bottom));
+        }
+
+        @media (max-width: 500px) {
+            .mobile-controls {
+                display: flex;
+            }
+
+            .terminals-wrapper {
+                padding-bottom: 20px;
+            }
+        }
+
+        .mobile-controls button {
+            background: transparent;
+            border: none;
+            color: #fff;
+            padding: 8px 10px;
+            font-size: 13px;
+            font-family: monospace;
+            border-radius: 8px;
+            min-width: 42px;
+            cursor: pointer;
+        }
+
+        .mobile-controls button:active {
+            background: rgba(255, 255, 255, 0.2);
         }
     </style>
 </head>
@@ -288,11 +427,11 @@
                 {% endfor %}
             </div>
             <div class="new-session">
-                <input type="text" id="newSessionName" placeholder="New session name" />
-                <button onclick="createSession()">Create Session</button>
+                <button onclick="openNewSessionModal()">New Session</button>
+                <button onclick="openUtilities()">Utilities</button>
             </div>
         </div>
-        
+
         <div class="main-content">
             <div class="terminals-wrapper">
                 <div class="terminal-container active" id="terminal1-container">
@@ -306,9 +445,52 @@
             </div>
         </div>
     </div>
+
+    <div class="modal" id="newSessionModal" onclick="closeNewSessionModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">New Session</div>
+            <div class="modal-body">
+                <div class="session-cards">
+                    <div class="session-card" onclick="createSessionType('shell')">
+                        <div class="session-card-title">Shell</div>
+                        <div class="session-card-desc">Standard bash shell</div>
+                    </div>
+                    <div class="session-card" onclick="createSessionType('kiro')">
+                        <div class="session-card-title">Kiro</div>
+                        <div class="session-card-desc">Kiro CLI interactive mode</div>
+                    </div>
+                    <div class="session-card" onclick="createSessionType('kiro-unchained')">
+                        <div class="session-card-title">Kiro Unchained</div>
+                        <div class="session-card-desc">Kiro CLI chat agent mode</div>
+                    </div>
+                </div>
+                <button class="modal-close" onclick="closeNewSessionModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="utilitiesModal" onclick="closeUtilities()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">Utilities</div>
+            <div class="modal-body">
+                <button onclick="restartDesktop()">Restart Desktop Container</button>
+                <button class="modal-close" onclick="closeUtilities()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="mobile-controls">
+        <button onmousedown="event.preventDefault(); sendKey('\x03')">^C</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b')">ESC</button>
+        <button onmousedown="event.preventDefault(); sendKey('\t')">TAB</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[D')">←</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[A')">↑</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[B')">↓</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[C')">→</button>
+    </div>
 </body>
 </html>
-    
+
     <script>
         const socket = io({
             path: window.location.pathname.replace(/\/$/, '') + '/socket.io',
@@ -316,13 +498,13 @@
             reconnectionDelay: 500,
             reconnectionAttempts: 10
         });
-        
+
         let isSplit = false;
         let activeTerminal = 1;
         let paneTypes = { 1: 'terminal', 2: 'terminal' };
         let desktopMode = false;
         let isReconnecting = false;
-        
+
         // Handle iOS backgrounding/foregrounding
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden) {
@@ -330,20 +512,20 @@
                 handleForeground();
             }
         });
-        
+
         window.addEventListener('pageshow', (event) => {
             if (event.persisted) {
                 console.log('Page restored from cache, reconnecting...');
                 handleForeground();
             }
         });
-        
+
         function handleForeground() {
             // Reconnect socket if disconnected
             if (!socket.connected) {
                 socket.connect();
             }
-            
+
             // Reattach sessions
             if (currentSession1 && paneTypes[1] === 'terminal') {
                 setTimeout(() => {
@@ -352,7 +534,7 @@
                     setTimeout(doFit, 100);
                 }, 200);
             }
-            
+
             if (currentSession2 && paneTypes[2] === 'terminal' && isSplit) {
                 setTimeout(() => {
                     term2.clear();
@@ -360,11 +542,11 @@
                     setTimeout(doFit, 100);
                 }, 200);
             }
-            
+
             // Reload browser iframes
             reloadBrowserPanes();
         }
-        
+
         function reloadBrowserPanes() {
             [1, 2].forEach(paneNum => {
                 if (paneTypes[paneNum] === 'browser') {
@@ -377,12 +559,12 @@
                 }
             });
         }
-        
+
         socket.on('reconnect', () => {
             console.log('Socket reconnected');
             handleForeground();
         });
-        
+
         const term1 = new Terminal({
             cursorBlink: true,
             fontSize: 14,
@@ -391,7 +573,7 @@
             scrollback: 10000,
             allowTransparency: false
         });
-        
+
         const term2 = new Terminal({
             cursorBlink: true,
             fontSize: 14,
@@ -400,10 +582,10 @@
             scrollback: 10000,
             allowTransparency: false
         });
-        
+
         term1.open(document.getElementById('terminal1'));
         term2.open(document.getElementById('terminal2'));
-        
+
         // iOS touch scrolling - send tmux scroll commands
         setTimeout(() => {
             document.querySelectorAll('.xterm').forEach((xtermEl, idx) => {
@@ -415,7 +597,7 @@
                 let isScrolling = false;
                 let hasMoved = false;
                 let keyboardOpen = false;
-                
+
                 // Track keyboard state
                 const textarea = xtermEl.querySelector('.xterm-helper-textarea');
                 if (textarea) {
@@ -424,24 +606,48 @@
                         socket.emit('input', { terminal: termNum, data: 'q\x7f' }); // q + backspace
                         isScrolling = false;
                         keyboardOpen = true;
+                        // Scroll based on xterm viewport scroll position
+                        setTimeout(() => {
+                            const term = termNum === 1 ? term1 : term2;
+                            const viewport = xtermEl.querySelector('.xterm-viewport');
+                            if (viewport) {
+                                const scrollTop = viewport.scrollTop;
+                                const scrollHeight = viewport.scrollHeight;
+                                const clientHeight = viewport.clientHeight;
+
+                                if (isSplit) {
+                                    // For split, use ratio-based scroll
+                                    const scrollRatio = scrollTop / (scrollHeight - clientHeight);
+                                    const container = document.getElementById(`terminal${termNum}-container`);
+                                    const containerHeight = container.offsetHeight;
+                                    const scrollAmount = scrollRatio * containerHeight + 20;
+                                    window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+                                } else {
+                                    // For single pane, scroll to bottom if near bottom
+                                    if (scrollTop + clientHeight >= scrollHeight - 50) {
+                                        window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                                    }
+                                }
+                            }
+                        }, 300);
                     });
                     textarea.addEventListener('blur', () => {
                         keyboardOpen = false;
                     });
                 }
-                
+
                 xtermEl.addEventListener('touchstart', (e) => {
                     if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
-                    
+
                     startY = lastY = e.touches[0].clientY;
                     lastTime = Date.now();
                     hasMoved = false;
                     isScrolling = false;
                 }, { passive: false });
-                
+
                 xtermEl.addEventListener('touchmove', (e) => {
                     if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
-                    
+
                     e.preventDefault();
                     e.stopPropagation();
                     const currentY = e.touches[0].clientY;
@@ -449,19 +655,19 @@
                     const deltaY = lastY - currentY;
                     const deltaTime = Math.max(1, currentTime - lastTime);
                     const velocity = Math.abs(deltaY) / deltaTime;
-                    
+
                     if (Math.abs(startY - currentY) > 10) {
                         hasMoved = true;
                     }
-                    
+
                     lastY = currentY;
                     lastTime = currentTime;
-                    
+
                     if (!isScrolling && hasMoved) {
                         socket.emit('input', { terminal: termNum, data: '\x02[' });
                         isScrolling = true;
                     }
-                    
+
                     if (isScrolling && Math.abs(deltaY) > 0.5) {
                         const multiplier = Math.min(3, 1 + velocity * 2);
                         const lines = Math.max(1, Math.round(Math.abs(deltaY) * multiplier / 3));
@@ -471,10 +677,10 @@
                         }
                     }
                 }, { passive: false });
-                
+
                 xtermEl.addEventListener('touchend', (e) => {
                     if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
-                    
+
                     if (isScrolling) {
                         socket.emit('input', { terminal: termNum, data: 'q' });
                         isScrolling = false;
@@ -482,11 +688,11 @@
                 }, { passive: false });
             });
         }, 100);
-        
+
         console.log('Terminals opened');
         console.log('Terminal1 element:', document.getElementById('terminal1'));
         console.log('Terminal2 element:', document.getElementById('terminal2'));
-        
+
         const fitAddon1 = new FitAddon.FitAddon();
         const fitAddon2 = new FitAddon.FitAddon();
         const webLinksAddon1 = new WebLinksAddon.WebLinksAddon();
@@ -495,31 +701,34 @@
         term1.loadAddon(webLinksAddon1);
         term2.loadAddon(fitAddon2);
         term2.loadAddon(webLinksAddon2);
-        
+
         console.log('Fit addons loaded');
-        
+
         function toggleDesktop() {
             const activePane = activeTerminal;
             const browser = document.getElementById(`browser${activePane}`);
             const terminal = document.getElementById(`terminal${activePane}`);
-            
+
             if (paneTypes[activePane] === 'terminal') {
                 paneTypes[activePane] = 'browser';
                 terminal.classList.add('hidden');
                 browser.classList.remove('hidden');
-                
+
                 // Clear session tracking when switching to browser
                 if (activePane === 1) {
                     currentSession1 = null;
                 } else {
                     currentSession2 = null;
                 }
-                
+
                 // Remove existing iframe and create fresh one
                 browser.innerHTML = '';
                 const iframe = document.createElement('iframe');
                 iframe.src = '/kasm/?resize=remote';
                 iframe.allow = 'autoplay; clipboard-read; clipboard-write';
+                iframe.setAttribute('allowfullscreen', '');
+                iframe.setAttribute('webkitallowfullscreen', '');
+                iframe.setAttribute('mozallowfullscreen', '');
                 browser.appendChild(iframe);
             } else {
                 paneTypes[activePane] = 'terminal';
@@ -528,17 +737,17 @@
                 setTimeout(doFit, 100);
             }
         }
-        
+
         function setPaneType(paneNum, type) {
             paneTypes[paneNum] = type;
             const container = document.getElementById(`terminal${paneNum}-container`);
             const terminal = document.getElementById(`terminal${paneNum}`);
             const browser = document.getElementById(`browser${paneNum}`);
             const buttons = container.querySelectorAll('.pane-type-selector button');
-            
+
             buttons.forEach(btn => btn.classList.remove('active'));
             event.target.classList.add('active');
-            
+
             if (type === 'terminal') {
                 terminal.classList.remove('hidden');
                 browser.classList.add('hidden');
@@ -551,7 +760,7 @@
                 }
             }
         }
-        
+
         function doFit() {
             console.log('doFit called');
             if (paneTypes[1] === 'terminal') {
@@ -565,18 +774,18 @@
                 socket.emit('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
             }
         }
-        
+
         let currentSession1 = null;
         let currentSession2 = null;
-        
+
         term1.onData(data => {
             socket.emit('input', { terminal: 1, data: data });
         });
-        
+
         term2.onData(data => {
             socket.emit('input', { terminal: 2, data: data });
         });
-        
+
         socket.on('output', data => {
             console.log('Received output for terminal', data.terminal, 'length:', data.data.length);
             if (data.terminal === 1) {
@@ -585,15 +794,66 @@
                 term2.write(data.data);
             }
         });
-        
+
+        socket.on('sessions_list', data => {
+            updateSessionList(data.sessions);
+        });
+
+        function updateSessionList(sessions) {
+            const sessionList = document.getElementById('sessionList');
+            const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session);
+            
+            // Check if lists are different
+            if (JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
+                return;
+            }
+
+            sessionList.innerHTML = '';
+            sessions.forEach(session => {
+                const item = document.createElement('div');
+                item.className = 'session-item';
+                item.dataset.session = session;
+                
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'session-name';
+                nameSpan.textContent = session;
+                
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'close-btn';
+                closeBtn.textContent = '✕';
+                closeBtn.onclick = (e) => closeSession(e, session);
+                
+                item.appendChild(nameSpan);
+                item.appendChild(closeBtn);
+                
+                item.addEventListener('click', function() {
+                    attachSession(this.dataset.session);
+                    if (window.innerWidth <= 500) {
+                        document.getElementById('sidebar').classList.remove('open');
+                    }
+                });
+                sessionList.appendChild(item);
+            });
+
+            // Auto-attach if no session attached
+            if (!currentSession1 && sessions.length > 0) {
+                attachSession(sessions[0]);
+            }
+        }
+
+        // Poll for session updates every 2 seconds
+        setInterval(() => {
+            socket.emit('get_sessions');
+        }, 2000);
+
         socket.on('session_created', data => {
-            location.reload();
+            socket.emit('get_sessions');
         });
-        
+
         socket.on('session_closed', data => {
-            location.reload();
+            socket.emit('get_sessions');
         });
-        
+
         function showToast(message) {
             const toast = document.createElement('div');
             toast.className = 'toast';
@@ -601,15 +861,15 @@
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 2000);
         }
-        
+
         function attachSession(sessionName) {
             console.log('Attaching session:', sessionName, 'to terminal:', activeTerminal);
-            
+
             // If browser is showing, switch to terminal first
             if (paneTypes[activeTerminal] === 'browser') {
                 toggleDesktop();
             }
-            
+
             if (activeTerminal === 1 && currentSession2 === sessionName) {
                 showToast('Session already attached to Terminal 2');
                 return;
@@ -617,26 +877,26 @@
                 showToast('Session already attached to Terminal 1');
                 return;
             }
-            
+
             const term = activeTerminal === 1 ? term1 : term2;
             term.clear();
-            
+
             if (activeTerminal === 1) {
                 currentSession1 = sessionName;
             } else {
                 currentSession2 = sessionName;
             }
-            
+
             socket.emit('attach_session', { terminal: activeTerminal, session: sessionName });
             console.log('Emitted attach_session');
-            
+
             setTimeout(doFit, 100);
         }
-        
+
         function toggleSplit() {
             isSplit = !isSplit;
             const container2 = document.getElementById('terminal2-container');
-            
+
             if (isSplit) {
                 container2.classList.remove('hidden');
                 setActiveTerminal(2);
@@ -644,19 +904,19 @@
                 container2.classList.add('hidden');
                 setActiveTerminal(1);
             }
-            
+
             setTimeout(doFit, 100);
         }
-        
+
         function setActiveTerminal(termNum) {
             console.log('Setting active terminal to:', termNum);
             activeTerminal = termNum;
             const term1Container = document.getElementById('terminal1-container');
             const term2Container = document.getElementById('terminal2-container');
-            
+
             term1Container.classList.toggle('active', termNum === 1);
             term2Container.classList.toggle('active', termNum === 2);
-            
+
             // Add split-mode class to both when split
             if (isSplit) {
                 term1Container.classList.add('split-mode');
@@ -666,43 +926,78 @@
                 term2Container.classList.remove('split-mode');
             }
         }
-        
+
         // Click handlers to switch active terminal
         document.getElementById('terminal1-container').addEventListener('click', (e) => {
             console.log('Terminal 1 clicked');
             setActiveTerminal(1);
+            if (window.innerWidth <= 500) {
+                document.getElementById('sidebar').classList.remove('open');
+            }
             e.stopPropagation();
         });
-        
+
         document.getElementById('terminal2-container').addEventListener('click', (e) => {
             console.log('Terminal 2 clicked');
             if (isSplit) {
                 setActiveTerminal(2);
             }
+            if (window.innerWidth <= 500) {
+                document.getElementById('sidebar').classList.remove('open');
+            }
             e.stopPropagation();
         });
-        
-        function createSession() {
-            const name = document.getElementById('newSessionName').value.trim();
-            if (!name) {
-                alert('Enter session name');
-                return;
+
+        function openNewSessionModal() {
+            document.getElementById('newSessionModal').classList.add('open');
+            if (window.innerWidth <= 500) {
+                document.getElementById('sidebar').classList.remove('open');
             }
-            socket.emit('create_session', { name: name });
-            document.getElementById('newSessionName').value = '';
         }
-        
+
+        function closeNewSessionModal() {
+            document.getElementById('newSessionModal').classList.remove('open');
+        }
+
+        function createSessionType(type) {
+            socket.emit('create_session', { type: type });
+            closeNewSessionModal();
+        }
+
         function closeSession(event, sessionName) {
             event.stopPropagation();
             if (confirm(`Close session "${sessionName}"?`)) {
                 socket.emit('close_session', { session: sessionName });
             }
         }
-        
+
         function toggleSidebar() {
             document.getElementById('sidebar').classList.toggle('open');
         }
-        
+
+        function openUtilities() {
+            document.getElementById('utilitiesModal').classList.add('open');
+            if (window.innerWidth <= 500) {
+                document.getElementById('sidebar').classList.remove('open');
+            }
+        }
+
+        function closeUtilities() {
+            document.getElementById('utilitiesModal').classList.remove('open');
+        }
+
+        function restartDesktop() {
+            if (confirm('Restart the desktop container? This will close all browser sessions.')) {
+                fetch('/restart-desktop', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        alert(data.message || 'Desktop container restarted');
+                        closeUtilities();
+                    })
+                    .catch(e => alert('Error: ' + e));
+            }
+        }
+
         // Click handler for session items
         document.querySelectorAll('.session-item').forEach(item => {
             item.addEventListener('click', function() {
@@ -714,25 +1009,81 @@
                 }
             });
         });
-        
-        // Auto-attach to first session if exists
+
+        // Auto-attach to first session if exists, or open modal if no sessions
         const firstSession = document.querySelector('.session-item');
         if (firstSession) {
             attachSession(firstSession.dataset.session);
+        } else {
+            openNewSessionModal();
         }
-        
+
+        // Request initial session list
+        socket.emit('get_sessions');
+
         // Fit on window resize
         let resizeTimeout;
         window.addEventListener('resize', () => {
             clearTimeout(resizeTimeout);
             resizeTimeout = setTimeout(doFit, 100);
         });
-        
+
         // Force initial fit multiple times to ensure it works
         setTimeout(doFit, 100);
         setTimeout(doFit, 300);
         setTimeout(doFit, 500);
         setTimeout(doFit, 1000);
+
+        function sendKey(key) {
+            socket.emit('input', { terminal: activeTerminal, data: key });
+        }
+
+        // Close sidebar when clicking outside on mobile
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth <= 500) {
+                const sidebar = document.getElementById('sidebar');
+                const sidebarToggle = document.querySelector('.sidebar-toggle');
+                if (sidebar.classList.contains('open') &&
+                    !sidebar.contains(e.target) &&
+                    e.target !== sidebarToggle) {
+                    sidebar.classList.remove('open');
+                }
+            }
+        });
+
+        // Reposition mobile controls above keyboard
+        if (window.visualViewport) {
+            const mobileControls = document.querySelector('.mobile-controls');
+            let keyboardVisible = false;
+
+            const updatePosition = () => {
+                const vpHeight = window.visualViewport.height;
+                const vpOffsetTop = window.visualViewport.offsetTop;
+                const windowHeight = window.innerHeight;
+
+                // Check if keyboard is visible
+                keyboardVisible = vpHeight < windowHeight - 100;
+
+                if (keyboardVisible) {
+                    mobileControls.style.display = 'flex';
+                    mobileControls.style.bottom = 'auto';
+                    mobileControls.style.top = (vpOffsetTop + vpHeight - mobileControls.offsetHeight) + 'px';
+                } else {
+                    mobileControls.style.display = 'none';
+                }
+            };
+
+            const updatePositionOnly = () => {
+                if (keyboardVisible) {
+                    const vpHeight = window.visualViewport.height;
+                    const vpOffsetTop = window.visualViewport.offsetTop;
+                    mobileControls.style.top = (vpOffsetTop + vpHeight - mobileControls.offsetHeight) + 'px';
+                }
+            };
+
+            window.visualViewport.addEventListener('resize', updatePosition);
+            window.visualViewport.addEventListener('scroll', updatePositionOnly);
+        }
     </script>
 </body>
 </html>

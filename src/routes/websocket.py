@@ -15,6 +15,11 @@ def register_handlers(socketio):
     def handle_connect():
         emit('connected', {'data': 'Connected'})
     
+    @socketio.on('get_sessions')
+    def get_sessions():
+        sessions = tmux_service.list_sessions()
+        emit('sessions_list', {'sessions': sessions})
+    
     @socketio.on('kasm_ws')
     def handle_kasm_ws(data):
         """Proxy WebSocket messages to Kasm"""
@@ -82,7 +87,8 @@ def register_handlers(socketio):
     
     @socketio.on('create_session')
     def create_session(data):
-        name = tmux_service.create_session(data['name'])
+        session_type = data.get('type', 'shell')
+        name = tmux_service.create_session_with_type(session_type)
         emit('session_created', {'name': name})
     
     @socketio.on('input')

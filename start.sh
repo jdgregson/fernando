@@ -12,7 +12,7 @@ fi
 
 # Start Kasm desktop container
 echo "Starting Kasm desktop container..."
-docker-compose up -d kasm-noble
+docker-compose up -d fernando-desktop
 
 # Wait for Kasm to be ready
 echo "Waiting for Kasm to be ready..."
