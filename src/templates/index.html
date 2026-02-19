@@ -4,7 +4,9 @@
     <title>fernando</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#252526">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="mobile-web-app-capable" content="yes">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
@@ -12,10 +14,10 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
-        html, body { height: 100%; overflow: hidden; }
+        html, body { height: 100%; overflow: hidden; background: #252526; }
 
         @supports (height: 100dvh) {
-            html, body { height: 100dvh; }
+            html, body { height: 100dvh; background: #252526; }
         }
         body { font-family: monospace; background: #252526; color: #fff; display: flex; flex-direction: column; position: fixed; width: 100%; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 
@@ -84,7 +86,7 @@
                 position: fixed;
                 left: 0;
                 top: calc(28px + env(safe-area-inset-top));
-                bottom: calc(50px + env(safe-area-inset-bottom));
+                bottom: 0;
                 z-index: 1002;
                 transform: translateX(-100%);
             }
@@ -147,8 +149,14 @@
 
         .new-session {
             padding: 15px;
-            padding-bottom: 45px;
             border-top: 1px solid #3e3e42;
+            background: #252526;
+        }
+
+        @supports (-webkit-touch-callout: none) {
+            .new-session {
+                padding-bottom: calc(65px + env(safe-area-inset-bottom));
+            }
         }
 
         .new-session input {
@@ -229,6 +237,7 @@
         .modal-close {
             background: #c72e2e !important;
             color: white !important;
+            margin-top: 10px !important;
         }
 
         .modal-close:hover {
@@ -361,6 +370,64 @@
             100% { opacity: 0; transform: translateY(10px); }
         }
 
+        .alert-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .alert-modal.open {
+            display: flex;
+        }
+
+        .alert-modal-content {
+            background: #252526;
+            border: 1px solid #3e3e42;
+            max-width: 400px;
+            width: 90%;
+            padding: 20px;
+        }
+
+        .alert-modal-message {
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+
+        .alert-modal-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .alert-modal-buttons button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            cursor: pointer;
+            font-family: monospace;
+            background: #4e9a06;
+            color: #2e3436;
+        }
+
+        .alert-modal-buttons button:hover {
+            background: #5fb207;
+        }
+
+        .alert-modal-buttons button.cancel {
+            background: #c72e2e;
+            color: white;
+        }
+
+        .alert-modal-buttons button.cancel:hover {
+            background: #e81123;
+        }
+
         .mobile-controls {
             display: none;
             position: fixed;
@@ -371,7 +438,7 @@
             border: 1.5px solid #eee;
             border-radius: 50px;
             padding: 8px 12px;
-            z-index: 1001;
+            z-index: 999;
             gap: 6px;
             justify-content: center;
             margin-bottom: calc(10px + env(safe-area-inset-bottom));
@@ -488,10 +555,43 @@
         <button onmousedown="event.preventDefault(); sendKey('\x1b[B')">↓</button>
         <button onmousedown="event.preventDefault(); sendKey('\x1b[C')">→</button>
     </div>
+
+    <div class="alert-modal" id="alertModal">
+        <div class="alert-modal-content">
+            <div class="alert-modal-message" id="alertMessage"></div>
+            <div class="alert-modal-buttons" id="alertButtons"></div>
+        </div>
+    </div>
 </body>
 </html>
 
     <script>
+        function showAlert(message) {
+            return new Promise(resolve => {
+                document.getElementById('alertMessage').textContent = message;
+                document.getElementById('alertButtons').innerHTML = '<button onclick="closeAlert()">OK</button>';
+                document.getElementById('alertModal').classList.add('open');
+                window.alertResolve = resolve;
+            });
+        }
+
+        function showConfirm(message) {
+            return new Promise(resolve => {
+                document.getElementById('alertMessage').textContent = message;
+                document.getElementById('alertButtons').innerHTML =
+                    '<button onclick="closeAlert(true)">OK</button><button class="cancel" onclick="closeAlert(false)">Cancel</button>';
+                document.getElementById('alertModal').classList.add('open');
+                window.alertResolve = resolve;
+            });
+        }
+
+        function closeAlert(result) {
+            document.getElementById('alertModal').classList.remove('open');
+            if (window.alertResolve) {
+                window.alertResolve(result);
+                window.alertResolve = null;
+            }
+        }
         const socket = io({
             path: window.location.pathname.replace(/\/$/, '') + '/socket.io',
             reconnection: true,
@@ -802,7 +902,7 @@
         function updateSessionList(sessions) {
             const sessionList = document.getElementById('sessionList');
             const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session);
-            
+
             // Check if lists are different
             if (JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
                 return;
@@ -813,19 +913,19 @@
                 const item = document.createElement('div');
                 item.className = 'session-item';
                 item.dataset.session = session;
-                
+
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'session-name';
                 nameSpan.textContent = session;
-                
+
                 const closeBtn = document.createElement('button');
                 closeBtn.className = 'close-btn';
                 closeBtn.textContent = '✕';
                 closeBtn.onclick = (e) => closeSession(e, session);
-                
+
                 item.appendChild(nameSpan);
                 item.appendChild(closeBtn);
-                
+
                 item.addEventListener('click', function() {
                     attachSession(this.dataset.session);
                     if (window.innerWidth <= 500) {
@@ -966,9 +1066,11 @@
 
         function closeSession(event, sessionName) {
             event.stopPropagation();
-            if (confirm(`Close session "${sessionName}"?`)) {
-                socket.emit('close_session', { session: sessionName });
-            }
+            showConfirm(`Close session "${sessionName}"?`).then(result => {
+                if (result) {
+                    socket.emit('close_session', { session: sessionName });
+                }
+            });
         }
 
         function toggleSidebar() {
@@ -987,15 +1089,17 @@
         }
 
         function restartDesktop() {
-            if (confirm('Restart the desktop container? This will close all browser sessions.')) {
-                fetch('/restart-desktop', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        alert(data.message || 'Desktop container restarted');
-                        closeUtilities();
-                    })
-                    .catch(e => alert('Error: ' + e));
-            }
+            showConfirm('Restart the desktop container? This will close all browser sessions.').then(result => {
+                if (result) {
+                    fetch('/restart-desktop', { method: 'POST' })
+                        .then(r => r.json())
+                        .then(data => {
+                            showAlert(data.message || 'Desktop container restarted');
+                            closeUtilities();
+                        })
+                        .catch(e => showAlert('Error: ' + e));
+                }
+            });
         }
 
         // Click handler for session items

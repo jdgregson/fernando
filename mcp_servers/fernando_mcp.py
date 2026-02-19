@@ -18,6 +18,7 @@ You are a subagent working on a delegated task. Follow these rules:
 2. OUTPUT FORMAT: Write all outputs as JSON files to your outputs directory, not to terminal
 3. STATUS UPDATES: Update status.json frequently with your progress
 4. FINAL RESULT: When complete, write final.json with your deliverable
+5. TRACK TIME: Update start_time when you begin and end_time when you finish in status.json
 
 Your workspace: {workspace}
 Task ID: {task_id}
@@ -35,13 +36,15 @@ Status JSON format:
   "status": "in_progress|completed|failed",
   "progress": 0-100,
   "current_step": "description",
+  "start_time": "ISO timestamp when you started work",
+  "end_time": "ISO timestamp when you finished (null if in progress)",
   "last_update": "ISO timestamp"
 }}
 
-Begin work now.
+Begin work now and immediately update status.json with start_time.
 """
 
-def create_subagent(task_id, task, additional_context=""):
+def create_subagent(task_id, task, additional_context="", delay_seconds=0, schedule=None):
     workspace = f"{SUBAGENT_DIR}/{task_id}"
     os.makedirs(f"{workspace}/proof/screenshots", exist_ok=True)
     os.makedirs(f"{workspace}/proof/outputs", exist_ok=True)
@@ -58,9 +61,11 @@ def create_subagent(task_id, task, additional_context=""):
     
     with open(f"{workspace}/status.json", "w") as f:
         json.dump({
-            "status": "starting",
+            "status": "scheduled",
             "progress": 0,
-            "current_step": "initializing",
+            "current_step": "waiting to start",
+            "start_time": None,
+            "end_time": None,
             "last_update": datetime.now().isoformat()
         }, f, indent=2)
     
@@ -74,30 +79,58 @@ def create_subagent(task_id, task, additional_context=""):
         instructions += f"\n\nAdditional context:\n{additional_context}"
     
     session_name = f"subagent-{task_id}"
-    subprocess.run([
-        "tmux", "new-session", "-d", "-s", session_name,
-        "kiro-cli", "chat", "-a"
-    ])
     
-    # Wait for session to be ready
+    # Create spawn script for scheduled execution
+    script_path = f"{workspace}/spawn.sh"
+    with open(script_path, "w") as f:
+        f.write(f"""#!/bin/bash
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+SESSION_NAME="{session_name}-$TIMESTAMP"
+tmux new-session -d -s "$SESSION_NAME" kiro-cli chat -a
+sleep 1
+tmux send-keys -t "$SESSION_NAME" -l {repr(instructions)}
+sleep 1
+tmux send-keys -t "$SESSION_NAME" Enter
+""")
+    os.chmod(script_path, 0o755)
+    
+    # Handle scheduling
+    if schedule:
+        if schedule.startswith("at "):
+            # "at 14:30"
+            time_spec = schedule[3:]
+            subprocess.run(["at", time_spec], input=script_path, capture_output=True, text=True)
+            return {"task_id": task_id, "session_name": session_name, "workspace": workspace, "scheduled_at": time_spec}
+        
+        elif schedule.startswith("every "):
+            # "every 5 minutes"
+            interval = schedule[6:]
+            cron_patterns = {
+                "minute": "* * * * *", "5 minutes": "*/5 * * * *", "10 minutes": "*/10 * * * *",
+                "15 minutes": "*/15 * * * *", "30 minutes": "*/30 * * * *", "hour": "0 * * * *",
+                "day": "0 0 * * *", "week": "0 0 * * 0"
+            }
+            cron_time = cron_patterns.get(interval, "*/5 * * * *")
+            result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+            existing = result.stdout if result.returncode == 0 else ""
+            subprocess.run(["crontab", "-"], input=existing + f"{cron_time} {script_path}\n", text=True)
+            return {"task_id": task_id, "session_name": session_name, "workspace": workspace, "recurring": interval, "cron": cron_time}
+    
+    elif delay_seconds > 0:
+        subprocess.run(["at", f"now + {delay_seconds} seconds"], input=script_path, capture_output=True, text=True)
+        return {"task_id": task_id, "session_name": session_name, "workspace": workspace, "scheduled_in_seconds": delay_seconds}
+    
+    # Immediate execution
+    subprocess.run(["tmux", "new-session", "-d", "-s", session_name, "kiro-cli", "chat", "-a"])
+    
     import time
     time.sleep(1)
     
-    # Send instructions as literal text
-    subprocess.run([
-        "tmux", "send-keys", "-t", session_name, "-l", instructions
-    ])
+    subprocess.run(["tmux", "send-keys", "-t", session_name, "-l", instructions])
+    time.sleep(1)
+    subprocess.run(["tmux", "send-keys", "-t", session_name, "Enter"])
     
-    # Send Enter key
-    subprocess.run([
-        "tmux", "send-keys", "-t", session_name, "Enter"
-    ])
-    
-    return {
-        "task_id": task_id,
-        "session_name": session_name,
-        "workspace": workspace
-    }
+    return {"task_id": task_id, "session_name": session_name, "workspace": workspace}
 
 def get_subagent_status(task_id):
     workspace = f"{SUBAGENT_DIR}/{task_id}"
@@ -163,6 +196,15 @@ async def list_tools() -> list[Tool]:
                     "additional_context": {
                         "type": "string",
                         "description": "Optional additional context or instructions"
+                    },
+                    "delay_seconds": {
+                        "type": "integer",
+                        "description": "Delay in seconds before starting (0 = start immediately)",
+                        "default": 0
+                    },
+                    "schedule": {
+                        "type": "string",
+                        "description": "Schedule string: 'at 14:30' for specific time, 'every 5 minutes/hour/day/week' for recurring. Overrides delay_seconds if provided."
                     }
                 },
                 "required": ["task_id", "task"]
@@ -212,7 +254,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = create_subagent(
             arguments["task_id"],
             arguments["task"],
-            arguments.get("additional_context", "")
+            arguments.get("additional_context", ""),
+            arguments.get("delay_seconds", 0),
+            arguments.get("schedule")
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
     

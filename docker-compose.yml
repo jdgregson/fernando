@@ -5,7 +5,7 @@ services:
     container_name: fernando-desktop
     build:
       context: .
-      dockerfile: Dockerfile.kasm
+      dockerfile: Dockerfile.desktop
     ports:
       - "6901:6901"
     environment:
