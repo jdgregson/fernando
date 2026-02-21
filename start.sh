@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Clean up stale Werkzeug environment variables
+unset WERKZEUG_RUN_MAIN WERKZEUG_SERVER_FD
+
 # Activate venv if not already activated
 if [ -z "$VIRTUAL_ENV" ]; then
     source venv/bin/activate
@@ -32,8 +35,9 @@ nginx -c /home/coder/fernando/nginx.conf
 # Start Flask app
 echo "Starting Flask application..."
 if [ "$DETACHED" = true ]; then
-    nohup python run.py > /tmp/fernando-flask.log 2>&1 &
-    echo "Flask started in background (PID: $!)"
+    python run.py > /tmp/fernando-flask.log 2>&1 &
+    FLASK_PID=$!
+    echo "Flask started in background (PID: $FLASK_PID)"
     echo "Access at http://localhost:8080"
     echo "Logs: tail -f /tmp/fernando-flask.log"
 else

@@ -18,22 +18,22 @@ class TmuxSession:
 
     def list_sessions(self):
         result = subprocess.run(['tmux', 'list-sessions', '-F', '#{session_name}'],
-                               capture_output=True, text=True, timeout=5)
+                               capture_output=True, text=True, timeout=5, check=False)
         return result.stdout.strip().split('\n') if result.returncode == 0 else []
 
     def create_session(self, name):
         name = self._validate_session_name(name)
         env = os.environ.copy()
         env['TERM'] = 'xterm-256color'
-        subprocess.run(['tmux', 'new-session', '-d', '-s', name], env=env, timeout=5)
-        subprocess.run(['tmux', 'set-option', '-t', name, 'mouse', 'on'], timeout=5)
-        subprocess.run(['tmux', 'set-option', '-t', name, 'history-limit', '10000'], timeout=5)
+        subprocess.run(['tmux', 'new-session', '-d', '-s', name], env=env, timeout=5, check=True)
+        subprocess.run(['tmux', 'set-option', '-t', name, 'mouse', 'on'], timeout=5, check=True)
+        subprocess.run(['tmux', 'set-option', '-t', name, 'history-limit', '10000'], timeout=5, check=True)
         return name
 
     def create_session_with_type(self, session_type):
         if session_type == 'shell':
             name = 'Shell'
-            cmd = 'bash'
+            cmd = None
         elif session_type == 'kiro':
             name = 'Kiro'
             cmd = 'kiro-cli'
@@ -42,7 +42,7 @@ class TmuxSession:
             cmd = 'kiro-cli chat -a'
         else:
             name = 'Shell'
-            cmd = 'bash'
+            cmd = None
 
         # Ensure unique name
         sessions = self.list_sessions()
@@ -54,9 +54,15 @@ class TmuxSession:
 
         env = os.environ.copy()
         env['TERM'] = 'xterm-256color'
-        subprocess.run(['tmux', 'new-session', '-d', '-s', name, cmd], env=env, timeout=5)
-        subprocess.run(['tmux', 'set-option', '-t', name, 'mouse', 'on'], timeout=5)
-        subprocess.run(['tmux', 'set-option', '-t', name, 'history-limit', '10000'], timeout=5)
+        
+        if cmd:
+            subprocess.run(['tmux', 'new-session', '-d', '-s', name], env=env, timeout=5, check=True)
+            subprocess.run(['tmux', 'send-keys', '-t', name, cmd, 'Enter'], timeout=5, check=True)
+        else:
+            subprocess.run(['tmux', 'new-session', '-d', '-s', name], env=env, timeout=5, check=True)
+            
+        subprocess.run(['tmux', 'set-option', '-t', name, 'mouse', 'on'], timeout=5, check=True)
+        subprocess.run(['tmux', 'set-option', '-t', name, 'history-limit', '10000'], timeout=5, check=True)
         return name
 
     def attach_session(self, session_name, sid):
@@ -64,9 +70,10 @@ class TmuxSession:
         master, slave = pty.openpty()
         cmd = ['tmux', 'attach-session', '-t', session_name]
         p = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave,
-                            preexec_fn=os.setsid, close_fds=True)
+                            preexec_fn=os.setsid, close_fds=True, start_new_session=False)
 
         self.active_sessions[sid] = {'process': p, 'fd': master}
+        os.close(slave)
         return master
 
     def write_input(self, sid, data):
@@ -86,12 +93,12 @@ class TmuxSession:
     def get_history(self, session_name):
         session_name = self._validate_session_name(session_name)
         result = subprocess.run(['tmux', 'capture-pane', '-t', session_name, '-p', '-S', '-32768'],
-                              capture_output=True, text=True, timeout=5)
+                              capture_output=True, text=True, timeout=5, check=False)
         return result.stdout
 
     def kill_session(self, session_name):
         session_name = self._validate_session_name(session_name)
-        subprocess.run(['tmux', 'kill-session', '-t', session_name], timeout=5)
+        subprocess.run(['tmux', 'kill-session', '-t', session_name], timeout=5, check=False)
 
     def cleanup_session(self, sid):
         if sid in self.active_sessions:
