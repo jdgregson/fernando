@@ -1,13 +1,16 @@
-# Tmux Web Interface
+# Fernando
 
-Web-based interface for managing and interacting with tmux sessions with integrated Kasm desktop browser.
+Web-based terminal interface for managing tmux sessions with integrated Kasm desktop and Kiro CLI agent management.
 
 ## Features
 
-- Create and manage tmux sessions
-- Split view with multiple terminals or browser panes
-- Fully responsive terminal and browser integration
-- Switch between terminal and Kasm desktop browser in each pane
+- **Multi-session tmux management**: Create, attach, and manage multiple tmux sessions through a web interface
+- **Integrated Kasm desktop**: Full Linux desktop environment accessible via browser with VNC proxy
+- **Kiro CLI integration**: Quick-launch Kiro CLI sessions (standard and unchained mode)
+- **Real-time terminal**: WebSocket-based terminal with xterm.js for responsive interaction
+- **Mobile-responsive**: Touch-optimized UI with safe area support for mobile devices (designed for iPhone)
+- **Session types**: Shell, Kiro CLI, and Kiro Unchained sessions with one-click creation
+- **MCP servers**: Model Context Protocol servers for Fernando and desktop automation
 
 ## Installation
 
@@ -21,48 +24,65 @@ pip install -r requirements.txt
 ```bash
 ./start.sh
 ```
+Access at http://localhost:8080
+
+### Foreground Mode
+```bash
+./start.sh -f
+```
 
 ### Manual Start
 ```bash
-# Start Kasm desktop
-docker-compose up -d
+# Start Kasm desktop container
+docker-compose up -d fernando-desktop
+
+# Start nginx proxy
+nginx -c /home/coder/fernando/nginx.conf
 
 # Start Flask app
 python run.py
 ```
 
-Open http://localhost:5000
+### Stop
+```bash
+./stop.sh
+```
 
-## Using Split View
+## Session Types
 
-1. Click "Split" to create a second pane
-2. Click on each pane to select it
-3. Use the Terminal/Browser buttons in each pane to switch between terminal and Kasm desktop
-4. Attach different tmux sessions to each terminal pane
+- **Shell**: Standard bash shell session
+- **Kiro**: Kiro CLI in default mode
+- **Kiro-Unchained**: Kiro CLI with all tools enabled (`-a` flag)
 
 ## Architecture
 
 ```
 src/
-├── __init__.py          # App factory
-├── config.py            # Configuration management
-├── routes/              # Request handlers
-│   ├── web.py          # HTTP routes
-│   └── websocket.py    # WebSocket handlers
-├── services/            # Business logic
-│   └── tmux.py         # Tmux session management
-├── models/              # Data models (future expansion)
-├── templates/           # HTML templates
-└── static/              # Static assets
-    ├── manifest.json   # PWA manifest
-    ├── sw.js           # Service worker
-    └── icons/          # PWA icons
+├── __init__.py          # Flask app factory with SocketIO
+├── config.py            # Environment-based configuration
+├── routes/
+│   ├── web.py          # HTTP routes (index, Kasm proxy, history)
+│   └── websocket.py    # WebSocket handlers (terminal I/O, sessions)
+├── services/
+│   ├── tmux.py         # Tmux session lifecycle management
+│   └── docker.py       # Kasm desktop container management
+├── templates/
+│   ├── index.html      # Main terminal interface
+│   └── history.html    # Session history viewer
+└── static/
+    └── sw.js           # Service worker for PWA
+
+mcp_servers/
+├── fernando_mcp.py     # MCP server for Fernando subagent management
+└── desktop_mcp.py      # MCP server for desktop automation
+
+subagents/              # Subagent workspace directory
 ```
 
-## Future Expansion Points
+## Technical Details
 
-- **Authentication**: Add user auth in `src/services/auth.py`
-- **Persistence**: Add session storage in `src/models/session.py`
-- **Collaboration**: Multi-user session sharing
-- **Logging**: Audit trail in `src/services/logging.py`
-- **API**: RESTful API in `src/routes/api.py`
+- **Backend**: Flask + Flask-SocketIO for real-time communication
+- **Frontend**: xterm.js for terminal emulation with fit and web-links addons
+- **Proxy**: nginx reverse proxy for Kasm desktop WebSocket/HTTP traffic
+- **Desktop**: Kasm Workspaces container with VNC server on port 6901
+- **Terminal**: PTY-based tmux attachment with proper resize and signal handling
