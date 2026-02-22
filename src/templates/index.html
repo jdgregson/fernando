@@ -621,11 +621,22 @@
             reconnectionAttempts: 10
         });
 
+        let csrfToken = null;
         let isSplit = false;
         let activeTerminal = 1;
         let paneTypes = { 1: 'terminal', 2: 'terminal' };
         let desktopMode = false;
         let isReconnecting = false;
+
+        socket.on('connected', (data) => {
+            csrfToken = data.csrf_token;
+            console.log('Connected with CSRF token');
+        });
+
+        // Helper to add CSRF token to emit data
+        function emitWithCsrf(event, data = {}) {
+            socket.emit(event, { ...data, csrf_token: csrfToken });
+        }
 
         // Handle iOS backgrounding/foregrounding
         document.addEventListener('visibilitychange', () => {
@@ -652,7 +663,7 @@
             if (currentSession1 && paneTypes[1] === 'terminal') {
                 setTimeout(() => {
                     term1.clear();
-                    socket.emit('attach_session', { terminal: 1, session: currentSession1 });
+                    emitWithCsrf('attach_session', { terminal: 1, session: currentSession1 });
                     setTimeout(doFit, 100);
                 }, 200);
             }
@@ -660,7 +671,7 @@
             if (currentSession2 && paneTypes[2] === 'terminal' && isSplit) {
                 setTimeout(() => {
                     term2.clear();
-                    socket.emit('attach_session', { terminal: 2, session: currentSession2 });
+                    emitWithCsrf('attach_session', { terminal: 2, session: currentSession2 });
                     setTimeout(doFit, 100);
                 }, 200);
             }
@@ -725,7 +736,7 @@
                 if (textarea) {
                     textarea.addEventListener('focus', () => {
                         // Always try to exit copy mode, then backspace the 'q' if not in copy mode
-                        socket.emit('input', { terminal: termNum, data: 'q\x7f' }); // q + backspace
+                        emitWithCsrf('input', { terminal: termNum, data: 'q\x7f' }); // q + backspace
                         isScrolling = false;
                         keyboardOpen = true;
                         // Scroll based on xterm viewport scroll position
@@ -786,7 +797,7 @@
                     lastTime = currentTime;
 
                     if (!isScrolling && hasMoved) {
-                        socket.emit('input', { terminal: termNum, data: '\x02[' });
+                        emitWithCsrf('input', { terminal: termNum, data: '\x02[' });
                         isScrolling = true;
                     }
 
@@ -795,7 +806,7 @@
                         const lines = Math.max(1, Math.round(Math.abs(deltaY) * multiplier / 3));
                         const key = deltaY > 0 ? '\x1b[B' : '\x1b[A';
                         for (let i = 0; i < lines; i++) {
-                            socket.emit('input', { terminal: termNum, data: key });
+                            emitWithCsrf('input', { terminal: termNum, data: key });
                         }
                     }
                 }, { passive: false });
@@ -804,7 +815,7 @@
                     if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
 
                     if (isScrolling) {
-                        socket.emit('input', { terminal: termNum, data: 'q' });
+                        emitWithCsrf('input', { terminal: termNum, data: 'q' });
                         isScrolling = false;
                     }
                 }, { passive: false });
@@ -888,12 +899,12 @@
             if (paneTypes[1] === 'terminal') {
                 fitAddon1.fit();
                 console.log('Term1 fitted:', term1.rows, term1.cols);
-                socket.emit('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
+                emitWithCsrf('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
             }
             if (isSplit && paneTypes[2] === 'terminal') {
                 fitAddon2.fit();
                 console.log('Term2 fitted:', term2.rows, term2.cols);
-                socket.emit('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
+                emitWithCsrf('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
             }
         }
 
@@ -901,11 +912,11 @@
         let currentSession2 = null;
 
         term1.onData(data => {
-            socket.emit('input', { terminal: 1, data: data });
+            emitWithCsrf('input', { terminal: 1, data: data });
         });
 
         term2.onData(data => {
-            socket.emit('input', { terminal: 2, data: data });
+            emitWithCsrf('input', { terminal: 2, data: data });
         });
 
         socket.on('output', data => {
@@ -990,15 +1001,15 @@
 
         // Poll for session updates every 2 seconds
         setInterval(() => {
-            socket.emit('get_sessions');
+            emitWithCsrf('get_sessions');
         }, 2000);
 
         socket.on('session_created', data => {
-            socket.emit('get_sessions');
+            emitWithCsrf('get_sessions');
         });
 
         socket.on('session_closed', data => {
-            socket.emit('get_sessions');
+            emitWithCsrf('get_sessions');
         });
 
         function showToast(message) {
@@ -1034,7 +1045,7 @@
                 currentSession2 = sessionName;
             }
 
-            socket.emit('attach_session', { terminal: activeTerminal, session: sessionName });
+            emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName });
             console.log('Emitted attach_session');
 
             term.focus();
@@ -1108,7 +1119,7 @@
         }
 
         function createSessionType(type) {
-            socket.emit('create_session', { type: type });
+            emitWithCsrf('create_session', { type: type });
             closeNewSessionModal();
         }
 
@@ -1116,7 +1127,7 @@
             event.stopPropagation();
             showConfirm(`Close session "${sessionName}"?`).then(result => {
                 if (result) {
-                    socket.emit('close_session', { session: sessionName });
+                    emitWithCsrf('close_session', { session: sessionName });
                 }
             });
         }
@@ -1178,7 +1189,7 @@
         }
 
         // Request initial session list
-        socket.emit('get_sessions');
+        emitWithCsrf('get_sessions');
 
         // Fit on window resize
         let resizeTimeout;
@@ -1194,7 +1205,7 @@
         setTimeout(doFit, 1000);
 
         function sendKey(key) {
-            socket.emit('input', { terminal: activeTerminal, data: key });
+            emitWithCsrf('input', { terminal: activeTerminal, data: key });
         }
 
         // Close sidebar when clicking outside on mobile

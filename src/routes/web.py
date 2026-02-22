@@ -24,6 +24,13 @@ def kasm_proxy(path):
     if not docker_service.start_kasm():
         return "Kasm desktop is starting, please wait...", 503
 
+    # Read VNC password
+    try:
+        with open("/tmp/fernando-vnc-password", "r") as f:
+            vnc_password = f.read().strip()
+    except:
+        return "VNC password not found", 500
+
     try:
         url = f"https://localhost:6901/{path}"
         headers = {
@@ -42,7 +49,7 @@ def kasm_proxy(path):
             stream=False,
             timeout=5,
             verify=False,
-            auth=("kasm_user", "password"),
+            auth=("kasm_user", vnc_password),
         )
 
         excluded_headers = [

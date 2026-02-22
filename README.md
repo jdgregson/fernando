@@ -18,6 +18,14 @@ The current operating model of Fernando assumes that you are running it on local
 
 If you host Fernando on a hostname other than localhost, configure the ALLOWED_ORIGINS setting to allow only the hostnames you use. If the `*` origin is used, any website opened in your browser can connect to the websocket and assume complete control of Fernando.
 
+## Prerequisites
+
+You will need the following installed and working for your user:
+- docker
+- nginx
+- python
+- kiro-cli
+
 ## Installation
 
 ```bash

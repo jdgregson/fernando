@@ -39,26 +39,36 @@ http {
             proxy_set_header Connection "upgrade";
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header Authorization "Basic a2FzbV91c2VyOnBhc3N3b3Jk";
+            proxy_set_header Authorization "Basic {{VNC_AUTH}}";
             proxy_ssl_verify off;
-            
+
             # WebSocket support
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
         }
-        
+
         # Kasm WebSocket endpoint
         location /websockify {
+            set $origin_ok 0;
+            if ($http_origin = "{{ALLOWED_ORIGINS}}") {
+                set $origin_ok 1;
+            }
+            if ($http_origin = "") {
+                set $origin_ok 1;
+            }
+            if ($origin_ok = 0) {
+                return 403;
+            }
+
             proxy_pass https://localhost:6901/websockify;
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header Authorization "Basic a2FzbV91c2VyOnBhc3N3b3Jk";
+            proxy_set_header Authorization "Basic {{VNC_AUTH}}";
             proxy_ssl_verify off;
-            
-            # WebSocket support
+
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
         }

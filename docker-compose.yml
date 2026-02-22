@@ -5,9 +5,9 @@ services:
       context: .
       dockerfile: Dockerfile.desktop
     ports:
-      - "6901:6901"
+      - "127.0.0.1:6901:6901"
     environment:
-      - VNC_PW=password
+      - VNC_PW=${VNC_PW:-password}
       - KASM_PORT=6901
       - DISPLAY_WIDTH=1920
       - DISPLAY_HEIGHT=1080

@@ -1,7 +1,10 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)
+cd "$SCRIPT_DIR""
+
 echo "Stopping Flask..."
-pkill -9 -f "python run.py"
+pkill -9 -f "run_fernando.py"
 
 echo "Stopping nginx..."
 pkill -9 nginx

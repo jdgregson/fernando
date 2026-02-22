@@ -3,3 +3,4 @@ flask-socketio==5.3.5
 python-socketio==5.10.0
 requests==2.31.0
 ruff==0.8.4
+websocket-client==1.7.0
