@@ -87,9 +87,3 @@ def kasm_proxy(path):
         return Response(content, resp.status_code, response_headers)
     except Exception as e:
         return f"Kasm desktop error: {str(e)}", 503
-
-
-@bp.route("/history/<session_name>")
-def session_history(session_name):
-    history = tmux_service.get_history(session_name)
-    return render_template("history.html", session=session_name, history=history)

@@ -141,17 +141,6 @@ class TmuxSession:
             except Exception as e:
                 print(f"Resize error: {e}")
 
-    def get_history(self, session_name):
-        session_name = self._validate_session_name(session_name)
-        result = subprocess.run(
-            ["tmux", "capture-pane", "-t", session_name, "-p", "-S", "-32768"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        return result.stdout
-
     def kill_session(self, session_name):
         session_name = self._validate_session_name(session_name)
         subprocess.run(
