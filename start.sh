@@ -3,10 +3,45 @@
 # Clean up stale Werkzeug environment variables
 unset WERKZEUG_RUN_MAIN WERKZEUG_SERVER_FD
 
-# Activate venv if not already activated
-if [ -z "$VIRTUAL_ENV" ]; then
-    source venv/bin/activate
+# Create venv if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
 fi
+
+# Activate venv
+source venv/bin/activate
+
+# Install/update requirements
+echo "Checking dependencies..."
+pip install -q -r requirements.txt
+
+# Load config
+NGINX_PORT=8080
+FLASK_PORT=5000
+ALLOWED_ORIGINS="http://localhost:8080"
+if [ -f config ]; then
+    while IFS='=' read -r key value; do
+        # Skip comments and empty lines
+        [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+        case "$key" in
+            NGINX_PORT) NGINX_PORT="$value" ;;
+            FLASK_PORT) FLASK_PORT="$value" ;;
+            ALLOWED_ORIGINS) ALLOWED_ORIGINS="$value" ;;
+        esac
+    done < config
+fi
+
+# Override with environment variables if set
+NGINX_PORT=${NGINX_PORT:-8080}
+FLASK_PORT=${FLASK_PORT:-5000}
+ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
+
+# Generate nginx.conf from template
+echo "Generating nginx configuration..."
+sed -e "s|{{NGINX_PORT}}|$NGINX_PORT|g" \
+    -e "s|{{FLASK_PORT}}|$FLASK_PORT|g" \
+    nginx.conf.template > nginx.conf
 
 DETACHED=true
 if [[ "$1" == "-f" || "$1" == "--foreground" ]]; then
@@ -28,19 +63,19 @@ for i in {1..30}; do
 done
 
 # Start nginx
-echo "Starting nginx..."
+echo "Starting nginx on port $NGINX_PORT..."
 pkill nginx 2>/dev/null
 nginx -c /home/coder/fernando/nginx.conf
 
 # Start Flask app
-echo "Starting Flask application..."
+echo "Starting Flask application on port $FLASK_PORT..."
 if [ "$DETACHED" = true ]; then
     python run.py > /tmp/fernando-flask.log 2>&1 &
     FLASK_PID=$!
     echo "Flask started in background (PID: $FLASK_PID)"
-    echo "Access at http://localhost:8080"
+    echo "Access at http://localhost:$NGINX_PORT"
     echo "Logs: tail -f /tmp/fernando-flask.log"
 else
-    echo "Access at http://localhost:8080"
+    echo "Access at http://localhost:$NGINX_PORT"
     python run.py
 fi

@@ -1091,16 +1091,19 @@
         function restartDesktop() {
             showConfirm('Restart the desktop container? This will close all browser sessions.').then(result => {
                 if (result) {
-                    fetch('/restart-desktop', { method: 'POST' })
-                        .then(r => r.json())
-                        .then(data => {
-                            showAlert(data.message || 'Desktop container restarted');
-                            closeUtilities();
-                        })
-                        .catch(e => showAlert('Error: ' + e));
+                    socket.emit('restart_desktop');
                 }
             });
         }
+
+        socket.on('desktop_restarted', (data) => {
+            showAlert(data.message || 'Desktop container restarted');
+            closeUtilities();
+        });
+
+        socket.on('desktop_restart_error', (data) => {
+            showAlert('Error: ' + data.error);
+        });
 
         // Click handler for session items
         document.querySelectorAll('.session-item').forEach(item => {

@@ -15,3 +15,5 @@ nginx-*.log
 data/
 nohup.out
 subagents
+config
+nginx.conf

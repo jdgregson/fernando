@@ -18,7 +18,9 @@ def create_app(config_name=None):
     from werkzeug.middleware.proxy_fix import ProxyFix
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
     
-    socketio.init_app(app, cors_allowed_origins="*", path=os.environ.get('SOCKET_PATH', 'socket.io'))
+    socketio.init_app(app, 
+                     cors_allowed_origins=app.config['ALLOWED_ORIGINS'],
+                     path=os.environ.get('SOCKET_PATH', 'socket.io'))
     
     from src.routes import web, websocket
     app.register_blueprint(web.bp)

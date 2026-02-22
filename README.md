@@ -15,8 +15,42 @@ Web-based terminal interface for managing tmux sessions with integrated Kasm des
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+./start.sh
 ```
+
+The start script will automatically:
+- Create a Python virtual environment if needed
+- Install all required dependencies
+- Configure and start all services
+
+Access at http://localhost:8080
+
+## Configuration
+
+Fernando can be configured using either a config file or environment variables. Environment variables take precedence over the config file.
+
+**Config file (recommended):**
+```bash
+cp config.example config
+# Edit config with your settings
+```
+
+**Environment variables:**
+```bash
+export ALLOWED_ORIGINS=https://fernando.yourdomain.com
+export NGINX_PORT=8080
+```
+
+### Configuration Options
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ALLOWED_ORIGINS` | `http://localhost:8080` | Comma-separated list of allowed WebSocket origins |
+| `NGINX_PORT` | `8080` | User-facing nginx port |
+| `FLASK_HOST` | `0.0.0.0` | Flask backend bind address |
+| `FLASK_PORT` | `5000` | Flask backend port (nginx proxies to this) |
+| `DEBUG` | `true` | Enable debug mode |
+| `TMUX_HISTORY_LINES` | `32768` | Number of lines to keep in tmux history |
 
 ## Usage
 
@@ -29,18 +63,6 @@ Access at http://localhost:8080
 ### Foreground Mode
 ```bash
 ./start.sh -f
-```
-
-### Manual Start
-```bash
-# Start Kasm desktop container
-docker-compose up -d fernando-desktop
-
-# Start nginx proxy
-nginx -c /home/coder/fernando/nginx.conf
-
-# Start Flask app
-python run.py
 ```
 
 ### Stop

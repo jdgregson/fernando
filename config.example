@@ -1,0 +1,19 @@
+# Fernando Configuration
+# Copy this file to config and customize for your deployment
+# Format: KEY=VALUE (one per line, same as environment variables)
+
+# Allowed origins for WebSocket connections (comma-separated)
+ALLOWED_ORIGINS=https://fernando.yourdomain.com
+
+# Nginx settings (user-facing)
+NGINX_PORT=8080
+
+# Flask backend settings
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000
+
+# Debug mode
+DEBUG=false
+
+# Tmux settings
+TMUX_HISTORY_LINES=32768

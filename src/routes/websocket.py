@@ -113,3 +113,11 @@ def register_handlers(socketio):
     def handle_disconnect():
         tmux_service.cleanup_session(f"{request.sid}_1")
         tmux_service.cleanup_session(f"{request.sid}_2")
+    
+    @socketio.on('restart_desktop')
+    def restart_desktop():
+        try:
+            docker_service.restart_kasm()
+            emit('desktop_restarted', {'message': 'Desktop container restarted successfully'})
+        except Exception as e:
+            emit('desktop_restart_error', {'error': str(e)})

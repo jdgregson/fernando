@@ -1,0 +1,66 @@
+worker_processes 1;
+pid /tmp/nginx-fernando.pid;
+error_log /tmp/nginx-fernando-error.log;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    access_log /tmp/nginx-fernando-access.log;
+    client_body_temp_path /tmp/nginx-fernando-client_body;
+    proxy_temp_path /tmp/nginx-fernando-proxy;
+    fastcgi_temp_path /tmp/nginx-fernando-fastcgi;
+    uwsgi_temp_path /tmp/nginx-fernando-uwsgi;
+    scgi_temp_path /tmp/nginx-fernando-scgi;
+
+    server {
+        listen {{NGINX_PORT}};
+        server_name _;
+
+        # Main Flask app
+        location / {
+            proxy_pass http://localhost:{{FLASK_PORT}};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Kasm desktop proxy
+        location /kasm/ {
+            rewrite ^/kasm/(.*) /$1 break;
+            proxy_pass https://localhost:6901;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Authorization "Basic a2FzbV91c2VyOnBhc3N3b3Jk";
+            proxy_ssl_verify off;
+            
+            # WebSocket support
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+        
+        # Kasm WebSocket endpoint
+        location /websockify {
+            proxy_pass https://localhost:6901/websockify;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header Authorization "Basic a2FzbV91c2VyOnBhc3N3b3Jk";
+            proxy_ssl_verify off;
+            
+            # WebSocket support
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+    }
+}
