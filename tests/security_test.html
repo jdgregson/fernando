@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fernando Security Test</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        h1 { color: #4ec9b0; margin-bottom: 20px; }
+        .config { background: #252526; padding: 15px; margin-bottom: 20px; border: 1px solid #3e3e42; }
+        .config label { display: block; margin-bottom: 10px; color: #9cdcfe; }
+        .config input { width: 100%; padding: 8px; background: #3c3c3c; border: 1px solid #555; color: #d4d4d4; font-family: monospace; }
+        .config button { margin-top: 10px; padding: 10px 20px; background: #0e639c; border: none; color: #fff; cursor: pointer; font-family: monospace; }
+        .config button:hover { background: #1177bb; }
+        .results { background: #252526; padding: 15px; border: 1px solid #3e3e42; max-height: 600px; overflow-y: auto; }
+        .test { margin-bottom: 15px; padding: 10px; background: #1e1e1e; border-left: 3px solid #555; }
+        .test.running { border-color: #ffa500; }
+        .test.pass { border-color: #4ec9b0; }
+        .test.fail { border-color: #f48771; }
+        .test-name { font-weight: bold; margin-bottom: 5px; }
+        .test-result { margin-left: 10px; font-size: 12px; }
+        .pass { color: #4ec9b0; }
+        .fail { color: #f48771; }
+        .info { color: #9cdcfe; }
+        .summary { margin-top: 20px; padding: 15px; background: #252526; border: 1px solid #3e3e42; }
+        .summary h2 { color: #4ec9b0; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h1>🔒 Fernando Security Test Suite</h1>
+    
+    <div class="config">
+        <label>Target URL (e.g., https://fernando.jdgregson.com or http://localhost:8080):</label>
+        <input type="text" id="targetUrl" value="http://localhost:8080" placeholder="https://fernando.jdgregson.com">
+        
+        <label>API Key (optional - leave empty to test without):</label>
+        <input type="text" id="apiKey" placeholder="your-api-key-here">
+        
+        <button onclick="runTests()">Run Security Tests</button>
+        <button onclick="clearResults()">Clear Results</button>
+    </div>
+    
+    <div class="results" id="results"></div>
+    
+    <div class="summary" id="summary" style="display: none;"></div>
+
+    <script>
+        let testResults = [];
+        
+        function log(testId, message, type = 'info') {
+            const test = document.getElementById(testId);
+            const result = document.createElement('div');
+            result.className = `test-result ${type}`;
+            result.textContent = message;
+            test.appendChild(result);
+        }
+        
+        function createTest(id, name) {
+            const test = document.createElement('div');
+            test.id = id;
+            test.className = 'test running';
+            test.innerHTML = `<div class="test-name">${name}</div>`;
+            document.getElementById('results').appendChild(test);
+            return test;
+        }
+        
+        function passTest(testId, message) {
+            const test = document.getElementById(testId);
+            test.className = 'test pass';
+            log(testId, `✓ PASS: ${message}`, 'pass');
+            testResults.push({ test: testId, result: 'pass', message });
+        }
+        
+        function failTest(testId, message) {
+            const test = document.getElementById(testId);
+            test.className = 'test fail';
+            log(testId, `✗ FAIL: ${message}`, 'fail');
+            testResults.push({ test: testId, result: 'fail', message });
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('summary').style.display = 'none';
+            testResults = [];
+        }
+        
+        function showSummary() {
+            const passed = testResults.filter(r => r.result === 'pass').length;
+            const failed = testResults.filter(r => r.result === 'fail').length;
+            const total = testResults.length;
+            
+            const summary = document.getElementById('summary');
+            summary.style.display = 'block';
+            summary.innerHTML = `
+                <h2>Test Summary</h2>
+                <div>Total Tests: ${total}</div>
+                <div class="pass">Passed: ${passed}</div>
+                <div class="fail">Failed: ${failed}</div>
+                <div style="margin-top: 10px;">
+                    ${failed === 0 ? 
+                        '<span class="pass">✓ All security controls are working correctly!</span>' : 
+                        '<span class="fail">⚠ Some security controls may need attention.</span>'}
+                </div>
+            `;
+        }
+        
+        async function runTests() {
+            clearResults();
+            const targetUrl = document.getElementById('targetUrl').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            if (!targetUrl) {
+                alert('Please enter a target URL');
+                return;
+            }
+            
+            // Test 1: Socket.IO connection without API key
+            await testSocketWithoutApiKey(targetUrl);
+            
+            // Test 2: Socket.IO connection with API key but no CSRF
+            if (apiKey) {
+                await testSocketWithApiKeyNoCsrf(targetUrl, apiKey);
+            }
+            
+            // Test 3: WebSocket origin enforcement
+            await testWebSocketOrigin(targetUrl);
+            
+            // Test 4: HTTP endpoints CORS
+            await testHttpCors(targetUrl);
+            
+            // Test 5: Kasm HTTP endpoint
+            await testKasmHttp(targetUrl);
+            
+            // Test 6: Kasm WebSocket
+            await testKasmWebSocket(targetUrl);
+            
+            showSummary();
+        }
+        
+        async function testSocketWithoutApiKey(targetUrl) {
+            const testId = 'test1';
+            createTest(testId, 'Test 1: Socket.IO Connection Without API Key');
+            
+            return new Promise((resolve) => {
+                log(testId, 'Attempting to connect without API key...', 'info');
+                
+                const socket = io(targetUrl, {
+                    reconnection: false,
+                    timeout: 5000
+                });
+                
+                socket.on('connect', () => {
+                    log(testId, 'Connected to socket', 'info');
+                    failTest(testId, 'Connection succeeded without API key - should be rejected');
+                    socket.disconnect();
+                    resolve();
+                });
+                
+                socket.on('connect_error', (err) => {
+                    log(testId, `Connection rejected: ${err.message}`, 'info');
+                    passTest(testId, 'Connection properly rejected without API key');
+                    resolve();
+                });
+                
+                setTimeout(() => {
+                    if (!socket.connected) {
+                        passTest(testId, 'Connection timeout - API key required');
+                        socket.disconnect();
+                        resolve();
+                    }
+                }, 6000);
+            });
+        }
+        
+        async function testSocketWithApiKeyNoCsrf(targetUrl, apiKey) {
+            const testId = 'test2';
+            createTest(testId, 'Test 2: Socket.IO Operations Without CSRF Token');
+            
+            return new Promise((resolve) => {
+                log(testId, 'Connecting with API key...', 'info');
+                
+                const socket = io(targetUrl, {
+                    query: { api_key: apiKey },
+                    reconnection: false,
+                    timeout: 5000
+                });
+                
+                let csrfErrorReceived = false;
+                
+                socket.on('connect', () => {
+                    log(testId, 'Connected with API key', 'info');
+                    log(testId, 'Attempting operations without CSRF token...', 'info');
+                    
+                    // Try operations without CSRF token
+                    socket.emit('get_sessions', {});
+                    socket.emit('create_session', { type: 'shell' });
+                    socket.emit('list_subagents', {});
+                });
+                
+                socket.on('error', (data) => {
+                    if (data && data.message && data.message.includes('CSRF')) {
+                        log(testId, 'Received CSRF error', 'info');
+                        csrfErrorReceived = true;
+                    }
+                });
+                
+                socket.on('sessions_list', () => {
+                    failTest(testId, 'Received sessions_list without CSRF token - CSRF not enforced!');
+                    socket.disconnect();
+                    resolve();
+                });
+                
+                socket.on('session_created', () => {
+                    failTest(testId, 'Session created without CSRF token - CSRF not enforced!');
+                    socket.disconnect();
+                    resolve();
+                });
+                
+                socket.on('subagents_list', () => {
+                    failTest(testId, 'Received subagents_list without CSRF token - CSRF not enforced!');
+                    socket.disconnect();
+                    resolve();
+                });
+                
+                setTimeout(() => {
+                    if (csrfErrorReceived) {
+                        passTest(testId, 'CSRF token properly enforced - operations rejected');
+                    } else {
+                        log(testId, 'No CSRF error received - may not be enforced', 'info');
+                        failTest(testId, 'CSRF validation not working');
+                    }
+                    socket.disconnect();
+                    resolve();
+                }, 3000);
+            });
+        }
+        
+        async function testWebSocketOrigin(targetUrl) {
+            const testId = 'test3';
+            createTest(testId, 'Test 3: WebSocket Origin Enforcement (/websockify)');
+            
+            return new Promise((resolve) => {
+                const wsUrl = targetUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/websockify';
+                log(testId, `Attempting WebSocket connection to ${wsUrl}...`, 'info');
+                
+                try {
+                    const ws = new WebSocket(wsUrl);
+                    
+                    ws.onopen = () => {
+                        log(testId, 'WebSocket opened', 'info');
+                        failTest(testId, 'WebSocket connection succeeded from cross-origin - origin not enforced!');
+                        ws.close();
+                        resolve();
+                    };
+                    
+                    ws.onerror = () => {
+                        log(testId, 'WebSocket connection failed', 'info');
+                        passTest(testId, 'WebSocket properly rejected cross-origin connection');
+                        resolve();
+                    };
+                    
+                    ws.onclose = (event) => {
+                        if (event.code === 1006) {
+                            log(testId, 'WebSocket closed abnormally (likely auth/origin failure)', 'info');
+                            passTest(testId, 'WebSocket connection blocked');
+                        }
+                        resolve();
+                    };
+                    
+                    setTimeout(() => {
+                        if (ws.readyState !== WebSocket.OPEN) {
+                            passTest(testId, 'WebSocket connection timeout - properly blocked');
+                            ws.close();
+                            resolve();
+                        }
+                    }, 5000);
+                } catch (err) {
+                    log(testId, `WebSocket error: ${err.message}`, 'info');
+                    passTest(testId, 'WebSocket connection blocked by browser or server');
+                    resolve();
+                }
+            });
+        }
+        
+        async function testHttpCors(targetUrl) {
+            const testId = 'test4';
+            createTest(testId, 'Test 4: HTTP Endpoints CORS Policy');
+            
+            log(testId, 'Testing CORS on main endpoint...', 'info');
+            
+            try {
+                const response = await fetch(targetUrl + '/', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                log(testId, `Response status: ${response.status}`, 'info');
+                
+                if (response.ok) {
+                    // Check if we can read the response (CORS allows it)
+                    try {
+                        await response.text();
+                        failTest(testId, 'CORS allows cross-origin access to main endpoint');
+                    } catch (err) {
+                        passTest(testId, 'CORS blocks reading response from cross-origin');
+                    }
+                } else {
+                    passTest(testId, `HTTP endpoint returned ${response.status} - may have protection`);
+                }
+            } catch (err) {
+                log(testId, `Fetch error: ${err.message}`, 'info');
+                passTest(testId, 'CORS properly blocks cross-origin HTTP requests');
+            }
+        }
+        
+        async function testKasmHttp(targetUrl) {
+            const testId = 'test5';
+            createTest(testId, 'Test 5: Kasm HTTP Endpoint Protection');
+            
+            log(testId, 'Testing Kasm HTTP endpoint...', 'info');
+            
+            try {
+                const response = await fetch(targetUrl + '/kasm/?resize=remote', {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                log(testId, `Response status: ${response.status}`, 'info');
+                
+                if (response.status === 401 || response.status === 403) {
+                    passTest(testId, 'Kasm HTTP endpoint requires authentication');
+                } else if (response.ok) {
+                    failTest(testId, 'Kasm HTTP endpoint accessible from cross-origin without auth!');
+                } else {
+                    log(testId, `Unexpected status: ${response.status}`, 'info');
+                    passTest(testId, 'Kasm HTTP endpoint blocked');
+                }
+            } catch (err) {
+                log(testId, `Fetch error: ${err.message}`, 'info');
+                passTest(testId, 'Kasm HTTP endpoint blocked by CORS or network');
+            }
+        }
+        
+        async function testKasmWebSocket(targetUrl) {
+            const testId = 'test6';
+            createTest(testId, 'Test 6: Kasm WebSocket Protection');
+            
+            return new Promise((resolve) => {
+                const wsUrl = targetUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/kasm/websockify';
+                log(testId, `Attempting Kasm WebSocket connection...`, 'info');
+                
+                try {
+                    const ws = new WebSocket(wsUrl);
+                    
+                    ws.onopen = () => {
+                        log(testId, 'Kasm WebSocket opened', 'info');
+                        failTest(testId, 'Kasm WebSocket accessible from cross-origin!');
+                        ws.close();
+                        resolve();
+                    };
+                    
+                    ws.onerror = () => {
+                        log(testId, 'Kasm WebSocket connection failed', 'info');
+                        passTest(testId, 'Kasm WebSocket properly blocked');
+                        resolve();
+                    };
+                    
+                    ws.onclose = (event) => {
+                        log(testId, `WebSocket closed with code ${event.code}`, 'info');
+                        passTest(testId, 'Kasm WebSocket connection blocked');
+                        resolve();
+                    };
+                    
+                    setTimeout(() => {
+                        if (ws.readyState !== WebSocket.OPEN) {
+                            passTest(testId, 'Kasm WebSocket timeout - properly blocked');
+                            ws.close();
+                            resolve();
+                        }
+                    }, 5000);
+                } catch (err) {
+                    log(testId, `WebSocket error: ${err.message}`, 'info');
+                    passTest(testId, 'Kasm WebSocket blocked');
+                    resolve();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

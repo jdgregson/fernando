@@ -187,3 +187,83 @@ def register_handlers(socketio):
             )
         except Exception as e:
             emit("desktop_restart_error", {"error": str(e)})
+
+    @socketio.on("list_subagents")
+    def list_subagents(data=None):
+        if data and not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.list_subagents()
+        emit("subagents_list", {"subagents": result})
+
+    @socketio.on("create_subagent")
+    def create_subagent(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        try:
+            result = subagent_service.create_subagent(
+                data["task_id"],
+                data["task"],
+                data.get("context_path"),
+                data.get("schedule"),
+            )
+            emit("subagent_created", result)
+        except Exception as e:
+            emit("subagent_error", {"error": str(e)})
+
+    @socketio.on("get_subagent_status")
+    def get_subagent_status(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.get_subagent_status(data["task_id"])
+        emit("subagent_status", result)
+
+    @socketio.on("terminate_subagent")
+    def terminate_subagent(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.terminate_subagent(data["task_id"])
+        emit("subagent_terminated", result)
+
+    @socketio.on("delete_subagent")
+    def delete_subagent(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.delete_subagent(data["task_id"])
+        emit("subagent_deleted", result)
+
+    @socketio.on("get_at_jobs")
+    def get_at_jobs(data=None):
+        if data and not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.get_at_jobs()
+        emit("at_jobs", {"jobs": result})
+
+    @socketio.on("get_cron_jobs")
+    def get_cron_jobs(data=None):
+        if data and not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.get_cron_jobs()
+        emit("cron_jobs", {"jobs": result})
+
+    @socketio.on("remove_at_job")
+    def remove_at_job(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.remove_at_job(data["job_id"])
+        emit("at_job_removed", result)
+
+    @socketio.on("remove_cron_job")
+    def remove_cron_job(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        result = subagent_service.remove_cron_job(data["task_id"])
+        emit("cron_job_removed", result)

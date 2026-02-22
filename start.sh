@@ -93,7 +93,7 @@ nginx -c "$SCRIPT_DIR/nginx.conf"
 # Start Flask app
 echo "Starting Flask application on port $FLASK_PORT..."
 if [ "$DETACHED" = true ]; then
-    python rrun_fernando.py > /tmp/fernando-flask.log 2>&1 &
+    python run_fernando.py > /tmp/fernando-flask.log 2>&1 &
     FLASK_PID=$!
     echo "Flask started in background (PID: $FLASK_PID)"
     echo "Access at http://localhost:$NGINX_PORT"

@@ -516,7 +516,7 @@
             </div>
             <div class="new-session">
                 <button onclick="openNewSessionModal()">New Session</button>
-                <button onclick="openUtilities()">Utilities</button>
+                <button onclick="openSubagentsModal()">Subagents</button>
             </div>
         </div>
 
@@ -557,12 +557,58 @@
         </div>
     </div>
 
-    <div class="modal" id="utilitiesModal" onclick="closeUtilities()">
+    <div class="modal" id="subagentsModal" onclick="closeSubagentsModal()">
         <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-header">Utilities</div>
+            <div class="modal-header">Scheduled Subagents</div>
             <div class="modal-body">
-                <button onclick="restartDesktop()">Restart Desktop Container</button>
-                <button class="modal-close" onclick="closeUtilities()">Close</button>
+                <button onclick="openNewSubagentModal()">New Subagent</button>
+                <button onclick="showSchedules()">View Schedules</button>
+                <div id="subagentsList" style="margin-top: 15px; max-height: 400px; overflow-y: auto;"></div>
+                <button class="modal-close" onclick="closeSubagentsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="schedulesModal" onclick="closeSchedulesModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">Active Schedules</div>
+            <div class="modal-body">
+                <h3 style="margin-top: 0;">One-time (at)</h3>
+                <div id="atJobsList" style="margin-bottom: 20px;"></div>
+                
+                <h3>Recurring (cron)</h3>
+                <div id="cronJobsList" style="margin-bottom: 20px;"></div>
+                
+                <button class="modal-close" onclick="closeSchedulesModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="newSubagentModal" onclick="closeNewSubagentModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">Create Subagent</div>
+            <div class="modal-body">
+                <label>Task ID:</label>
+                <input type="text" id="subagentTaskId" placeholder="e.g., research-aws-pricing" style="width: 100%; margin-bottom: 10px;">
+                
+                <label>Task Description:</label>
+                <textarea id="subagentTask" placeholder="Describe the task..." style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
+                
+                <label>Context File Path (optional):</label>
+                <input type="text" id="subagentContextPath" placeholder="/path/to/context.txt" style="width: 100%; margin-bottom: 10px;">
+                <div style="font-size: 11px; color: #888; margin-bottom: 10px;">File will be created if it doesn't exist. Subagent will read and append to it.</div>
+                
+                <label>Schedule (optional):</label>
+                <select id="subagentScheduleType" onchange="updateScheduleInput()" style="width: 100%; margin-bottom: 10px;">
+                    <option value="">Run immediately</option>
+                    <option value="at">At specific time</option>
+                    <option value="every">Recurring</option>
+                </select>
+                
+                <div id="scheduleInputContainer"></div>
+                
+                <button onclick="createSubagent()">Create</button>
+                <button class="modal-close" onclick="closeNewSubagentModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -1136,28 +1182,220 @@
             document.getElementById('sidebar').classList.toggle('open');
         }
 
-        function openUtilities() {
-            document.getElementById('utilitiesModal').classList.add('open');
+        function openSubagentsModal() {
+            document.getElementById('subagentsModal').classList.add('open');
             if (window.innerWidth <= 500) {
                 document.getElementById('sidebar').classList.remove('open');
             }
+            loadSubagents();
         }
 
-        function closeUtilities() {
-            document.getElementById('utilitiesModal').classList.remove('open');
+        function closeSubagentsModal() {
+            document.getElementById('subagentsModal').classList.remove('open');
         }
 
-        function restartDesktop() {
-            showConfirm('Restart the desktop container? This will close all browser sessions.').then(result => {
-                if (result) {
-                    socket.emit('restart_desktop');
-                }
+        function openNewSubagentModal() {
+            document.getElementById('newSubagentModal').classList.add('open');
+        }
+
+        function closeNewSubagentModal() {
+            document.getElementById('newSubagentModal').classList.remove('open');
+        }
+
+        function updateScheduleInput() {
+            const type = document.getElementById('subagentScheduleType').value;
+            const container = document.getElementById('scheduleInputContainer');
+            
+            if (type === 'at') {
+                container.innerHTML = '<input type="time" id="scheduleTime" style="width: 100%; margin-bottom: 10px;">';
+            } else if (type === 'every') {
+                container.innerHTML = `
+                    <select id="scheduleInterval" style="width: 100%; margin-bottom: 10px;">
+                        <option value="minute">Every minute</option>
+                        <option value="5 minutes">Every 5 minutes</option>
+                        <option value="10 minutes">Every 10 minutes</option>
+                        <option value="15 minutes">Every 15 minutes</option>
+                        <option value="30 minutes">Every 30 minutes</option>
+                        <option value="hour">Every hour</option>
+                        <option value="day">Every day</option>
+                        <option value="week">Every week</option>
+                    </select>
+                `;
+            } else {
+                container.innerHTML = '';
+            }
+        }
+
+        async function loadSubagents() {
+            emitWithCsrf('list_subagents');
+        }
+
+        socket.on('subagents_list', (data) => {
+            const subagents = data.subagents;
+            const list = document.getElementById('subagentsList');
+            
+            if (subagents.length === 0) {
+                list.innerHTML = '<p style="color: #888;">No subagents yet</p>';
+                return;
+            }
+            
+            list.innerHTML = subagents.map(s => `
+                <div style="border: 1px solid #3e3e42; padding: 10px; margin-bottom: 10px; border-radius: 3px;">
+                    <div style="font-weight: bold;">${s.task_id}</div>
+                    <div style="font-size: 12px; color: #888; margin: 5px 0;">${s.task}</div>
+                    <div style="font-size: 11px; color: #888;">Status: ${s.status} (${s.progress}%)</div>
+                    ${s.schedule ? `<div style="font-size: 11px; color: #3465a3;">Schedule: ${s.schedule}</div>` : ''}
+                    <div style="font-size: 11px; color: #888;">${s.current_step}</div>
+                    <div style="margin-top: 5px;">
+                        <button onclick="viewSubagent('${s.task_id}')" style="font-size: 11px; padding: 3px 8px;">View</button>
+                        <button onclick="terminateSubagent('${s.task_id}')" style="font-size: 11px; padding: 3px 8px;">Terminate</button>
+                        <button onclick="deleteSubagent('${s.task_id}')" style="font-size: 11px; padding: 3px 8px;">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        });
+
+        function createSubagent() {
+            const taskId = document.getElementById('subagentTaskId').value;
+            const task = document.getElementById('subagentTask').value;
+            const contextPath = document.getElementById('subagentContextPath').value;
+            const scheduleType = document.getElementById('subagentScheduleType').value;
+            
+            if (!taskId || !task) {
+                showAlert('Task ID and Task are required');
+                return;
+            }
+            
+            let schedule = null;
+            if (scheduleType === 'at') {
+                const time = document.getElementById('scheduleTime').value;
+                if (time) schedule = `at ${time}`;
+            } else if (scheduleType === 'every') {
+                const interval = document.getElementById('scheduleInterval').value;
+                schedule = `every ${interval}`;
+            }
+            
+            emitWithCsrf('create_subagent', {
+                task_id: taskId,
+                task: task,
+                context_path: contextPath || null,
+                schedule: schedule
             });
         }
 
-        socket.on('desktop_restarted', (data) => {
-            showAlert(data.message || 'Desktop container restarted');
-            closeUtilities();
+        socket.on('subagent_created', (data) => {
+            showAlert('Subagent created successfully');
+            closeNewSubagentModal();
+            loadSubagents();
+            document.getElementById('subagentTaskId').value = '';
+            document.getElementById('subagentTask').value = '';
+            document.getElementById('subagentContextPath').value = '';
+            document.getElementById('subagentScheduleType').value = '';
+            updateScheduleInput();
+        });
+
+        socket.on('subagent_error', (data) => {
+            showAlert('Failed to create subagent: ' + data.error);
+        });
+
+        function viewSubagent(taskId) {
+            emitWithCsrf('get_subagent_status', { task_id: taskId });
+        }
+
+        socket.on('subagent_status', (data) => {
+            showAlert(JSON.stringify(data, null, 2));
+        });
+
+        async function terminateSubagent(taskId) {
+            const result = await showConfirm(`Terminate subagent ${taskId}?`);
+            if (result) {
+                emitWithCsrf('terminate_subagent', { task_id: taskId });
+            }
+        }
+
+        socket.on('subagent_terminated', (data) => {
+            showAlert('Subagent terminated');
+            loadSubagents();
+        });
+
+        async function deleteSubagent(taskId) {
+            const result = await showConfirm(`Delete subagent ${taskId}? This will remove all data.`);
+            if (result) {
+                emitWithCsrf('delete_subagent', { task_id: taskId });
+            }
+        }
+
+        socket.on('subagent_deleted', (data) => {
+            showAlert('Subagent deleted');
+            loadSubagents();
+        });
+
+        function closeSchedulesModal() {
+            document.getElementById('schedulesModal').classList.remove('open');
+        }
+
+        function showSchedules() {
+            document.getElementById('schedulesModal').classList.add('open');
+            emitWithCsrf('get_at_jobs');
+            emitWithCsrf('get_cron_jobs');
+        }
+
+        socket.on('at_jobs', (data) => {
+            const atJobs = data.jobs;
+            const atList = document.getElementById('atJobsList');
+            
+            if (atJobs.length === 0) {
+                atList.innerHTML = '<p style="color: #888;">No scheduled one-time jobs</p>';
+            } else {
+                atList.innerHTML = atJobs.map(job => `
+                    <div style="border: 1px solid #3e3e42; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
+                        <div style="font-size: 12px;">Job ${job.job_id}: ${job.scheduled_time}</div>
+                        <button onclick="removeAtJob('${job.job_id}')" style="font-size: 11px; padding: 3px 8px; margin-top: 5px;">Remove</button>
+                    </div>
+                `).join('');
+            }
+        });
+
+        socket.on('cron_jobs', (data) => {
+            const cronJobs = data.jobs;
+            const cronList = document.getElementById('cronJobsList');
+            
+            if (cronJobs.length === 0) {
+                cronList.innerHTML = '<p style="color: #888;">No recurring jobs</p>';
+            } else {
+                cronList.innerHTML = cronJobs.map(job => `
+                    <div style="border: 1px solid #3e3e42; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
+                        <div style="font-size: 12px; font-weight: bold;">${job.task_id || 'Unknown task'}</div>
+                        <div style="font-size: 11px; color: #888; margin: 3px 0;">Schedule: ${job.cron_time}</div>
+                        <div style="font-size: 10px; color: #666; word-break: break-all;">${job.command}</div>
+                        ${job.task_id ? `<button onclick="removeCronJob('${job.task_id}')" style="font-size: 11px; padding: 3px 8px; margin-top: 5px;">Remove</button>` : ''}
+                    </div>
+                `).join('');
+            }
+        });
+
+        async function removeAtJob(jobId) {
+            const result = await showConfirm(`Remove scheduled job ${jobId}?`);
+            if (result) {
+                emitWithCsrf('remove_at_job', { job_id: jobId });
+            }
+        }
+
+        socket.on('at_job_removed', (data) => {
+            showAlert('Job removed');
+            showSchedules();
+        });
+
+        async function removeCronJob(taskId) {
+            const result = await showConfirm(`Remove recurring job for ${taskId}?`);
+            if (result) {
+                emitWithCsrf('remove_cron_job', { task_id: taskId });
+            }
+        }
+
+        socket.on('cron_job_removed', (data) => {
+            showAlert('Job removed');
+            showSchedules();
         });
 
         socket.on('desktop_restart_error', (data) => {
