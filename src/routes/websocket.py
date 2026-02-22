@@ -9,64 +9,75 @@ from src.services.docker import docker_service
 import threading
 import base64
 
+
 def register_handlers(socketio):
-    
-    @socketio.on('connect')
+    @socketio.on("connect")
     def handle_connect():
-        emit('connected', {'data': 'Connected'})
-    
-    @socketio.on('get_sessions')
+        # Validate API key
+        api_key = request.args.get("api_key")
+        try:
+            with open("/tmp/fernando-api-key", "r") as f:
+                valid_key = f.read().strip()
+        except:
+            return False
+
+        if api_key != valid_key:
+            return False
+
+        emit("connected", {"data": "Connected"})
+
+    @socketio.on("get_sessions")
     def get_sessions():
         sessions = tmux_service.list_sessions()
-        emit('sessions_list', {'sessions': sessions})
-    
-    @socketio.on('kasm_ws')
+        emit("sessions_list", {"sessions": sessions})
+
+    @socketio.on("kasm_ws")
     def handle_kasm_ws(data):
         """Proxy WebSocket messages to Kasm"""
-        path = data.get('path', '')
+        path = data.get("path", "")
         client_sid = request.sid
-        
+
         # Create WebSocket connection to Kasm
-        auth_str = base64.b64encode(b'kasm_user:password').decode('ascii')
-        ws_url = f'wss://localhost:6901/{path}'
-        
+        auth_str = base64.b64encode(b"kasm_user:password").decode("ascii")
+        ws_url = f"wss://localhost:6901/{path}"
+
         ws = ws_client.WebSocket(sslopt={"cert_reqs": ssl.CERT_NONE})
-        ws.connect(ws_url, header=[f'Authorization: Basic {auth_str}'])
-        
+        ws.connect(ws_url, header=[f"Authorization: Basic {auth_str}"])
+
         def forward_from_kasm():
             while True:
                 try:
                     msg = ws.recv()
                     if msg:
-                        socketio.emit('kasm_data', {'data': msg}, room=client_sid)
+                        socketio.emit("kasm_data", {"data": msg}, room=client_sid)
                 except:
                     break
-        
+
         threading.Thread(target=forward_from_kasm, daemon=True).start()
-        
-        @socketio.on('kasm_send')
+
+        @socketio.on("kasm_send")
         def send_to_kasm(msg):
             try:
-                ws.send(msg['data'])
+                ws.send(msg["data"])
             except:
                 pass
-    
-    @socketio.on('attach_session')
+
+    @socketio.on("attach_session")
     def attach_session(data):
-        session_name = data['session']
-        terminal = data.get('terminal', 1)
+        session_name = data["session"]
+        terminal = data.get("terminal", 1)
         sid = f"{request.sid}_{terminal}"
         client_sid = request.sid  # Capture this before background task
-        
+
         print(f"Attaching session {session_name} to terminal {terminal}, sid={sid}")
-        
+
         # Clean up any existing session for this terminal
         tmux_service.cleanup_session(sid)
-        
+
         master = tmux_service.attach_session(session_name, sid)
-        
+
         print(f"Master fd: {master}")
-        
+
         def read_output():
             print(f"Starting read_output loop for {sid}")
             while tmux_service.has_session(sid):
@@ -75,49 +86,58 @@ def register_handlers(socketio):
                     try:
                         output = os.read(master, 10240)
                         if output:
-                            decoded = output.decode('utf-8', errors='ignore')
-                            print(f"Sending {len(decoded)} chars to terminal {terminal}")
-                            socketio.emit('output', {'terminal': terminal, 'data': decoded}, room=client_sid)
+                            decoded = output.decode("utf-8", errors="ignore")
+                            print(
+                                f"Sending {len(decoded)} chars to terminal {terminal}"
+                            )
+                            socketio.emit(
+                                "output",
+                                {"terminal": terminal, "data": decoded},
+                                room=client_sid,
+                            )
                     except Exception as e:
                         print(f"Read error: {e}")
                         break
             print(f"Exiting read_output loop for {sid}")
-        
+
         socketio.start_background_task(read_output)
-    
-    @socketio.on('create_session')
+
+    @socketio.on("create_session")
     def create_session(data):
-        session_type = data.get('type', 'shell')
+        session_type = data.get("type", "shell")
         name = tmux_service.create_session_with_type(session_type)
-        emit('session_created', {'name': name})
-    
-    @socketio.on('input')
+        emit("session_created", {"name": name})
+
+    @socketio.on("input")
     def handle_input(data):
-        terminal = data.get('terminal', 1)
+        terminal = data.get("terminal", 1)
         sid = f"{request.sid}_{terminal}"
-        tmux_service.write_input(sid, data['data'])
-    
-    @socketio.on('resize')
+        tmux_service.write_input(sid, data["data"])
+
+    @socketio.on("resize")
     def handle_resize(data):
-        terminal = data.get('terminal', 1)
+        terminal = data.get("terminal", 1)
         sid = f"{request.sid}_{terminal}"
-        tmux_service.resize_terminal(sid, data['rows'], data['cols'])
-    
-    @socketio.on('close_session')
+        tmux_service.resize_terminal(sid, data["rows"], data["cols"])
+
+    @socketio.on("close_session")
     def close_session(data):
-        session_name = data['session']
+        session_name = data["session"]
         tmux_service.kill_session(session_name)
-        emit('session_closed', {'session': session_name}, broadcast=True)
-    
-    @socketio.on('disconnect')
+        emit("session_closed", {"session": session_name}, broadcast=True)
+
+    @socketio.on("disconnect")
     def handle_disconnect():
         tmux_service.cleanup_session(f"{request.sid}_1")
         tmux_service.cleanup_session(f"{request.sid}_2")
-    
-    @socketio.on('restart_desktop')
+
+    @socketio.on("restart_desktop")
     def restart_desktop():
         try:
             docker_service.restart_kasm()
-            emit('desktop_restarted', {'message': 'Desktop container restarted successfully'})
+            emit(
+                "desktop_restarted",
+                {"message": "Desktop container restarted successfully"},
+            )
         except Exception as e:
-            emit('desktop_restart_error', {'error': str(e)})
+            emit("desktop_restart_error", {"error": str(e)})

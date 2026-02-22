@@ -7,6 +7,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="mobile-web-app-capable" content="yes">
+    <link rel="icon" type="image/png" sizes="128x128" href="/static/icons/fernando-128.png">
+    <link rel="apple-touch-icon" href="/static/icons/fernando-512.png">
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
@@ -43,9 +45,9 @@
         }
 
         .top-bar button {
-            background: #4e9a06;
+            background: #3465a3;
             border: none;
-            color: #2e3436;
+            color: #fff;
             padding: 4px 10px;
             cursor: pointer;
             border-radius: 0;
@@ -54,7 +56,7 @@
         }
 
         .top-bar button:hover {
-            background: #5fb207;
+            background: #4a7bc8;
         }
 
         .content-wrapper {
@@ -126,7 +128,7 @@
         }
 
         .session-item.active {
-            background: #4e9a06;
+            background: #3465a3;
         }
 
         .session-name {
@@ -137,14 +139,30 @@
             background: #c72e2e;
             border: none;
             color: white;
-            padding: 4px 8px;
+            padding: 0;
             cursor: pointer;
             border-radius: 3px;
-            font-size: 11px;
+            font-size: 16px;
+            width: 24px;
+            height: 24px;
+            display: inline-block;
+            text-align: center;
+            line-height: 24px;
+            vertical-align: middle;
         }
 
         .close-btn:hover {
             background: #e81123;
+        }
+
+        .session-item[data-session="desktop"] .close-btn {
+            background: #d4a017;
+            color: #fff;
+            font-size: 18px;
+        }
+
+        .session-item[data-session="desktop"] .close-btn:hover {
+            background: #f4c430;
         }
 
         .new-session {
@@ -171,9 +189,9 @@
         .new-session button {
             width: 100%;
             padding: 8px;
-            background: #4e9a06;
+            background: #3465a3;
             border: none;
-            color: #2e3436;
+            color: #fff;
             cursor: pointer;
             border-radius: 0;
             font-family: monospace;
@@ -185,7 +203,7 @@
         }
 
         .new-session button:hover {
-            background: #5fb207;
+            background: #4a7bc8;
         }
 
         .modal {
@@ -222,16 +240,16 @@
         .modal-body button {
             width: 100%;
             padding: 10px;
-            background: #4e9a06;
+            background: #3465a3;
             border: none;
-            color: #2e3436;
+            color: #fff;
             cursor: pointer;
             margin-bottom: 10px;
             font-family: monospace;
         }
 
         .modal-body button:hover {
-            background: #5fb207;
+            background: #4a7bc8;
         }
 
         .modal-close {
@@ -301,7 +319,7 @@
         }
 
         .terminal-container.active.split-mode {
-            border: 2px solid #4e9a06;
+            border: 2px solid #3465a3;
         }
 
         .terminal {
@@ -411,12 +429,12 @@
             border: none;
             cursor: pointer;
             font-family: monospace;
-            background: #4e9a06;
-            color: #2e3436;
+            background: #3465a3;
+            color: #fff;
         }
 
         .alert-modal-buttons button:hover {
-            background: #5fb207;
+            background: #4a7bc8;
         }
 
         .alert-modal-buttons button.cancel {
@@ -478,7 +496,6 @@
             <span class="top-bar-title">fernando</span>
         </div>
         <div>
-            <button onclick="toggleDesktop()">Desktop</button>
             <button onclick="toggleSplit()">Split</button>
         </div>
     </div>
@@ -486,6 +503,10 @@
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">fernando</div>
             <div class="session-list" id="sessionList">
+                <div class="session-item" data-session="desktop">
+                    <span class="session-name">Desktop</span>
+                    <button class="close-btn" onclick="event.stopPropagation(); restartDesktop()">↻</button>
+                </div>
                 {% for session in sessions %}
                 <div class="session-item" data-session="{{ session }}">
                     <span class="session-name">{{ session }}</span>
@@ -594,6 +615,7 @@
         }
         const socket = io({
             path: window.location.pathname.replace(/\/$/, '') + '/socket.io',
+            query: { api_key: '{{ api_key }}' },
             reconnection: true,
             reconnectionDelay: 500,
             reconnectionAttempts: 10
@@ -901,7 +923,7 @@
 
         function updateSessionList(sessions) {
             const sessionList = document.getElementById('sessionList');
-            const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session);
+            const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session).filter(s => s !== 'desktop');
 
             // Check if lists are different
             if (JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
@@ -909,6 +931,31 @@
             }
 
             sessionList.innerHTML = '';
+            
+            // Add Desktop item first
+            const desktopItem = document.createElement('div');
+            desktopItem.className = 'session-item';
+            desktopItem.dataset.session = 'desktop';
+            
+            const desktopName = document.createElement('span');
+            desktopName.className = 'session-name';
+            desktopName.textContent = 'Desktop';
+            
+            const restartBtn = document.createElement('button');
+            restartBtn.className = 'close-btn';
+            restartBtn.textContent = '↻';
+            restartBtn.onclick = (e) => { e.stopPropagation(); restartDesktop(); };
+            
+            desktopItem.appendChild(desktopName);
+            desktopItem.appendChild(restartBtn);
+            desktopItem.addEventListener('click', function() {
+                toggleDesktop();
+                if (window.innerWidth <= 500) {
+                    document.getElementById('sidebar').classList.remove('open');
+                }
+            });
+            sessionList.appendChild(desktopItem);
+            
             sessions.forEach(session => {
                 const item = document.createElement('div');
                 item.className = 'session-item';
@@ -990,6 +1037,7 @@
             socket.emit('attach_session', { terminal: activeTerminal, session: sessionName });
             console.log('Emitted attach_session');
 
+            term.focus();
             setTimeout(doFit, 100);
         }
 
@@ -1109,7 +1157,11 @@
         document.querySelectorAll('.session-item').forEach(item => {
             item.addEventListener('click', function() {
                 const sessionName = this.dataset.session;
-                attachSession(sessionName);
+                if (sessionName === 'desktop') {
+                    toggleDesktop();
+                } else {
+                    attachSession(sessionName);
+                }
                 // Close sidebar on mobile after selection
                 if (window.innerWidth <= 500) {
                     document.getElementById('sidebar').classList.remove('open');
@@ -1118,7 +1170,7 @@
         });
 
         // Auto-attach to first session if exists, or open modal if no sessions
-        const firstSession = document.querySelector('.session-item');
+        const firstSession = document.querySelector('.session-item[data-session]:not([data-session="desktop"])');
         if (firstSession) {
             attachSession(firstSession.dataset.session);
         } else {

@@ -17,6 +17,7 @@ echo "Checking dependencies..."
 pip install -q -r requirements.txt
 
 # Load config
+NGINX_HOST=127.0.0.1
 NGINX_PORT=8080
 FLASK_PORT=5000
 ALLOWED_ORIGINS="http://localhost:8080"
@@ -25,6 +26,7 @@ if [ -f config ]; then
         # Skip comments and empty lines
         [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
         case "$key" in
+            NGINX_HOST) NGINX_HOST="$value" ;;
             NGINX_PORT) NGINX_PORT="$value" ;;
             FLASK_PORT) FLASK_PORT="$value" ;;
             ALLOWED_ORIGINS) ALLOWED_ORIGINS="$value" ;;
@@ -33,13 +35,15 @@ if [ -f config ]; then
 fi
 
 # Override with environment variables if set
+NGINX_HOST=${NGINX_HOST:-127.0.0.1}
 NGINX_PORT=${NGINX_PORT:-8080}
 FLASK_PORT=${FLASK_PORT:-5000}
 ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
 
 # Generate nginx.conf from template
 echo "Generating nginx configuration..."
-sed -e "s|{{NGINX_PORT}}|$NGINX_PORT|g" \
+sed -e "s|{{NGINX_HOST}}|$NGINX_HOST|g" \
+    -e "s|{{NGINX_PORT}}|$NGINX_PORT|g" \
     -e "s|{{FLASK_PORT}}|$FLASK_PORT|g" \
     nginx.conf.template > nginx.conf
 
@@ -47,6 +51,12 @@ DETACHED=true
 if [[ "$1" == "-f" || "$1" == "--foreground" ]]; then
     DETACHED=false
 fi
+
+# Generate API key
+echo "Generating API key..."
+API_KEY=$(openssl rand -hex 32)
+echo "$API_KEY" > /tmp/fernando-api-key
+chmod 600 /tmp/fernando-api-key
 
 # Start Kasm desktop container
 echo "Starting Kasm desktop container..."

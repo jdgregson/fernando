@@ -64,6 +64,9 @@ Update {workspace}/status.json frequently:
   "last_update": "ISO timestamp"
 }}
 
+=== CONTEXT MANAGEMENT ===
+{context_instructions}
+
 === FINAL RESULT ===
 Write {workspace}/results/final.json ONLY after verification passes:
 {{
@@ -89,8 +92,11 @@ Workspace: {workspace}
 Begin work now. Update status.json with start_time immediately.
 """
 
-def create_subagent(task_id, task, additional_context="", schedule=None):
-    random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
+
+def create_subagent(
+    task_id, task, additional_context="", context_path=None, schedule=None
+):
+    random_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=12))
     task_id_with_random = f"{task_id}-{random_id}"
     workspace = f"{SUBAGENT_DIR}/{task_id_with_random}"
     os.makedirs(f"{workspace}/proof/screenshots", exist_ok=True)
@@ -98,28 +104,56 @@ def create_subagent(task_id, task, additional_context="", schedule=None):
     os.makedirs(f"{workspace}/proof/logs", exist_ok=True)
     os.makedirs(f"{workspace}/results", exist_ok=True)
 
+    # Handle context file
+    context_file = None
+    if context_path:
+        context_file = os.path.abspath(os.path.expanduser(context_path))
+        if not os.path.exists(context_file):
+            with open(context_file, "w") as f:
+                f.write("")
+
     with open(f"{workspace}/task.json", "w") as f:
-        json.dump({
-            "task_id": task_id_with_random,
-            "task": task,
-            "additional_context": additional_context,
-            "created_at": datetime.now().isoformat()
-        }, f, indent=2)
+        json.dump(
+            {
+                "task_id": task_id_with_random,
+                "task": task,
+                "additional_context": additional_context,
+                "context_path": context_file,
+                "created_at": datetime.now().isoformat(),
+            },
+            f,
+            indent=2,
+        )
 
     with open(f"{workspace}/status.json", "w") as f:
-        json.dump({
-            "status": "scheduled",
-            "progress": 0,
-            "current_step": "waiting to start",
-            "start_time": None,
-            "end_time": None,
-            "last_update": datetime.now().isoformat()
-        }, f, indent=2)
+        json.dump(
+            {
+                "status": "scheduled",
+                "progress": 0,
+                "current_step": "waiting to start",
+                "start_time": None,
+                "end_time": None,
+                "last_update": datetime.now().isoformat(),
+            },
+            f,
+            indent=2,
+        )
+
+    # Build context instructions
+    if context_file:
+        context_instructions = f"""A context file is available at: {context_file}
+- READ this file at the start of your task to understand prior work and decisions
+- APPEND updates to this file as you make progress (use fs_write append command)
+- Include: key findings, decisions made, blockers encountered, next steps
+- This allows context to persist across multiple subagent invocations"""
+    else:
+        context_instructions = "No persistent context file provided for this task."
 
     instructions = SUBAGENT_INSTRUCTIONS.format(
         workspace=workspace,
         task_id=task_id_with_random,
-        task=task
+        task=task,
+        context_instructions=context_instructions,
     )
 
     if additional_context:
@@ -147,31 +181,69 @@ tmux new-session -d -s "$SESSION_NAME" kiro-cli chat --trust-all-tools "Read the
         if schedule.startswith("at "):
             # "at 14:30"
             time_spec = schedule[3:]
-            subprocess.run(["at", time_spec], input=f"{script_path}\n", capture_output=True, text=True)
-            return {"task_id": task_id_with_random, "session_name": session_name, "workspace": workspace, "scheduled_at": time_spec}
+            subprocess.run(
+                ["at", time_spec],
+                input=f"{script_path}\n",
+                capture_output=True,
+                text=True,
+            )
+            return {
+                "task_id": task_id_with_random,
+                "session_name": session_name,
+                "workspace": workspace,
+                "scheduled_at": time_spec,
+            }
 
         elif schedule.startswith("every "):
             # "every 5 minutes"
             interval = schedule[6:]
             cron_patterns = {
-                "minute": "* * * * *", "5 minutes": "*/5 * * * *", "10 minutes": "*/10 * * * *",
-                "15 minutes": "*/15 * * * *", "30 minutes": "*/30 * * * *", "hour": "0 * * * *",
-                "day": "0 0 * * *", "week": "0 0 * * 0"
+                "minute": "* * * * *",
+                "5 minutes": "*/5 * * * *",
+                "10 minutes": "*/10 * * * *",
+                "15 minutes": "*/15 * * * *",
+                "30 minutes": "*/30 * * * *",
+                "hour": "0 * * * *",
+                "day": "0 0 * * *",
+                "week": "0 0 * * 0",
             }
             cron_time = cron_patterns.get(interval, "*/5 * * * *")
             result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
             existing = result.stdout if result.returncode == 0 else ""
-            subprocess.run(["crontab", "-"], input=existing + f"{cron_time} {script_path}\n", text=True)
-            return {"task_id": task_id_with_random, "session_name": session_name, "workspace": workspace, "recurring": interval, "cron": cron_time}
+            subprocess.run(
+                ["crontab", "-"],
+                input=existing + f"{cron_time} {script_path}\n",
+                text=True,
+            )
+            return {
+                "task_id": task_id_with_random,
+                "session_name": session_name,
+                "workspace": workspace,
+                "recurring": interval,
+                "cron": cron_time,
+            }
 
     # Immediate execution
-    subprocess.run([
-        "tmux", "new-session", "-d", "-s", session_name,
-        "kiro-cli", "chat", "--trust-all-tools",
-        f"Read the instructions from {instructions_file} and execute the task described there."
-    ])
+    subprocess.run(
+        [
+            "tmux",
+            "new-session",
+            "-d",
+            "-s",
+            session_name,
+            "kiro-cli",
+            "chat",
+            "--trust-all-tools",
+            f"Read the instructions from {instructions_file} and execute the task described there.",
+        ]
+    )
 
-    return {"task_id": task_id_with_random, "session_name": session_name, "workspace": workspace}
+    return {
+        "task_id": task_id_with_random,
+        "session_name": session_name,
+        "workspace": workspace,
+    }
+
 
 def get_subagent_status(task_id):
     workspace = f"{SUBAGENT_DIR}/{task_id}"
@@ -190,6 +262,7 @@ def get_subagent_status(task_id):
 
     return status
 
+
 def list_subagents():
     if not os.path.exists(SUBAGENT_DIR):
         return []
@@ -197,25 +270,22 @@ def list_subagents():
     tasks = []
     for task_id in os.listdir(SUBAGENT_DIR):
         status = get_subagent_status(task_id)
-        tasks.append({
-            "task_id": task_id,
-            "status": status
-        })
+        tasks.append({"task_id": task_id, "status": status})
 
     return tasks
+
 
 def terminate_subagent(task_id):
     session_name = f"subagent-{task_id}"
     result = subprocess.run(
-        ["tmux", "kill-session", "-t", session_name],
-        capture_output=True,
-        text=True
+        ["tmux", "kill-session", "-t", session_name], capture_output=True, text=True
     )
     return {
         "task_id": task_id,
         "session_name": session_name,
-        "terminated": result.returncode == 0
+        "terminated": result.returncode == 0,
     }
+
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:
@@ -228,23 +298,27 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "Unique identifier for this task (e.g., 'research-aws-pricing', 'debug-issue-123')"
+                        "description": "Unique identifier for this task (e.g., 'research-aws-pricing', 'debug-issue-123')",
                     },
                     "task": {
                         "type": "string",
-                        "description": "The task description for the subagent"
+                        "description": "The task description for the subagent",
                     },
                     "additional_context": {
                         "type": "string",
-                        "description": "Optional additional context or instructions"
+                        "description": "Optional additional context or instructions",
+                    },
+                    "context_path": {
+                        "type": "string",
+                        "description": "Optional path to a context file that will be read at task start and updated with progress. File will be created if it doesn't exist.",
                     },
                     "schedule": {
                         "type": "string",
-                        "description": "Schedule string: 'at 14:30' for specific time, 'every 5 minutes/hour/day/week' for recurring. If not provided, starts immediately."
-                    }
+                        "description": "Schedule string: 'at 14:30' for specific time, 'every 5 minutes/hour/day/week' for recurring. If not provided, starts immediately.",
+                    },
                 },
-                "required": ["task_id", "task"]
-            }
+                "required": ["task_id", "task"],
+            },
         ),
         Tool(
             name="get_subagent_status",
@@ -252,21 +326,15 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "task_id": {
-                        "type": "string",
-                        "description": "The task ID to check"
-                    }
+                    "task_id": {"type": "string", "description": "The task ID to check"}
                 },
-                "required": ["task_id"]
-            }
+                "required": ["task_id"],
+            },
         ),
         Tool(
             name="list_subagents",
             description="List all subagent tasks and their current status",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
+            inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
             name="terminate_subagent",
@@ -276,13 +344,14 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "The task ID to terminate"
+                        "description": "The task ID to terminate",
                     }
                 },
-                "required": ["task_id"]
-            }
-        )
+                "required": ["task_id"],
+            },
+        ),
     ]
+
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
@@ -291,7 +360,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments["task_id"],
             arguments["task"],
             arguments.get("additional_context", ""),
-            arguments.get("schedule")
+            arguments.get("context_path"),
+            arguments.get("schedule"),
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -309,10 +379,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
+
 async def main():
     from mcp.server.stdio import stdio_server
+
     async with stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, app.create_initialization_options())
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -12,6 +12,12 @@ Web-based terminal interface for managing tmux sessions with integrated Kasm des
 - **Session types**: Shell, Kiro CLI, and Kiro Unchained sessions with one-click creation
 - **MCP servers**: Model Context Protocol servers for Fernando and desktop automation
 
+## Operating Model Warning
+
+The current operating model of Fernando assumes that you are running it on localhost or on a host only accessible by trusted parties. Fernando does not currently support authentication or multi-user scenarios. It is critical that you do not expose Fernando to the internet. If your Fernando instance is accessible over the network or internet, anyone can connect to the websocket and assume complete control of Fernando.
+
+If you host Fernando on a hostname other than localhost, configure the ALLOWED_ORIGINS setting to allow only the hostnames you use. If the `*` origin is used, any website opened in your browser can connect to the websocket and assume complete control of Fernando.
+
 ## Installation
 
 ```bash
