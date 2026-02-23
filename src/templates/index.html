@@ -607,8 +607,8 @@
                 
                 <div id="scheduleInputContainer"></div>
                 
-                <button onclick="createSubagent()">Create</button>
                 <button class="modal-close" onclick="closeNewSubagentModal()">Cancel</button>
+                <button onclick="createSubagent()">Create</button>
             </div>
         </div>
     </div>
@@ -646,7 +646,7 @@
             return new Promise(resolve => {
                 document.getElementById('alertMessage').textContent = message;
                 document.getElementById('alertButtons').innerHTML =
-                    '<button onclick="closeAlert(true)">OK</button><button class="cancel" onclick="closeAlert(false)">Cancel</button>';
+                    '<button class="cancel" onclick="closeAlert(false)">Cancel</button><button onclick="closeAlert(true)">OK</button>';
                 document.getElementById('alertModal').classList.add('open');
                 window.alertResolve = resolve;
             });
