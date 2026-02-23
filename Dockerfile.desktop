@@ -2,4 +2,19 @@ FROM kasmweb/ubuntu-noble-desktop:1.18.0-rolling-daily
 
 USER root
 RUN apt-get update && apt-get install -y scrot && rm -rf /var/lib/apt/lists/*
+
+# Copy wallpaper
+COPY src/static/icons/fernando-wallpaper.png /usr/share/backgrounds/fernando-wallpaper.png
+
+# Create startup script to set wallpaper on all VNC monitors
+RUN echo '#!/bin/bash\nsleep 3\nfor monitor in VNC-0 VNC-1 VNC-2 VNC-3; do\n  for workspace in 0 1 2 3; do\n    xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor$monitor/workspace$workspace/last-image -s /usr/share/backgrounds/fernando-wallpaper.png 2>/dev/null\n  done\ndone\nkillall xfdesktop 2>/dev/null\nxfdesktop 2>/dev/null &\n' > /dockerstartup/set-fernando-wallpaper.sh && \
+    chmod +x /dockerstartup/set-fernando-wallpaper.sh
+
+# Create or append to custom startup
+RUN if [ ! -f /dockerstartup/custom_startup.sh ]; then \
+      echo '#!/bin/bash' > /dockerstartup/custom_startup.sh; \
+    fi && \
+    echo '/dockerstartup/set-fernando-wallpaper.sh &' >> /dockerstartup/custom_startup.sh && \
+    chmod +x /dockerstartup/custom_startup.sh
+
 USER kasm-user

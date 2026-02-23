@@ -25,6 +25,7 @@ You will need the following installed and working for your user:
 - nginx
 - python
 - kiro-cli
+- at
 
 ## Installation
 
