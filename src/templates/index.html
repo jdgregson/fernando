@@ -920,7 +920,15 @@
         }
 
         function restartDesktop() {
-            emitWithCsrf('restart_desktop');
+            showConfirm('Restart the desktop container? This will kill all running desktop applications.').then(confirmed => {
+                if (!confirmed) return;
+                // Destroy existing iframes so they reconnect fresh after restart
+                [1, 2].forEach(n => {
+                    const b = document.getElementById(`browser${n}`);
+                    if (b) b.innerHTML = '';
+                });
+                emitWithCsrf('restart_desktop');
+            });
         }
 
         function setPaneType(paneNum, type) {
@@ -1423,6 +1431,19 @@
 
         socket.on('desktop_restart_error', (data) => {
             showAlert('Error: ' + data.error);
+        });
+
+        socket.on('desktop_restarted', () => {
+            // Recreate iframe in any pane currently showing the desktop
+            [1, 2].forEach(n => {
+                if (paneTypes[n] === 'browser') {
+                    const b = document.getElementById(`browser${n}`);
+                    if (b) {
+                        b.innerHTML = '';
+                        ensureDesktopIframe(b);
+                    }
+                }
+            });
         });
 
         // Click handler for session items
