@@ -23,3 +23,9 @@ The WebSocket connection requires API key authentication. Flask routes do not ha
 - ✅ WebSocket: Create sessions, manage subagents, terminate processes, modify state
 - ❌ Flask: POST/PUT/DELETE endpoints, any state-changing operations
 
+## Self-Mutation
+
+After making code changes to Fernando, use the `mutate` MCP tool to restart Fernando and apply changes. This runs `stop.sh && start.sh` in a detached background process so your Kiro CLI session survives the restart. Wait ~15 seconds after calling mutate, then verify Fernando is back up.
+
+**Important**: If you changed MCP server code (`mcp_servers/`), the user must manually restart their Kiro CLI session since MCP servers are loaded at CLI startup.
+

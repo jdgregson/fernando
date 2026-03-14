@@ -450,6 +450,37 @@
             background: #e81123;
         }
 
+        .mutate-overlay {
+            display: none;
+            position: fixed;
+            z-index: 3000;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .mutate-overlay.open { display: flex; }
+        .mutate-overlay .dna {
+            font-size: 48px;
+            animation: mutateSpin 1.5s ease-in-out infinite;
+        }
+        .mutate-overlay .label {
+            font-size: 16px;
+            color: #ccc;
+            animation: mutatePulse 1.5s ease-in-out infinite;
+        }
+        @keyframes mutateSpin {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.2); }
+        }
+        @keyframes mutatePulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 1; }
+        }
+
         .mobile-controls {
             display: none;
             position: fixed;
@@ -627,6 +658,11 @@
         <button onmousedown="event.preventDefault(); sendKey('\x1b[C')">→</button>
     </div>
 
+    <div class="mutate-overlay" id="mutateOverlay">
+        <div class="dna">🧬</div>
+        <div class="label">mutating...</div>
+    </div>
+
     <div class="alert-modal" id="alertModal">
         <div class="alert-modal-content">
             <div class="alert-modal-message" id="alertMessage"></div>
@@ -667,8 +703,8 @@
             path: window.location.pathname.replace(/\/$/, '') + '/socket.io',
             query: { api_key: '{{ api_key }}' },
             reconnection: true,
-            reconnectionDelay: 500,
-            reconnectionAttempts: 10
+            reconnectionDelay: 1000,
+            reconnectionAttempts: 60
         });
 
         let csrfToken = null;
@@ -681,6 +717,19 @@
         socket.on('connected', (data) => {
             csrfToken = data.csrf_token;
             console.log('Connected with CSRF token');
+            // Auto-attach after socket is ready
+            const urlSession = new URLSearchParams(window.location.search).get('session');
+            if (!currentSession1) {
+                const allItems = document.querySelectorAll('.session-item[data-session]:not([data-session="desktop"])');
+                const names = Array.from(allItems).map(el => el.dataset.session);
+                if (urlSession && names.includes(urlSession)) {
+                    attachSession(urlSession);
+                } else if (names.length > 0) {
+                    attachSession(names[0]);
+                } else {
+                    openNewSessionModal();
+                }
+            }
         });
 
         // Helper to add CSRF token to emit data
@@ -736,8 +785,29 @@
             // the loading screen to appear. The iframe recovers on its own.
         }
 
+        socket.on('disconnect', () => {
+            console.log('Socket disconnected');
+            // Show mutation overlay after a brief delay to avoid flashing on transient disconnects
+            window._mutateTimer = setTimeout(() => {
+                document.getElementById('mutateOverlay').classList.add('open');
+                // Start polling — when server is back, reload the page
+                window._mutatePoll = setInterval(() => {
+                    fetch('/', { method: 'HEAD' }).then(r => {
+                        if (r.ok) {
+                            clearInterval(window._mutatePoll);
+                            const s = currentSession1 || sessionStorage.getItem('fernando_session1');
+                            window.location.href = s ? '/?session=' + encodeURIComponent(s) : '/';
+                        }
+                    }).catch(() => {});
+                }, 1500);
+            }, 800);
+        });
+
         socket.on('reconnect', () => {
             console.log('Socket reconnected');
+            clearTimeout(window._mutateTimer);
+            clearInterval(window._mutatePoll);
+            document.getElementById('mutateOverlay').classList.remove('open');
             handleForeground();
         });
 
@@ -994,6 +1064,12 @@
             const sessionList = document.getElementById('sessionList');
             const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session).filter(s => s !== 'desktop');
 
+            // Auto-attach if no session attached (must run before early return)
+            if (!currentSession1 && sessions.length > 0) {
+                const saved = sessionStorage.getItem('fernando_session1');
+                attachSession(saved && sessions.includes(saved) ? saved : sessions[0]);
+            }
+
             // Check if lists are different
             if (JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
                 return;
@@ -1050,11 +1126,6 @@
                 });
                 sessionList.appendChild(item);
             });
-
-            // Auto-attach if no session attached
-            if (!currentSession1 && sessions.length > 0) {
-                attachSession(sessions[0]);
-            }
         }
 
         // Poll for session updates every 2 seconds
@@ -1102,8 +1173,10 @@
 
             if (activeTerminal === 1) {
                 currentSession1 = sessionName;
+                sessionStorage.setItem('fernando_session1', sessionName);
             } else {
                 currentSession2 = sessionName;
+                sessionStorage.setItem('fernando_session2', sessionName);
             }
 
             emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName });
@@ -1461,14 +1534,6 @@
                 }
             });
         });
-
-        // Auto-attach to first session if exists, or open modal if no sessions
-        const firstSession = document.querySelector('.session-item[data-session]:not([data-session="desktop"])');
-        if (firstSession) {
-            attachSession(firstSession.dataset.session);
-        } else {
-            openNewSessionModal();
-        }
 
         // Request initial session list
         emitWithCsrf('get_sessions');
