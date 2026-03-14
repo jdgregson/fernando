@@ -731,16 +731,9 @@
         }
 
         function reloadBrowserPanes() {
-            [1, 2].forEach(paneNum => {
-                if (paneTypes[paneNum] === 'browser') {
-                    const browser = document.getElementById(`browser${paneNum}`);
-                    const iframe = browser.querySelector('iframe');
-                    if (iframe) {
-                        console.log(`Reloading browser pane ${paneNum}`);
-                        iframe.src = iframe.src; // Force reload
-                    }
-                }
-            });
+            // No-op: KasmVNC maintains its own websocket connection.
+            // Reloading the iframe destroys that connection and causes
+            // the loading screen to appear. The iframe recovers on its own.
         }
 
         socket.on('reconnect', () => {
@@ -887,6 +880,20 @@
 
         console.log('Fit addons loaded');
 
+        function ensureDesktopIframe(browser) {
+            let iframe = browser.querySelector('iframe');
+            if (!iframe) {
+                iframe = document.createElement('iframe');
+                iframe.src = '/kasm/?resize=remote';
+                iframe.allow = 'autoplay; clipboard-read; clipboard-write';
+                iframe.setAttribute('allowfullscreen', '');
+                iframe.setAttribute('webkitallowfullscreen', '');
+                iframe.setAttribute('mozallowfullscreen', '');
+                browser.appendChild(iframe);
+            }
+            return iframe;
+        }
+
         function toggleDesktop() {
             const activePane = activeTerminal;
             const browser = document.getElementById(`browser${activePane}`);
@@ -897,22 +904,13 @@
                 terminal.classList.add('hidden');
                 browser.classList.remove('hidden');
 
-                // Clear session tracking when switching to browser
                 if (activePane === 1) {
                     currentSession1 = null;
                 } else {
                     currentSession2 = null;
                 }
 
-                // Remove existing iframe and create fresh one
-                browser.innerHTML = '';
-                const iframe = document.createElement('iframe');
-                iframe.src = '/kasm/?resize=remote';
-                iframe.allow = 'autoplay; clipboard-read; clipboard-write';
-                iframe.setAttribute('allowfullscreen', '');
-                iframe.setAttribute('webkitallowfullscreen', '');
-                iframe.setAttribute('mozallowfullscreen', '');
-                browser.appendChild(iframe);
+                ensureDesktopIframe(browser);
             } else {
                 paneTypes[activePane] = 'terminal';
                 terminal.classList.remove('hidden');
@@ -942,9 +940,7 @@
             } else {
                 terminal.classList.add('hidden');
                 browser.classList.remove('hidden');
-                if (!browser.querySelector('iframe')) {
-                    browser.innerHTML = '<iframe src="/kasm/?resize=remote"></iframe>';
-                }
+                ensureDesktopIframe(browser);
             }
         }
 

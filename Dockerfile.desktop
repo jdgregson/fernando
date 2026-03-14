@@ -3,6 +3,9 @@ FROM kasmweb/ubuntu-noble-desktop:1.18.0-rolling-daily
 USER root
 RUN apt-get update && apt-get install -y scrot && rm -rf /var/lib/apt/lists/*
 
+# Disable smartcard and pcscd services (they can spin at 100% CPU)
+ENV KASM_SVC_SMARTCARD=0
+
 # Copy wallpaper
 COPY src/static/icons/fernando-wallpaper.png /usr/share/backgrounds/fernando-wallpaper.png
 
