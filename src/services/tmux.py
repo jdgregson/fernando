@@ -6,6 +6,9 @@ import struct
 import fcntl
 import signal
 import re
+import logging
+
+logger = logging.getLogger("fernando.tmux")
 
 
 class TmuxSession:
@@ -109,6 +112,11 @@ class TmuxSession:
 
     def attach_session(self, session_name, sid):
         session_name = self._validate_session_name(session_name)
+        # Clean up any existing session for this sid before creating a new one
+        if sid in self.active_sessions:
+            logger.info(f"Cleaning up stale session before reattach: sid={sid}")
+            self.cleanup_session(sid)
+
         master, slave = pty.openpty()
         cmd = ["tmux", "attach-session", "-t", session_name]
         p = subprocess.Popen(
@@ -123,6 +131,7 @@ class TmuxSession:
 
         self.active_sessions[sid] = {"process": p, "fd": master}
         os.close(slave)
+        logger.info(f"Attached session={session_name} sid={sid} pid={p.pid}")
         return master
 
     def write_input(self, sid, data):
@@ -149,18 +158,37 @@ class TmuxSession:
 
     def cleanup_session(self, sid):
         if sid in self.active_sessions:
+            session = self.active_sessions.pop(sid)
+            proc = session["process"]
+            fd = session["fd"]
+            logger.info(f"Cleaning up sid={sid} pid={proc.pid}")
             try:
-                os.close(self.active_sessions[sid]["fd"])
-                proc = self.active_sessions[sid]["process"]
+                os.close(fd)
+            except OSError:
+                pass
+            try:
                 proc.terminate()
                 try:
                     proc.wait(timeout=2)
+                    logger.info(f"Process pid={proc.pid} terminated cleanly")
                 except subprocess.TimeoutExpired:
                     proc.kill()
-                    proc.wait()
-            except:
-                pass
-            del self.active_sessions[sid]
+                    proc.wait(timeout=5)
+                    logger.info(f"Process pid={proc.pid} killed after timeout")
+            except Exception as e:
+                logger.warning(f"Error cleaning up pid={proc.pid}: {e}")
+                # Last resort: reap if possible
+                try:
+                    proc.wait(timeout=1)
+                except Exception:
+                    pass
+
+    def cleanup_all_sessions(self):
+        """Clean up all active sessions. Called on shutdown."""
+        sids = list(self.active_sessions.keys())
+        logger.info(f"Cleaning up all {len(sids)} active sessions")
+        for sid in sids:
+            self.cleanup_session(sid)
 
     def has_session(self, sid):
         return sid in self.active_sessions

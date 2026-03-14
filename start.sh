@@ -86,8 +86,25 @@ for i in {1..30}; do
     sleep 1
 done
 
+# Start crond for recurring subagent schedules if not already running
+if ! pgrep -u "$USER" crond > /dev/null 2>&1; then
+    crond 2>/dev/null || /usr/sbin/crond 2>/dev/null
+fi
+
 # Start nginx
+echo "Stopping any existing Fernando processes..."
+# Graceful stop of Flask first so it can clean up child processes
+pkill -TERM -f "run_fernando.py" 2>/dev/null
+sleep 1
+pkill -0 -f "run_fernando.py" 2>/dev/null && pkill -9 -f "run_fernando.py" 2>/dev/null
+# Kill orphaned tmux attach-session processes from previous runs
+pkill -TERM -f "tmux attach-session" 2>/dev/null
+sleep 1
+pkill -9 -f "tmux attach-session" 2>/dev/null
+# Graceful nginx stop
+nginx -c "$SCRIPT_DIR/nginx.conf" -s quit 2>/dev/null
 pkill nginx 2>/dev/null
+sleep 1
 nginx -c "$SCRIPT_DIR/nginx.conf"
 
 # Start Flask app

@@ -9,11 +9,11 @@
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="icon" type="image/png" sizes="128x128" href="/static/icons/fernando-128.png">
     <link rel="apple-touch-icon" href="/static/icons/fernando-512.png">
-    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.8.0/lib/xterm-addon-web-links.min.js"></script>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" />
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js" integrity="sha384-oSLfJWgcKdFR8ARaFNNT3eS7AVclV2nA1uRLQ1eJhgXWEF+NA7DyMoU1Go+Qk3SP" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js" integrity="sha384-dSvoEq1wDH6yHh7QfeqGKs0/rMUW6IKuS+qUJircrP1EjyEYzCNSbOwyNke0LJKr" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.8.0/lib/xterm-addon-web-links.min.js" integrity="sha384-TVzaokuUch3eGijLx1zm+7pqRcHTDMwgTnENVapK5RqBvXS7Cb6PjpZn+mgOJTO7" crossorigin="anonymous"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" integrity="sha384-3K5+KOWDosY1TkoDWxPkGjncHOU5L57iOnkapqUQ7lPzlNYDE05ADJlUh4iRvtqu" crossorigin="anonymous" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
         html, body { height: 100%; overflow: hidden; background: #252526; }
@@ -318,8 +318,12 @@
             display: none;
         }
 
+        .terminal-container.split-mode {
+            border: 2px solid transparent;
+        }
+
         .terminal-container.active.split-mode {
-            border: 2px solid #3465a3;
+            border-color: #3465a3;
         }
 
         .terminal {
@@ -575,10 +579,10 @@
             <div class="modal-body">
                 <h3 style="margin-top: 0;">One-time (at)</h3>
                 <div id="atJobsList" style="margin-bottom: 20px;"></div>
-                
+
                 <h3>Recurring (cron)</h3>
                 <div id="cronJobsList" style="margin-bottom: 20px;"></div>
-                
+
                 <button class="modal-close" onclick="closeSchedulesModal()">Close</button>
             </div>
         </div>
@@ -590,23 +594,23 @@
             <div class="modal-body">
                 <label>Task ID:</label>
                 <input type="text" id="subagentTaskId" placeholder="e.g., research-aws-pricing" style="width: 100%; margin-bottom: 10px;">
-                
+
                 <label>Task Description:</label>
                 <textarea id="subagentTask" placeholder="Describe the task..." style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
-                
+
                 <label>Context File Path (optional):</label>
                 <input type="text" id="subagentContextPath" placeholder="/path/to/context.txt" style="width: 100%; margin-bottom: 10px;">
                 <div style="font-size: 11px; color: #888; margin-bottom: 10px;">File will be created if it doesn't exist. Subagent will read and append to it.</div>
-                
+
                 <label>Schedule (optional):</label>
                 <select id="subagentScheduleType" onchange="updateScheduleInput()" style="width: 100%; margin-bottom: 10px;">
                     <option value="">Run immediately</option>
                     <option value="at">At specific time</option>
                     <option value="every">Recurring</option>
                 </select>
-                
+
                 <div id="scheduleInputContainer"></div>
-                
+
                 <button class="modal-close" onclick="closeNewSubagentModal()">Cancel</button>
                 <button onclick="createSubagent()">Create</button>
             </div>
@@ -917,6 +921,10 @@
             }
         }
 
+        function restartDesktop() {
+            emitWithCsrf('restart_desktop');
+        }
+
         function setPaneType(paneNum, type) {
             paneTypes[paneNum] = type;
             const container = document.getElementById(`terminal${paneNum}-container`);
@@ -988,21 +996,21 @@
             }
 
             sessionList.innerHTML = '';
-            
+
             // Add Desktop item first
             const desktopItem = document.createElement('div');
             desktopItem.className = 'session-item';
             desktopItem.dataset.session = 'desktop';
-            
+
             const desktopName = document.createElement('span');
             desktopName.className = 'session-name';
             desktopName.textContent = 'Desktop';
-            
+
             const restartBtn = document.createElement('button');
             restartBtn.className = 'close-btn';
             restartBtn.textContent = '↻';
             restartBtn.onclick = (e) => { e.stopPropagation(); restartDesktop(); };
-            
+
             desktopItem.appendChild(desktopName);
             desktopItem.appendChild(restartBtn);
             desktopItem.addEventListener('click', function() {
@@ -1012,7 +1020,7 @@
                 }
             });
             sessionList.appendChild(desktopItem);
-            
+
             sessions.forEach(session => {
                 const item = document.createElement('div');
                 item.className = 'session-item';
@@ -1052,6 +1060,9 @@
 
         socket.on('session_created', data => {
             emitWithCsrf('get_sessions');
+            if (data.switch && data.name) {
+                switchSession(data.name);
+            }
         });
 
         socket.on('session_closed', data => {
@@ -1153,6 +1164,22 @@
             e.stopPropagation();
         });
 
+        // Listen for clicks inside Kasm desktop iframe (Kasm sends postMessage on canvas mousedown)
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.action === 'enable_audio') {
+                for (const paneNum of [1, 2]) {
+                    if (paneTypes[paneNum] === 'browser') {
+                        const browser = document.getElementById(`browser${paneNum}`);
+                        const iframe = browser ? browser.querySelector('iframe') : null;
+                        if (iframe && iframe.contentWindow === e.source) {
+                            setActiveTerminal(paneNum);
+                            return;
+                        }
+                    }
+                }
+            }
+        });
+
         function openNewSessionModal() {
             document.getElementById('newSessionModal').classList.add('open');
             if (window.innerWidth <= 500) {
@@ -1205,7 +1232,7 @@
         function updateScheduleInput() {
             const type = document.getElementById('subagentScheduleType').value;
             const container = document.getElementById('scheduleInputContainer');
-            
+
             if (type === 'at') {
                 container.innerHTML = '<input type="time" id="scheduleTime" style="width: 100%; margin-bottom: 10px;">';
             } else if (type === 'every') {
@@ -1233,12 +1260,12 @@
         socket.on('subagents_list', (data) => {
             const subagents = data.subagents;
             const list = document.getElementById('subagentsList');
-            
+
             if (subagents.length === 0) {
                 list.innerHTML = '<p style="color: #888;">No subagents yet</p>';
                 return;
             }
-            
+
             list.innerHTML = subagents.map(s => `
                 <div style="border: 1px solid #3e3e42; padding: 10px; margin-bottom: 10px; border-radius: 3px;">
                     <div style="font-weight: bold;">${s.task_id}</div>
@@ -1260,12 +1287,12 @@
             const task = document.getElementById('subagentTask').value;
             const contextPath = document.getElementById('subagentContextPath').value;
             const scheduleType = document.getElementById('subagentScheduleType').value;
-            
+
             if (!taskId || !task) {
                 showAlert('Task ID and Task are required');
                 return;
             }
-            
+
             let schedule = null;
             if (scheduleType === 'at') {
                 const time = document.getElementById('scheduleTime').value;
@@ -1274,7 +1301,7 @@
                 const interval = document.getElementById('scheduleInterval').value;
                 schedule = `every ${interval}`;
             }
-            
+
             emitWithCsrf('create_subagent', {
                 task_id: taskId,
                 task: task,
@@ -1343,7 +1370,7 @@
         socket.on('at_jobs', (data) => {
             const atJobs = data.jobs;
             const atList = document.getElementById('atJobsList');
-            
+
             if (atJobs.length === 0) {
                 atList.innerHTML = '<p style="color: #888;">No scheduled one-time jobs</p>';
             } else {
@@ -1359,7 +1386,7 @@
         socket.on('cron_jobs', (data) => {
             const cronJobs = data.jobs;
             const cronList = document.getElementById('cronJobsList');
-            
+
             if (cronJobs.length === 0) {
                 cronList.innerHTML = '<p style="color: #888;">No recurring jobs</p>';
             } else {

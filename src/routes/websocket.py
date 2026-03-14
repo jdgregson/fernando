@@ -10,9 +10,14 @@ from src.services.subagent import subagent_service
 import threading
 import base64
 import secrets
+import logging
+
+logger = logging.getLogger("fernando.websocket")
 
 # Store CSRF tokens per session
 csrf_tokens = {}
+# Track all terminal sids per socket sid for cleanup
+socket_terminals = {}
 
 
 def register_handlers(socketio):
@@ -32,6 +37,8 @@ def register_handlers(socketio):
         # Generate CSRF token for this session
         csrf_token = secrets.token_urlsafe(32)
         csrf_tokens[request.sid] = csrf_token
+        socket_terminals[request.sid] = set()
+        logger.info(f"Client connected: sid={request.sid}")
         emit("connected", {"data": "Connected", "csrf_token": csrf_token})
 
     def validate_csrf(data):
@@ -101,17 +108,19 @@ def register_handlers(socketio):
         sid = f"{request.sid}_{terminal}"
         client_sid = request.sid  # Capture this before background task
 
-        print(f"Attaching session {session_name} to terminal {terminal}, sid={sid}")
+        logger.info(f"Attaching session {session_name} to terminal {terminal}, sid={sid}")
 
-        # Clean up any existing session for this terminal
+        # Track this terminal sid for cleanup on disconnect
+        if client_sid in socket_terminals:
+            socket_terminals[client_sid].add(sid)
+
+        # Clean up any existing session for this terminal (handles reconnect case)
         tmux_service.cleanup_session(sid)
 
         master = tmux_service.attach_session(session_name, sid)
 
-        print(f"Master fd: {master}")
-
         def read_output():
-            print(f"Starting read_output loop for {sid}")
+            logger.info(f"Starting read_output loop for {sid}")
             while tmux_service.has_session(sid):
                 r, _, _ = select.select([master], [], [], 0.1)
                 if r:
@@ -119,18 +128,15 @@ def register_handlers(socketio):
                         output = os.read(master, 10240)
                         if output:
                             decoded = output.decode("utf-8", errors="ignore")
-                            print(
-                                f"Sending {len(decoded)} chars to terminal {terminal}"
-                            )
                             socketio.emit(
                                 "output",
                                 {"terminal": terminal, "data": decoded},
                                 room=client_sid,
                             )
                     except Exception as e:
-                        print(f"Read error: {e}")
+                        logger.info(f"Read loop ending for {sid}: {e}")
                         break
-            print(f"Exiting read_output loop for {sid}")
+            logger.info(f"Exiting read_output loop for {sid}")
 
         socketio.start_background_task(read_output)
 
@@ -141,7 +147,7 @@ def register_handlers(socketio):
             return
         session_type = data.get("type", "shell")
         name = tmux_service.create_session_with_type(session_type)
-        emit("session_created", {"name": name})
+        emit("session_created", {"name": name, "switch": True})
 
     @socketio.on("input")
     def handle_input(data):
@@ -170,9 +176,17 @@ def register_handlers(socketio):
 
     @socketio.on("disconnect")
     def handle_disconnect():
-        csrf_tokens.pop(request.sid, None)
-        tmux_service.cleanup_session(f"{request.sid}_1")
-        tmux_service.cleanup_session(f"{request.sid}_2")
+        sid = request.sid
+        logger.info(f"Client disconnected: sid={sid}")
+        csrf_tokens.pop(sid, None)
+        # Clean up all terminal sessions tracked for this socket
+        terminal_sids = socket_terminals.pop(sid, set())
+        for tsid in terminal_sids:
+            logger.info(f"Cleaning up terminal session on disconnect: {tsid}")
+            tmux_service.cleanup_session(tsid)
+        # Also clean up the default _1 and _2 in case they weren't tracked
+        tmux_service.cleanup_session(f"{sid}_1")
+        tmux_service.cleanup_session(f"{sid}_2")
 
     @socketio.on("restart_desktop")
     def restart_desktop(data=None):
