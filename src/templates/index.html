@@ -718,16 +718,30 @@
             csrfToken = data.csrf_token;
             console.log('Connected with CSRF token');
             // Auto-attach after socket is ready
-            const urlSession = new URLSearchParams(window.location.search).get('session');
-            if (!currentSession1) {
+            const params = new URLSearchParams(window.location.search);
+            const urlSession = params.get('session');
+            const urlSession2 = params.get('session2');
+            const urlSplit = params.get('split') === '1';
+            if (!currentSession1 && paneTypes[1] !== 'browser') {
                 const allItems = document.querySelectorAll('.session-item[data-session]:not([data-session="desktop"])');
                 const names = Array.from(allItems).map(el => el.dataset.session);
-                if (urlSession && names.includes(urlSession)) {
+                if (urlSession === 'desktop') {
+                    toggleDesktop();
+                } else if (urlSession && names.includes(urlSession)) {
                     attachSession(urlSession);
                 } else if (names.length > 0) {
                     attachSession(names[0]);
                 } else {
                     openNewSessionModal();
+                }
+                // Restore split + second pane
+                if (urlSplit) {
+                    if (!isSplit) toggleSplit();
+                    if (urlSession2 === 'desktop') {
+                        toggleDesktop();
+                    } else if (urlSession2 && names.includes(urlSession2)) {
+                        attachSession(urlSession2);
+                    }
                 }
             }
         });
@@ -795,8 +809,7 @@
                     fetch('/', { method: 'HEAD' }).then(r => {
                         if (r.ok) {
                             clearInterval(window._mutatePoll);
-                            const s = currentSession1 || sessionStorage.getItem('fernando_session1');
-                            window.location.href = s ? '/?session=' + encodeURIComponent(s) : '/';
+                            window.location.reload();
                         }
                     }).catch(() => {});
                 }, 1500);
@@ -987,6 +1000,7 @@
                 browser.classList.add('hidden');
                 setTimeout(doFit, 100);
             }
+            syncUrlParams();
         }
 
         function restartDesktop() {
@@ -1184,6 +1198,17 @@
 
             term.focus();
             setTimeout(doFit, 100);
+            syncUrlParams();
+        }
+
+        function syncUrlParams() {
+            const params = new URLSearchParams();
+            const s1 = paneTypes[1] === 'browser' ? 'desktop' : currentSession1;
+            const s2 = paneTypes[2] === 'browser' ? 'desktop' : currentSession2;
+            if (s1) params.set('session', s1);
+            if (isSplit && s2) { params.set('session2', s2); params.set('split', '1'); }
+            const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+            try { history.replaceState(null, '', newUrl); } catch(e) { console.error('replaceState failed:', e); }
         }
 
         function toggleSplit() {
@@ -1199,6 +1224,7 @@
             }
 
             setTimeout(doFit, 100);
+            syncUrlParams();
         }
 
         function setActiveTerminal(termNum) {
