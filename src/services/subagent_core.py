@@ -258,11 +258,13 @@ def terminate_subagent(task_id):
     result = subprocess.run(
         ["tmux", "kill-session", "-t", session_name], capture_output=True, text=True
     )
+    remove_cron_job(task_id)
     return {"task_id": task_id, "session_name": session_name, "terminated": result.returncode == 0}
 
 
 def delete_subagent(task_id):
     workspace = f"{SUBAGENT_DIR}/{task_id}"
+    remove_cron_job(task_id)
     if os.path.exists(workspace):
         subprocess.run(["rm", "-rf", workspace])
     return {"task_id": task_id, "deleted": True}

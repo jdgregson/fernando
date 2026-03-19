@@ -20,4 +20,9 @@ RUN if [ ! -f /dockerstartup/custom_startup.sh ]; then \
     echo '/dockerstartup/set-fernando-wallpaper.sh &' >> /dockerstartup/custom_startup.sh && \
     chmod +x /dockerstartup/custom_startup.sh
 
+# Fix Firefox profile config so it doesn't show the profile chooser dialog
+RUN mkdir -p /home/kasm-user/.mozilla/firefox/kasm && \
+    printf '[Install4F96D1932A9F858E]\nDefault=kasm\nLocked=1\n\n[Profile0]\nName=default\nIsRelative=1\nPath=kasm\nDefault=1\n' > /home/kasm-user/.mozilla/firefox/profiles.ini && \
+    chown -R 1000:1000 /home/kasm-user/.mozilla
+
 USER kasm-user

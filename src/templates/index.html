@@ -1078,8 +1078,8 @@
             const sessionList = document.getElementById('sessionList');
             const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session).filter(s => s !== 'desktop');
 
-            // Auto-attach if no session attached (must run before early return)
-            if (!currentSession1 && sessions.length > 0) {
+            // Auto-attach if no session attached and not showing desktop
+            if (!currentSession1 && paneTypes[1] !== 'browser' && sessions.length > 0) {
                 const saved = sessionStorage.getItem('fernando_session1');
                 attachSession(saved && sessions.includes(saved) ? saved : sessions[0]);
             }
@@ -1150,7 +1150,7 @@
         socket.on('session_created', data => {
             emitWithCsrf('get_sessions');
             if (data.switch && data.name) {
-                switchSession(data.name);
+                attachSession(data.name);
             }
         });
 
@@ -1168,6 +1168,13 @@
 
         function attachSession(sessionName) {
             console.log('Attaching session:', sessionName, 'to terminal:', activeTerminal);
+
+            if (sessionName === 'desktop') {
+                if (paneTypes[activeTerminal] !== 'browser') {
+                    toggleDesktop();
+                }
+                return;
+            }
 
             // If browser is showing, switch to terminal first
             if (paneTypes[activeTerminal] === 'browser') {
