@@ -16,4 +16,4 @@ services:
       - ./data/desktop:/home/kasm-user:rw
     shm_size: 512m
     restart: unless-stopped
-    user: "1000:1000"
+    runtime: sysbox-runc

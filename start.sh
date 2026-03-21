@@ -72,9 +72,12 @@ sed -e "s|{{NGINX_HOST}}|$NGINX_HOST|g" \
     -e "s|{{VNC_AUTH}}|$VNC_AUTH|g" \
     nginx.conf.template > nginx.conf
 
+# Ensure desktop data dir exists before Docker creates it as root
+mkdir -p "$SCRIPT_DIR/data/desktop"
+
 # Start Kasm desktop container with VNC_PW
 echo "Starting Kasm desktop container..."
-docker-compose up -d --build fernando-desktop
+docker compose up -d --build fernando-desktop
 
 # Wait for Kasm to be ready
 echo "Waiting for Kasm to be ready..."

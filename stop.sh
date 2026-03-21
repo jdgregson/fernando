@@ -14,7 +14,7 @@ echo "Stopping nginx..."
 nginx -c "$SCRIPT_DIR/nginx.conf" -s quit 2>/dev/null || pkill nginx
 
 echo "Stopping desktop container..."
-docker-compose down
+docker compose down
 
 echo "Reaping any remaining zombies owned by us..."
 # Kill any orphaned tmux attach-session processes we spawned

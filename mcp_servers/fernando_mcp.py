@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
+import os
+import sys
+
+# Activate the project venv so transitive deps (Flask etc.) are available
+# even when launched by a bare system python (e.g. from MCP config)
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_venv_site = os.path.join(_project_root, "venv", "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages")
+if os.path.isdir(_venv_site) and _venv_site not in sys.path:
+    sys.path.insert(0, _venv_site)
+
+sys.path.insert(0, _project_root)
+
 import asyncio
 import json
 import subprocess
-import sys
-import os
-
-# Add project root to path so we can import shared module
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.services.subagent_core import (
     create_workspace,
