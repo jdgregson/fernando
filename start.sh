@@ -77,7 +77,7 @@ mkdir -p "$SCRIPT_DIR/data/desktop"
 
 # Start Kasm desktop container with VNC_PW
 echo "Starting Kasm desktop container..."
-docker compose up -d --build fernando-desktop
+docker compose up -d fernando-desktop
 
 # Wait for Kasm to be ready
 echo "Waiting for Kasm to be ready..."

@@ -178,6 +178,14 @@ if [ -n "$CLOUDFLARED_TOKEN" ]; then
     cloudflared service install "$CLOUDFLARED_TOKEN"
 fi
 
+# Symlink ~/Desktop, ~/Downloads, ~/Documents to the Kasm container so host and VM share them
+gecho "Linking shared directories to Kasm container..."
+for dir in Desktop Downloads Documents; do
+    mkdir -p "$INSTALL_DIR/data/desktop/$dir"
+    rm -rf "$FERNANDO_HOME/$dir"
+    ln -s "$INSTALL_DIR/data/desktop/$dir" "$FERNANDO_HOME/$dir"
+done
+
 # Fix permissions
 gecho "Restoring permissions..."
 chown -R "$FERNANDO_USER:$FERNANDO_USER" "$FERNANDO_HOME"

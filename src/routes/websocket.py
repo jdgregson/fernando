@@ -125,7 +125,7 @@ def register_handlers(socketio):
                 r, _, _ = select.select([master], [], [], 0.1)
                 if r:
                     try:
-                        output = os.read(master, 10240)
+                        output = os.read(master, 65536)
                         if output:
                             decoded = output.decode("utf-8", errors="ignore")
                             socketio.emit(

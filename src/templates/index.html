@@ -1061,12 +1061,58 @@
             emitWithCsrf('input', { terminal: 2, data: data });
         });
 
+        // Buffer for OSC 52 sequences that may span multiple output chunks
+        let oscBuffer = '';
+        let oscBuffering = false;
+
+        function processOsc52(str) {
+            // Look for start of OSC 52
+            if (!oscBuffering) {
+                const start = str.indexOf('\x1b]52;');
+                if (start === -1) return str;
+                oscBuffering = true;
+                oscBuffer = str.substring(start);
+                str = str.substring(0, start);
+            } else {
+                oscBuffer += str;
+                str = '';
+            }
+
+            // Look for terminator
+            const endBel = oscBuffer.indexOf('\x07');
+            const endSt = oscBuffer.indexOf('\x1b\\');
+            let end = -1, endLen = 0;
+            if (endBel !== -1 && (endSt === -1 || endBel < endSt)) { end = endBel; endLen = 1; }
+            else if (endSt !== -1) { end = endSt; endLen = 2; }
+
+            if (end !== -1) {
+                const seq = oscBuffer.substring(0, end);
+                const remainder = oscBuffer.substring(end + endLen);
+                oscBuffering = false;
+                oscBuffer = '';
+
+                const m = seq.match(/\x1b\]52;[^;]*;([A-Za-z0-9+/=]+)/);
+                if (m) {
+                    try {
+                        const text = atob(m[1]);
+                        navigator.clipboard.writeText(text).catch(() => {});
+                        console.log('OSC52 clipboard:', text.length, 'chars');
+                    } catch(e) {}
+                }
+                return str + remainder;
+            }
+            return str;
+        }
+
         socket.on('output', data => {
-            console.log('Received output for terminal', data.terminal, 'length:', data.data.length);
+            let output = data.data;
+            if (typeof output === 'string') {
+                output = processOsc52(output);
+            }
             if (data.terminal === 1) {
-                term1.write(data.data);
+                if (output) term1.write(output);
             } else if (data.terminal === 2) {
-                term2.write(data.data);
+                if (output) term2.write(output);
             }
         });
 
