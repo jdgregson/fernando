@@ -5,6 +5,7 @@ Allows AI to control the Kasm desktop via keyboard/mouse commands
 """
 
 import asyncio
+import os
 import subprocess
 from mcp.server import Server
 from mcp.types import Tool, TextContent
@@ -306,7 +307,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "screenshot":
         filename = "screenshot.png"
-        host_path = f"/home/coder/fernando/data/desktop/{filename}"
+        host_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "desktop", filename)
         exec_in_kasm(f"DISPLAY=:1 scrot --overwrite /home/kasm-user/{filename}")
         return [TextContent(type="text", text=f"Screenshot saved to: {host_path}")]
 

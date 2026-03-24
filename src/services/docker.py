@@ -32,7 +32,7 @@ class DockerService:
         if not self.is_kasm_running():
             subprocess.run(
                 ["docker-compose", "up", "-d", "fernando-desktop"],
-                cwd="/home/coder/fernando",
+                cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
             )
 
         # Wait for service to be ready

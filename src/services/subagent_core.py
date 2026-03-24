@@ -8,7 +8,7 @@ from datetime import datetime
 TMUX_CMD = ["tmux", "new-session", "-d", "-s"]
 KIRO_CMD = ["kiro-cli", "chat", "--trust-all-tools", "--model claude-sonnet-4.5"]
 
-SUBAGENT_DIR = "/home/coder/fernando/subagents"
+SUBAGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "subagents")
 
 SUBAGENT_INSTRUCTIONS = """
 You are a subagent working on a delegated task. Follow these rules STRICTLY:

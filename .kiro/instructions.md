@@ -4,7 +4,7 @@
 
 After making changes to Python files, always run:
 ```bash
-cd /home/coder/fernando && source venv/bin/activate && ruff format .
+cd ~/fernando && source venv/bin/activate && ruff format .
 ```
 
 This ensures consistent formatting and removes trailing whitespace.
@@ -25,7 +25,7 @@ The WebSocket connection requires API key authentication. Flask routes do not ha
 
 ## Self-Mutation
 
-After making code changes to Fernando, use the `mutate` MCP tool to restart Fernando and apply changes. This runs `stop.sh && start.sh` in a detached background process so your Kiro CLI session survives the restart. Wait ~15 seconds after calling mutate, then verify Fernando is back up.
+After making code changes to Fernando, use the `mutate` MCP tool to restart Fernando and apply changes. This runs `stop.sh && start.sh` in a detached background process so your Kiro CLI session survives the restart. The tool blocks until Fernando is healthy or reports failure with logs — no manual health-check needed.
 
 **Important**: If you changed MCP server code (`mcp_servers/`), the user must manually restart their Kiro CLI session since MCP servers are loaded at CLI startup.
 

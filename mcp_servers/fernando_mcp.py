@@ -148,7 +148,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="mutate",
-            description="Restart Fernando to apply code changes. Runs stop/start in a detached background process so the calling Kiro agent session survives. After calling this, wait ~15 seconds then verify Fernando is back by checking if http://localhost:5000 responds. NOTE: This restarts the Flask backend and nginx but preserves tmux sessions including your own. MCP server changes require the user to manually restart the Kiro CLI session.",
+            description="Restart Fernando to apply code changes. Blocks until Fernando is back up and healthy, or reports failure with logs. Runs stop/start in a detached background process so the calling Kiro agent session survives. NOTE: This restarts the Flask backend and nginx but preserves tmux sessions including your own. MCP server changes require the user to manually restart the Kiro CLI session.",
             inputSchema={"type": "object", "properties": {}},
         ),
     ]
@@ -179,11 +179,39 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             stderr=subprocess.PIPE,
         )
         stdout, _ = proc.communicate(timeout=5)
-        result = {
-            "status": "restart_initiated",
-            "message": stdout.decode().strip(),
-            "note": "Wait ~15 seconds then verify Fernando is back. MCP changes require Kiro CLI restart.",
-        }
+
+        # Wait for Fernando to come back up
+        import time
+        import urllib.request
+        healthy = False
+        for i in range(30):
+            time.sleep(2)
+            try:
+                resp = urllib.request.urlopen("http://localhost:5000", timeout=2)
+                if resp.status == 200:
+                    healthy = True
+                    break
+            except Exception:
+                pass
+
+        if healthy:
+            result = {
+                "status": "restart_complete",
+                "message": f"Fernando restarted successfully and is healthy.",
+            }
+        else:
+            # Read the log for diagnostics
+            log = ""
+            try:
+                with open("/tmp/fernando-mutate.log") as f:
+                    log = f.read()[-2000:]
+            except Exception:
+                pass
+            result = {
+                "status": "restart_failed",
+                "message": "Fernando did not come back up within 60 seconds.",
+                "log": log,
+            }
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
