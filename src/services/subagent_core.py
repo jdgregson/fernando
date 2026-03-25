@@ -178,6 +178,7 @@ SESSION_NAME="{session_name}-$TIMESTAMP"
 {' '.join(TMUX_CMD)} "$SESSION_NAME" {' '.join(KIRO_CMD)} "Read the instructions from {instructions_file} and execute the task described there."
 tmux set-option -t "$SESSION_NAME" mouse on
 tmux set-option -t "$SESSION_NAME" status-style "bg=blue,fg=white"
+tmux resize-window -t "$SESSION_NAME" -x 220 -y 50
 tmux pipe-pane -t "$SESSION_NAME" -o "cat >> {log_file}"
 """)
     os.chmod(script_path, 0o500)
@@ -205,9 +206,7 @@ def schedule_cron(script_path, cron_schedule):
 
 def run_immediately(session_name, instructions_file):
     workspace = os.path.dirname(instructions_file)
-    # Use the spawn script so all session setup (including pipe-pane logging)
-    # is defined in one place
-    script_path = write_spawn_script(workspace, session_name, instructions_file)
+    script_path = f"{workspace}/spawn.sh"
     subprocess.run(["bash", script_path])
 
 
