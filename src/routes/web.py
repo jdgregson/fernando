@@ -40,6 +40,13 @@ def index():
     return render_template("index.html", sessions=sessions, api_key=api_key)
 
 
+@bp.route("/api/mutating", methods=["POST"])
+def api_mutating_notify():
+    from src import socketio
+    socketio.emit("mutating", {})
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/kasm/", defaults={"path": ""})
 @bp.route("/kasm/<path:path>")
 def kasm_proxy(path):

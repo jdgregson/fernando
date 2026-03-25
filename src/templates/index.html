@@ -465,7 +465,17 @@
         .mutate-overlay.open { display: flex; }
         .mutate-overlay .dna {
             font-size: 48px;
+        }
+        .mutate-overlay .dna.spin {
             animation: mutateSpin 1.5s ease-in-out infinite;
+        }
+        .mutate-overlay .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255,255,255,0.15);
+            border-top-color: #ccc;
+            border-radius: 50%;
+            animation: mutateSpin 0.8s linear infinite;
         }
         .mutate-overlay .label {
             font-size: 16px;
@@ -473,8 +483,8 @@
             animation: mutatePulse 1.5s ease-in-out infinite;
         }
         @keyframes mutateSpin {
-            0%, 100% { transform: rotate(0deg) scale(1); }
-            50% { transform: rotate(180deg) scale(1.2); }
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         @keyframes mutatePulse {
             0%, 100% { opacity: 0.5; }
@@ -540,7 +550,7 @@
             <div class="session-list" id="sessionList">
                 <div class="session-item" data-session="desktop">
                     <span class="session-name">Desktop</span>
-                    <button class="close-btn" onclick="event.stopPropagation(); restartDesktop()">↻</button>
+                    <button class="close-btn" onclick="event.stopPropagation(); restartDesktop()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg></button>
                 </div>
                 {% for session in sessions %}
                 <div class="session-item" data-session="{{ session }}">
@@ -659,8 +669,9 @@
     </div>
 
     <div class="mutate-overlay" id="mutateOverlay">
-        <div class="dna">🧬</div>
-        <div class="label">mutating...</div>
+        <div class="spinner" id="overlaySpinner"></div>
+        <div class="dna" id="overlayIcon" style="display:none"></div>
+        <div class="label" id="overlayLabel">connecting...</div>
     </div>
 
     <div class="alert-modal" id="alertModal">
@@ -713,6 +724,11 @@
         let paneTypes = { 1: 'terminal', 2: 'terminal' };
         let desktopMode = false;
         let isReconnecting = false;
+        let isMutating = false;
+
+        socket.on('mutating', () => {
+            isMutating = true;
+        });
 
         socket.on('connected', (data) => {
             csrfToken = data.csrf_token;
@@ -801,9 +817,24 @@
 
         socket.on('disconnect', () => {
             console.log('Socket disconnected');
-            // Show mutation overlay after a brief delay to avoid flashing on transient disconnects
+            // Show overlay after a brief delay to avoid flashing on transient disconnects
             window._mutateTimer = setTimeout(() => {
-                document.getElementById('mutateOverlay').classList.add('open');
+                const overlay = document.getElementById('mutateOverlay');
+                const spinner = document.getElementById('overlaySpinner');
+                const icon = document.getElementById('overlayIcon');
+                const label = document.getElementById('overlayLabel');
+                if (isMutating) {
+                    spinner.style.display = 'none';
+                    icon.style.display = '';
+                    icon.textContent = '🧬';
+                    icon.classList.add('spin');
+                    label.textContent = 'mutating...';
+                } else {
+                    spinner.style.display = '';
+                    icon.style.display = 'none';
+                    label.textContent = 'connecting...';
+                }
+                overlay.classList.add('open');
                 // Start polling — when server is back, reload the page
                 window._mutatePoll = setInterval(() => {
                     fetch('/', { method: 'HEAD' }).then(r => {
@@ -820,6 +851,7 @@
             console.log('Socket reconnected');
             clearTimeout(window._mutateTimer);
             clearInterval(window._mutatePoll);
+            isMutating = false;
             document.getElementById('mutateOverlay').classList.remove('open');
             handleForeground();
         });
@@ -1148,7 +1180,7 @@
 
             const restartBtn = document.createElement('button');
             restartBtn.className = 'close-btn';
-            restartBtn.textContent = '↻';
+            restartBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg>';
             restartBtn.onclick = (e) => { e.stopPropagation(); restartDesktop(); };
 
             desktopItem.appendChild(desktopName);
@@ -1227,14 +1259,6 @@
                 toggleDesktop();
             }
 
-            if (activeTerminal === 1 && currentSession2 === sessionName) {
-                showToast('Session already attached to Terminal 2');
-                return;
-            } else if (activeTerminal === 2 && currentSession1 === sessionName) {
-                showToast('Session already attached to Terminal 1');
-                return;
-            }
-
             const term = activeTerminal === 1 ? term1 : term2;
             term.clear();
 
@@ -1272,8 +1296,13 @@
                 container2.classList.remove('hidden');
                 setActiveTerminal(2);
             } else {
+                const promoteSession2 = activeTerminal === 2;
+                const session2Name = paneTypes[2] === 'browser' ? 'desktop' : currentSession2;
                 container2.classList.add('hidden');
                 setActiveTerminal(1);
+                if (promoteSession2 && session2Name) {
+                    attachSession(session2Name);
+                }
             }
 
             setTimeout(doFit, 100);

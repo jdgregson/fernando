@@ -6,6 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 nohup bash -c "
     cd '$SCRIPT_DIR'
+    # Notify frontend that a mutate is happening
+    curl -s -X POST http://localhost:5000/api/mutating > /dev/null 2>&1
+    sleep 0.5
     ./stop.sh
     ./start.sh
 " > /tmp/fernando-mutate.log 2>&1 &

@@ -169,6 +169,7 @@ def write_instructions(workspace, task_id, task, context_file=None, additional_c
 
 def write_spawn_script(workspace, session_name, instructions_file):
     script_path = f"{workspace}/spawn.sh"
+    log_file = f"{workspace}/proof/logs/chat.log"
     with open(script_path, "w") as f:
         f.write(f"""#!/bin/bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -177,6 +178,7 @@ SESSION_NAME="{session_name}-$TIMESTAMP"
 {' '.join(TMUX_CMD)} "$SESSION_NAME" {' '.join(KIRO_CMD)} "Read the instructions from {instructions_file} and execute the task described there."
 tmux set-option -t "$SESSION_NAME" mouse on
 tmux set-option -t "$SESSION_NAME" status-style "bg=blue,fg=white"
+tmux pipe-pane -t "$SESSION_NAME" -o "cat >> {log_file}"
 """)
     os.chmod(script_path, 0o500)
     return script_path
@@ -202,6 +204,8 @@ def schedule_cron(script_path, cron_schedule):
 
 
 def run_immediately(session_name, instructions_file):
+    workspace = os.path.dirname(instructions_file)
+    log_file = f"{workspace}/proof/logs/chat.log"
     subprocess.run(
         [
             *TMUX_CMD,
@@ -212,6 +216,7 @@ def run_immediately(session_name, instructions_file):
     )
     subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "on"])
     subprocess.run(["tmux", "set-option", "-t", session_name, "status-style", "bg=blue,fg=white"])
+    subprocess.run(["tmux", "pipe-pane", "-t", session_name, "-o", f"cat >> {log_file}"])
 
 
 def get_subagent_status(task_id):

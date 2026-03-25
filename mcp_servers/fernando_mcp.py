@@ -14,6 +14,8 @@ sys.path.insert(0, _project_root)
 import asyncio
 import json
 import subprocess
+import time
+import urllib.request
 
 from src.services.subagent_core import (
     create_workspace,
@@ -181,8 +183,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         stdout, _ = proc.communicate(timeout=5)
 
         # Wait for Fernando to come back up
-        import time
-        import urllib.request
         healthy = False
         for i in range(30):
             time.sleep(2)
