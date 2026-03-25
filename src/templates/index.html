@@ -918,6 +918,8 @@
                 const textarea = xtermEl.querySelector('.xterm-helper-textarea');
                 if (textarea) {
                     textarea.addEventListener('focus', () => {
+                        // Switch active terminal when iOS prev/next arrows change focus
+                        if (typeof setActiveTerminal === 'function') setActiveTerminal(termNum);
                         // Always try to exit copy mode, then backspace the 'q' if not in copy mode
                         emitWithCsrf('input', { terminal: termNum, data: 'q\x7f' }); // q + backspace
                         isScrolling = false;
@@ -933,14 +935,10 @@
 
                                 if (isSplit) {
                                     if (termNum === 1) {
-                                        // Top pane: small scroll to hide nav bar
+                                        // Top pane: scroll so top bar disappears and pane is at top
                                         const container = document.getElementById('terminal1-container');
                                         const rect = container.getBoundingClientRect();
-                                        if (rect.top < 0) {
-                                            // Already scrolled past, do nothing
-                                        } else {
-                                            window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
-                                        }
+                                        window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
                                     } else {
                                         // Bottom pane: original ratio-based scroll
                                         const scrollRatio = scrollTop / (scrollHeight - clientHeight);
