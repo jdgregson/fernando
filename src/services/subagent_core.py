@@ -205,18 +205,10 @@ def schedule_cron(script_path, cron_schedule):
 
 def run_immediately(session_name, instructions_file):
     workspace = os.path.dirname(instructions_file)
-    log_file = f"{workspace}/proof/logs/chat.log"
-    subprocess.run(
-        [
-            *TMUX_CMD,
-            session_name,
-            *KIRO_CMD,
-            f"Read the instructions from {instructions_file} and execute the task described there.",
-        ]
-    )
-    subprocess.run(["tmux", "set-option", "-t", session_name, "mouse", "on"])
-    subprocess.run(["tmux", "set-option", "-t", session_name, "status-style", "bg=blue,fg=white"])
-    subprocess.run(["tmux", "pipe-pane", "-t", session_name, "-o", f"cat >> {log_file}"])
+    # Use the spawn script so all session setup (including pipe-pane logging)
+    # is defined in one place
+    script_path = write_spawn_script(workspace, session_name, instructions_file)
+    subprocess.run(["bash", script_path])
 
 
 def get_subagent_status(task_id):
