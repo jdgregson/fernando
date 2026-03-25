@@ -1785,9 +1785,11 @@
                 if (keyboardVisible) {
                     mobileControls.style.bottom = 'auto';
                     mobileControls.style.top = (vpOffsetTop + vpHeight - mobileControls.offsetHeight) + 'px';
+                    mobileControls.style.transform = 'translateX(-50%)';
                 } else {
                     mobileControls.style.top = '';
-                    mobileControls.style.bottom = '';
+                    mobileControls.style.bottom = '0';
+                    mobileControls.style.transform = 'translateX(-50%) translateY(50%)';
                 }
             };
 
