@@ -207,7 +207,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="microsoft_mail_send",
-            description="Send an email.",
+            description="Send an email. Optionally attach a file by providing its local path.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -216,6 +216,10 @@ async def list_tools() -> list[Tool]:
                     "body": {
                         "type": "string",
                         "description": "Email body (plain text)",
+                    },
+                    "attachment_path": {
+                        "type": "string",
+                        "description": "Local file path to attach (optional)",
                     },
                 },
                 "required": ["to", "subject", "body"],
@@ -726,6 +730,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             }
 
     elif name == "microsoft_mail_send":
+        import base64, os, mimetypes
         payload = {
             "message": {
                 "subject": arguments["subject"],
@@ -733,6 +738,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "toRecipients": [{"emailAddress": {"address": arguments["to"]}}],
             }
         }
+        attachment_path = arguments.get("attachment_path")
+        if attachment_path and os.path.isfile(attachment_path):
+            with open(attachment_path, "rb") as f:
+                content_bytes = base64.b64encode(f.read()).decode("utf-8")
+            content_type = mimetypes.guess_type(attachment_path)[0] or "application/octet-stream"
+            payload["message"]["attachments"] = [{
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                "name": os.path.basename(attachment_path),
+                "contentType": content_type,
+                "contentBytes": content_bytes,
+            }]
         data = graph_request("POST", "/me/sendMail", json=payload)
         if "error" in data:
             result = data
