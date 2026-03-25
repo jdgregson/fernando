@@ -165,6 +165,19 @@ def register_handlers(socketio):
         sid = f"{request.sid}_{terminal}"
         tmux_service.resize_terminal(sid, data["rows"], data["cols"])
 
+    @socketio.on("rename_session")
+    def rename_session(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        try:
+            old_name = data["old_name"]
+            new_name = data["new_name"]
+            tmux_service.rename_session(old_name, new_name)
+            emit("session_renamed", {"old_name": old_name, "new_name": new_name}, broadcast=True)
+        except Exception as e:
+            emit("error", {"message": str(e)})
+
     @socketio.on("close_session")
     def close_session(data):
         if not validate_csrf(data):

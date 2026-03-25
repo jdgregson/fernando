@@ -154,6 +154,16 @@ class TmuxSession:
             except Exception as e:
                 print(f"Resize error: {e}")
 
+    def rename_session(self, old_name, new_name):
+        old_name = self._validate_session_name(old_name)
+        new_name = self._validate_session_name(new_name)
+        subprocess.run(
+            ["tmux", "rename-session", "-t", old_name, new_name],
+            timeout=5,
+            check=True,
+        )
+        return new_name
+
     def kill_session(self, session_name):
         session_name = self._validate_session_name(session_name)
         subprocess.run(

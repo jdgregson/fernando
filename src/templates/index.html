@@ -1152,6 +1152,7 @@
             updateSessionList(data.sessions);
         });
 
+        let sessionListInitialized = false;
         function updateSessionList(sessions) {
             const sessionList = document.getElementById('sessionList');
             const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session).filter(s => s !== 'desktop');
@@ -1163,9 +1164,10 @@
             }
 
             // Check if lists are different
-            if (JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
+            if (sessionListInitialized && JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
                 return;
             }
+            sessionListInitialized = true;
 
             sessionList.innerHTML = '';
 
@@ -1210,11 +1212,60 @@
                 item.appendChild(nameSpan);
                 item.appendChild(closeBtn);
 
-                item.addEventListener('click', function() {
-                    attachSession(this.dataset.session);
-                    if (window.innerWidth <= 500) {
-                        document.getElementById('sidebar').classList.remove('open');
+                let clickTimer = null;
+                function startRename() {
+                    const oldName = nameSpan.textContent;
+                    const input = document.createElement('input');
+                    input.value = oldName;
+                    input.style.cssText = 'background:#3c3c3c;color:#fff;border:1px solid #3465a3;outline:none;padding:2px 4px;font-family:monospace;font-size:inherit;width:calc(100% - 32px)';
+                    nameSpan.replaceWith(input);
+                    input.focus();
+                    input.select();
+                    function commit() {
+                        if (!input.parentNode) return;
+                        const newName = input.value.trim();
+                        input.replaceWith(nameSpan);
+                        if (newName && newName !== oldName) {
+                            emitWithCsrf('rename_session', { old_name: oldName, new_name: newName });
+                        }
                     }
+                    input.addEventListener('keydown', function(ev) {
+                        ev.stopPropagation();
+                        if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+                        if (ev.key === 'Escape') { input.replaceWith(nameSpan); }
+                    });
+                    input.addEventListener('blur', commit);
+                    input.addEventListener('click', function(ev) { ev.stopPropagation(); });
+                }
+                item.addEventListener('click', function(e) {
+                    if (e.detail === 2) {
+                        clearTimeout(clickTimer);
+                        e.stopPropagation();
+                        startRename();
+                        return;
+                    }
+                    clickTimer = setTimeout(() => {
+                        attachSession(this.dataset.session);
+                        if (window.innerWidth <= 500) {
+                            document.getElementById('sidebar').classList.remove('open');
+                        }
+                    }, 250);
+                });
+                let holdTimer = null;
+                nameSpan.addEventListener('touchstart', function(e) {
+                    holdTimer = setTimeout(() => {
+                        e.preventDefault();
+                        holdTimer = 'fired';
+                        startRename();
+                    }, 500);
+                }, {passive: false});
+                nameSpan.addEventListener('touchend', function(e) {
+                    if (holdTimer === 'fired') { e.preventDefault(); }
+                    else { clearTimeout(holdTimer); }
+                    holdTimer = null;
+                });
+                nameSpan.addEventListener('touchmove', function() {
+                    if (holdTimer !== 'fired') clearTimeout(holdTimer);
                 });
                 sessionList.appendChild(item);
             });
@@ -1230,6 +1281,13 @@
             if (data.switch && data.name) {
                 attachSession(data.name);
             }
+        });
+
+        socket.on('session_renamed', data => {
+            if (currentSession1 === data.old_name) currentSession1 = data.new_name;
+            if (currentSession2 === data.old_name) currentSession2 = data.new_name;
+            emitWithCsrf('get_sessions');
+            syncUrlParams();
         });
 
         socket.on('session_closed', data => {
@@ -1628,21 +1686,6 @@
         });
 
         // Click handler for session items
-        document.querySelectorAll('.session-item').forEach(item => {
-            item.addEventListener('click', function() {
-                const sessionName = this.dataset.session;
-                if (sessionName === 'desktop') {
-                    toggleDesktop();
-                } else {
-                    attachSession(sessionName);
-                }
-                // Close sidebar on mobile after selection
-                if (window.innerWidth <= 500) {
-                    document.getElementById('sidebar').classList.remove('open');
-                }
-            });
-        });
-
         // Request initial session list
         emitWithCsrf('get_sessions');
 
