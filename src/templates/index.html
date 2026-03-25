@@ -497,6 +497,9 @@
             bottom: 0;
             left: 50%;
             transform: translateX(-50%);
+            width: calc(100% - 16px);
+            max-width: 500px;
+            box-sizing: border-box;
             background: #000;
             border: 1.5px solid #eee;
             border-radius: 50px;
@@ -507,46 +510,22 @@
             margin-bottom: calc(10px + env(safe-area-inset-bottom));
         }
 
-        .dictation-bar {
-            display: none;
-            position: fixed;
-            bottom: 60px;
-            left: 8px;
-            right: 8px;
-            z-index: 999;
-            margin-bottom: env(safe-area-inset-bottom);
-        }
-
-        .dictation-bar form {
-            display: flex;
-            gap: 6px;
-        }
-
-        .dictation-bar input {
-            flex: 1;
-            background: #1a1a1a;
+        .mobile-controls input {
+            background: transparent;
             color: #fff;
-            border: 1.5px solid #555;
+            border: 1px solid #555;
             border-radius: 20px;
-            padding: 10px 16px;
+            padding: 4px 10px;
             font-size: 16px;
             font-family: -apple-system, sans-serif;
             outline: none;
+            width: 80px;
+            flex-shrink: 1;
+            min-width: 0;
         }
 
-        .dictation-bar input:focus {
-            border-color: #3465a3;
-        }
-
-        .dictation-bar button {
-            background: #3465a3;
-            color: #fff;
-            border: none;
-            border-radius: 20px;
-            padding: 10px 16px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
+        .mobile-controls input:focus {
+            border-color: #eee;
         }
 
         @media (max-width: 500px) {
@@ -554,16 +533,12 @@
                 display: flex;
             }
 
-            .dictation-bar {
-                display: block;
-            }
-
             .terminals-wrapper {
                 padding-bottom: 20px;
             }
         }
 
-        .mobile-controls button {
+        .mobile-controls button:not(.send-btn) {
             background: transparent;
             border: none;
             color: #fff;
@@ -575,9 +550,10 @@
             cursor: pointer;
         }
 
-        .mobile-controls button:active {
+        .mobile-controls button:not(.send-btn):active {
             background: rgba(255, 255, 255, 0.2);
         }
+
     </style>
 </head>
 <body>
@@ -704,13 +680,6 @@
         </div>
     </div>
 
-    <div class="dictation-bar" id="dictationBar">
-        <form onsubmit="submitDictation(event)">
-            <input type="text" id="dictationInput" placeholder="Dictate or type here..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true">
-            <button type="submit">Send</button>
-        </form>
-    </div>
-
     <div class="mobile-controls">
         <button onmousedown="event.preventDefault(); sendKey('\x03')">^C</button>
         <button onmousedown="event.preventDefault(); sendKey('\x1b')">ESC</button>
@@ -719,6 +688,7 @@
         <button onmousedown="event.preventDefault(); sendKey('\x1b[A')">↑</button>
         <button onmousedown="event.preventDefault(); sendKey('\x1b[B')">↓</button>
         <button onmousedown="event.preventDefault(); sendKey('\x1b[C')">→</button>
+        <input type="text" id="dictationInput" placeholder="Dictate..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true">
     </div>
 
     <div class="mutate-overlay" id="mutateOverlay">
@@ -960,12 +930,23 @@
                                 const clientHeight = viewport.clientHeight;
 
                                 if (isSplit) {
-                                    // For split, use ratio-based scroll
-                                    const scrollRatio = scrollTop / (scrollHeight - clientHeight);
-                                    const container = document.getElementById(`terminal${termNum}-container`);
-                                    const containerHeight = container.offsetHeight;
-                                    const scrollAmount = scrollRatio * containerHeight + 20;
-                                    window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+                                    if (termNum === 1) {
+                                        // Top pane: small scroll to hide nav bar
+                                        const container = document.getElementById('terminal1-container');
+                                        const rect = container.getBoundingClientRect();
+                                        if (rect.top < 0) {
+                                            // Already scrolled past, do nothing
+                                        } else {
+                                            window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
+                                        }
+                                    } else {
+                                        // Bottom pane: original ratio-based scroll
+                                        const scrollRatio = scrollTop / (scrollHeight - clientHeight);
+                                        const container = document.getElementById('terminal2-container');
+                                        const containerHeight = container.offsetHeight;
+                                        const scrollAmount = scrollRatio * containerHeight + 20;
+                                        window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
+                                    }
                                 } else {
                                     // For single pane, scroll to bottom if near bottom
                                     if (scrollTop + clientHeight >= scrollHeight - 50) {
@@ -1759,15 +1740,21 @@
             emitWithCsrf('input', { terminal: activeTerminal, data: key });
         }
 
-        function submitDictation(e) {
-            e.preventDefault();
+        function submitDictation() {
             const input = document.getElementById('dictationInput');
             const text = input.value;
             if (text) {
                 emitWithCsrf('input', { terminal: activeTerminal, data: text + '\r' });
                 input.value = '';
             }
+            // Refocus to keep keyboard/dictation active
+            setTimeout(() => input.focus(), 50);
         }
+
+        // Submit dictation on Enter key
+        document.getElementById('dictationInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); submitDictation(); }
+        });
 
         // Close sidebar when clicking outside on mobile
         document.addEventListener('click', (e) => {
@@ -1796,11 +1783,11 @@
                 keyboardVisible = vpHeight < windowHeight - 100;
 
                 if (keyboardVisible) {
-                    mobileControls.style.display = 'flex';
                     mobileControls.style.bottom = 'auto';
                     mobileControls.style.top = (vpOffsetTop + vpHeight - mobileControls.offsetHeight) + 'px';
                 } else {
-                    mobileControls.style.display = 'none';
+                    mobileControls.style.top = '';
+                    mobileControls.style.bottom = '';
                 }
             };
 
