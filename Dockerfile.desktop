@@ -1,7 +1,7 @@
 FROM kasmweb/ubuntu-noble-desktop:1.18.0-rolling-daily
 
 USER root
-RUN apt-get update && apt-get install -y scrot && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y scrot socat && rm -rf /var/lib/apt/lists/*
 
 # Disable smartcard and pcscd services (they can spin at 100% CPU)
 ENV KASM_SVC_SMARTCARD=0
@@ -18,6 +18,7 @@ RUN if [ ! -f /dockerstartup/custom_startup.sh ]; then \
       echo '#!/bin/bash' > /dockerstartup/custom_startup.sh; \
     fi && \
     echo '/dockerstartup/set-fernando-wallpaper.sh &' >> /dockerstartup/custom_startup.sh && \
+    echo 'GATEWAY=$(ip route | grep default | awk "{print \$3}") && socat TCP-LISTEN:8080,fork,reuseaddr TCP:$GATEWAY:8080 &' >> /dockerstartup/custom_startup.sh && \
     chmod +x /dockerstartup/custom_startup.sh
 
 # Fix Firefox profile config so it doesn't show the profile chooser dialog

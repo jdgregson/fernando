@@ -14,6 +14,22 @@ http {
     uwsgi_temp_path /tmp/nginx-fernando-uwsgi;
     scgi_temp_path /tmp/nginx-fernando-scgi;
 
+    # Auth callback accessible from Docker containers (e.g. Kasm desktop)
+    server {
+        listen 0.0.0.0:{{NGINX_PORT}} default_server;
+        server_name _;
+
+        location = /auth/callback {
+            proxy_pass http://localhost:{{FLASK_PORT}};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location / {
+            return 403;
+        }
+    }
+
     server {
         listen {{NGINX_HOST}}:{{NGINX_PORT}};
         server_name _;

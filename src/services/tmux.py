@@ -53,15 +53,19 @@ class TmuxSession:
         return name
 
     def create_session_with_type(self, session_type):
+        intro_file = os.path.join(os.path.dirname(__file__), "..", "..", "data", "intro.md")
+        intro_arg = f'"$(cat {intro_file})"' if os.path.exists(intro_file) else ""
+        kiro_model = "claude-opus-4.6"
+
         if session_type == "shell":
             name = "Shell"
             cmd = None
         elif session_type == "kiro":
             name = "Kiro"
-            cmd = "kiro-cli"
+            cmd = f"kiro-cli chat --model {kiro_model} {intro_arg}"
         elif session_type == "kiro-unchained":
             name = "Kiro-Unchained"
-            cmd = "kiro-cli chat -a"
+            cmd = f"kiro-cli chat -a --model {kiro_model} {intro_arg}"
         else:
             name = "Shell"
             cmd = None

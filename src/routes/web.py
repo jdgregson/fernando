@@ -1,9 +1,31 @@
 from flask import Blueprint, render_template, Response, request
+import json
+import os
 import requests
+import msal
 from src.services.tmux import tmux_service
 from src.services.docker import docker_service
 
 bp = Blueprint("web", __name__)
+
+_project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_ms_config_dir = os.path.join(_project_root, "data", "microsoft")
+_ms_config_file = os.path.join(_ms_config_dir, "config.json")
+_ms_token_file = os.path.join(_ms_config_dir, "tokens.json")
+
+def _auth_page(title, message):
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{{background:#252526;color:#3465a3;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}}
+.c{{text-align:center}}h2{{font-weight:400}}</style></head>
+<body><div class="c"><h2>{title}</h2><p>{message}</p></div></body></html>"""
+
+SCOPES = [
+    "User.Read",
+    "Mail.Read",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "Calendars.ReadWrite",
+]
 
 
 @bp.route("/")
@@ -94,3 +116,42 @@ def kasm_proxy(path):
         return Response(content, resp.status_code, response_headers)
     except Exception as e:
         return f"Kasm desktop error: {str(e)}", 503
+
+
+@bp.route("/auth/callback")
+def auth_callback():
+    code = request.args.get("code")
+    if not code:
+        return _auth_page("Missing authorization code", ""), 400
+
+    try:
+        with open(_ms_config_file) as f:
+            config = json.load(f)
+    except Exception:
+        return "Microsoft not configured", 500
+
+    msal_app = msal.ConfidentialClientApplication(
+        config["client_id"],
+        authority=f"https://login.microsoftonline.com/{config['tenant_id']}",
+        client_credential=config.get("client_secret"),
+    )
+
+    result = msal_app.acquire_token_by_authorization_code(
+        code,
+        scopes=SCOPES,
+        redirect_uri=config.get("redirect_uri", "http://localhost:8080/auth/callback"),
+    )
+
+    if "access_token" in result:
+        tokens = {
+            "access_token": result["access_token"],
+            "refresh_token": result.get("refresh_token", ""),
+        }
+        os.makedirs(_ms_config_dir, mode=0o700, exist_ok=True)
+        with open(_ms_token_file, "w") as f:
+            json.dump(tokens, f, indent=2)
+        os.chmod(_ms_token_file, 0o600)
+        return _auth_page("Authenticated successfully!", "You can close this tab.")
+    else:
+        error = result.get("error_description", result.get("error", "Unknown error"))
+        return _auth_page("Authentication failed", error), 400

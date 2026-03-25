@@ -29,3 +29,14 @@ After making code changes to Fernando, use the `mutate` MCP tool to restart Fern
 
 **Important**: If you changed MCP server code (`mcp_servers/`), the user must manually restart their Kiro CLI session since MCP servers are loaded at CLI startup.
 
+## Microsoft 365 Login Flow
+
+When the user asks to log in to Microsoft:
+
+1. Call `microsoft_login` to get the sign-in URL
+2. Present the URL to the user and ask: **"Want me to open this in the Kasm desktop browser, or would you prefer to sign in yourself?"**
+   - If they want you to do it: open the URL in the Kasm desktop browser (the user must already be signed into their Microsoft account in that browser)
+   - If they prefer to sign in themselves (OOB): just give them the URL
+3. If the user signed in OOB and comes back with a callback URL (`localhost:8080/auth/callback?code=...`), use `curl` to hit that URL locally so the server can exchange the auth code for a token
+4. Verify with `microsoft_status` that authentication succeeded
+
