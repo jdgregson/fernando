@@ -921,7 +921,7 @@
                         // Switch active terminal when iOS prev/next arrows change focus
                         if (typeof setActiveTerminal === 'function') setActiveTerminal(termNum);
                         // Always try to exit copy mode, then backspace the 'q' if not in copy mode
-                        emitWithCsrf('input', { terminal: termNum, data: 'q\x7f' }); // q + backspace
+                        // Focus event - don't send keystrokes to avoid interfering with running programs
                         isScrolling = false;
                         keyboardOpen = true;
                         // Scroll based on xterm viewport scroll position
