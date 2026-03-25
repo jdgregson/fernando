@@ -507,9 +507,55 @@
             margin-bottom: calc(10px + env(safe-area-inset-bottom));
         }
 
+        .dictation-bar {
+            display: none;
+            position: fixed;
+            bottom: 60px;
+            left: 8px;
+            right: 8px;
+            z-index: 999;
+            margin-bottom: env(safe-area-inset-bottom);
+        }
+
+        .dictation-bar form {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dictation-bar input {
+            flex: 1;
+            background: #1a1a1a;
+            color: #fff;
+            border: 1.5px solid #555;
+            border-radius: 20px;
+            padding: 10px 16px;
+            font-size: 16px;
+            font-family: -apple-system, sans-serif;
+            outline: none;
+        }
+
+        .dictation-bar input:focus {
+            border-color: #3465a3;
+        }
+
+        .dictation-bar button {
+            background: #3465a3;
+            color: #fff;
+            border: none;
+            border-radius: 20px;
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
         @media (max-width: 500px) {
             .mobile-controls {
                 display: flex;
+            }
+
+            .dictation-bar {
+                display: block;
             }
 
             .terminals-wrapper {
@@ -656,6 +702,13 @@
                 <button onclick="createSubagent()">Create</button>
             </div>
         </div>
+    </div>
+
+    <div class="dictation-bar" id="dictationBar">
+        <form onsubmit="submitDictation(event)">
+            <input type="text" id="dictationInput" placeholder="Dictate or type here..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true">
+            <button type="submit">Send</button>
+        </form>
     </div>
 
     <div class="mobile-controls">
@@ -1704,6 +1757,16 @@
 
         function sendKey(key) {
             emitWithCsrf('input', { terminal: activeTerminal, data: key });
+        }
+
+        function submitDictation(e) {
+            e.preventDefault();
+            const input = document.getElementById('dictationInput');
+            const text = input.value;
+            if (text) {
+                emitWithCsrf('input', { terminal: activeTerminal, data: text + '\r' });
+                input.value = '';
+            }
         }
 
         // Close sidebar when clicking outside on mobile
