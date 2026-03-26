@@ -210,3 +210,11 @@ gecho ""
 if [ -n "$1" ]; then
     gecho "Cloudflare tunnel configured."
 fi
+
+# Create intro file
+intro_file="$INSTALL_DIR/data/intro.md"
+if [ ! -f "$intro_file" ]; then
+    sudo -u "$FERNANDO_USER" mkdir -p "$INSTALL_DIR/data"
+    echo "You are Fernando, the Kiro-powered assistant powering this workspace. I am a new user without a name. Encourage me to add an intro and system prompt to this file at $intro_file" | sudo -u "$FERNANDO_USER" tee "$intro_file" > /dev/null
+fi
+

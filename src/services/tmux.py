@@ -89,7 +89,7 @@ class TmuxSession:
                 check=True,
             )
             subprocess.run(
-                ["tmux", "send-keys", "-t", name, cmd, "Enter"], timeout=5, check=True
+                ["tmux", "send-keys", "-t", name, f" {cmd}", "Enter"], timeout=5, check=True
             )
         else:
             subprocess.run(
