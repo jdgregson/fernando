@@ -127,7 +127,7 @@ def graph_request(method, path, **kwargs):
     url = f"{GRAPH_BASE}{path}" if path.startswith("/") else path
     resp = requests.request(method, url, headers=headers, **kwargs)
 
-    if resp.status_code == 204:
+    if resp.status_code in (202, 204):
         return {"status": "success"}
     try:
         return resp.json()
@@ -522,6 +522,17 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
+            name="microsoft_onenote_notebook_create",
+            description="Create a new OneNote notebook.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "Notebook display name"},
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
             name="microsoft_onenote_sections",
             description="List sections in a OneNote notebook.",
             inputSchema={
@@ -530,6 +541,18 @@ async def list_tools() -> list[Tool]:
                     "notebook_id": {"type": "string", "description": "Notebook ID"},
                 },
                 "required": ["notebook_id"],
+            },
+        ),
+        Tool(
+            name="microsoft_onenote_section_create",
+            description="Create a new section in a OneNote notebook.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "notebook_id": {"type": "string", "description": "Notebook ID"},
+                    "name": {"type": "string", "description": "Section name"},
+                },
+                "required": ["notebook_id", "name"],
             },
         ),
         Tool(
@@ -566,6 +589,39 @@ async def list_tools() -> list[Tool]:
                     "content": {"type": "string", "description": "Page content (plain text, will be wrapped in HTML)"},
                 },
                 "required": ["section_id", "title", "content"],
+            },
+        ),
+        Tool(
+            name="microsoft_onenote_notebook_delete",
+            description="Delete a OneNote notebook.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "notebook_id": {"type": "string", "description": "Notebook ID"},
+                },
+                "required": ["notebook_id"],
+            },
+        ),
+        Tool(
+            name="microsoft_onenote_section_delete",
+            description="Delete a section from a OneNote notebook.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "section_id": {"type": "string", "description": "Section ID"},
+                },
+                "required": ["section_id"],
+            },
+        ),
+        Tool(
+            name="microsoft_onenote_page_delete",
+            description="Delete a page from a OneNote section.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page_id": {"type": "string", "description": "Page ID"},
+                },
+                "required": ["page_id"],
             },
         ),
         # --- OneDrive ---
@@ -768,7 +824,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         end = now + timedelta(days=days)
         params = (
             f"startDateTime={now.strftime('%Y-%m-%dT%H:%M:%SZ')}&endDateTime={end.strftime('%Y-%m-%dT%H:%M:%SZ')}"
-            f"&$top={count}&$select=subject,start,end,location,organizer,attendees,bodyPreview"
+            f"&$top={count}&$select=id,subject,start,end,location,organizer,attendees,bodyPreview"
             f"&$orderby=start/dateTime"
         )
         data = graph_request("GET", f"/me/calendarView?{params}")
@@ -779,6 +835,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             for ev in data.get("value", []):
                 events.append(
                     {
+                        "id": ev.get("id"),
                         "subject": ev.get("subject"),
                         "start": ev.get("start", {}).get("dateTime"),
                         "end": ev.get("end", {}).get("dateTime"),
@@ -808,6 +865,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             result = {
                 "status": "created",
+                "id": data.get("id"),
                 "subject": data.get("subject"),
                 "start": data.get("start", {}).get("dateTime"),
                 "end": data.get("end", {}).get("dateTime"),
@@ -887,7 +945,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         count = min(arguments.get("count", 10), 50)
         data = graph_request(
             "GET",
-            f'/me/messages?$search="{query}"&$top={count}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview&$orderby=receivedDateTime desc',
+            f'/me/messages?$search="{query}"&$top={count}&$select=id,subject,from,receivedDateTime,isRead,bodyPreview',
         )
         if "error" in data:
             result = data
@@ -1042,7 +1100,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     # --- Tasks (To Do) ---
     elif name == "microsoft_task_lists":
-        data = graph_request("GET", "/me/todo/lists?$select=id,displayName,isOwner")
+        data = graph_request("GET", "/me/todo/lists")
         if "error" in data:
             result = data
         else:
@@ -1055,7 +1113,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         list_id = arguments["list_id"]
         count = arguments.get("count", 20)
         filter_str = "" if arguments.get("include_completed") else "&$filter=status ne 'completed'"
-        data = graph_request("GET", f"/me/todo/lists/{list_id}/tasks?$top={count}&$select=id,title,status,dueDateTime,body,importance{filter_str}")
+        data = graph_request("GET", f"/me/todo/lists/{list_id}/tasks?$top={count}{filter_str}")
         if "error" in data:
             result = data
         else:
@@ -1122,6 +1180,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 for n in data.get("value", [])
             ]}
 
+    elif name == "microsoft_onenote_notebook_create":
+        nb_name = arguments["name"]
+        data = graph_request("POST", "/me/onenote/notebooks", json={"displayName": nb_name})
+        if "error" in data:
+            result = data
+        else:
+            result = {"id": data.get("id"), "name": data.get("displayName")}
+
     elif name == "microsoft_onenote_sections":
         nb_id = arguments["notebook_id"]
         data = graph_request("GET", f"/me/onenote/notebooks/{nb_id}/sections?$select=id,displayName")
@@ -1132,6 +1198,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 {"id": s["id"], "name": s.get("displayName")}
                 for s in data.get("value", [])
             ]}
+
+    elif name == "microsoft_onenote_section_create":
+        nb_id = arguments["notebook_id"]
+        section_name = arguments["name"]
+        data = graph_request("POST", f"/me/onenote/notebooks/{nb_id}/sections", json={"displayName": section_name})
+        if "error" in data:
+            result = data
+        else:
+            result = {"id": data.get("id"), "name": data.get("displayName")}
 
     elif name == "microsoft_onenote_pages":
         section_id = arguments["section_id"]
@@ -1172,6 +1247,47 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = {"status": "created", "id": data.get("id"), "title": data.get("title")}
             else:
                 result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
+
+    elif name == "microsoft_onenote_notebook_delete":
+        # OneNote API doesn't support direct delete; remove the OneDrive folder instead
+        nb_id = arguments["notebook_id"]
+        nb = graph_request("GET", f"/me/onenote/notebooks/{nb_id}?$select=displayName")
+        if isinstance(nb, dict) and "error" in nb:
+            result = nb
+        else:
+            nb_name = nb.get("displayName", "")
+            data = graph_request("DELETE", f"/me/drive/items/root:/Notebooks/{nb_name}:")
+            if isinstance(data, dict) and "error" in data:
+                result = {"error": f"Could not delete notebook via OneDrive. Name: {nb_name}"}
+            else:
+                result = {"status": "deleted", "notebook_id": nb_id}
+
+    elif name == "microsoft_onenote_section_delete":
+        # OneNote API doesn't support direct section delete; delete the underlying OneDrive item
+        section_id = arguments["section_id"]
+        section = graph_request("GET", f"/me/onenote/sections/{section_id}?$expand=parentNotebook($select=id,displayName)")
+        if isinstance(section, dict) and "error" in section:
+            result = section
+        else:
+            section_name = section.get("displayName", "")
+            nb = section.get("parentNotebook", {}) or {}
+            nb_name = nb.get("displayName", "")
+            if nb_name and section_name:
+                data = graph_request("DELETE", f"/me/drive/items/root:/Notebooks/{nb_name}/{section_name}.one:")
+                if isinstance(data, dict) and "error" in data:
+                    result = {"error": f"Could not delete section via OneDrive. Section: {section_name}, Notebook: {nb_name}"}
+                else:
+                    result = {"status": "deleted", "section_id": section_id}
+            else:
+                result = {"error": f"Could not resolve names. section={section_name!r}, notebook={nb_name!r}"}
+
+    elif name == "microsoft_onenote_page_delete":
+        page_id = arguments["page_id"]
+        data = graph_request("DELETE", f"/me/onenote/pages/{page_id}")
+        if isinstance(data, dict) and "error" in data:
+            result = data
+        else:
+            result = {"status": "deleted", "page_id": page_id}
 
     # --- OneDrive ---
     elif name == "microsoft_files_list":
