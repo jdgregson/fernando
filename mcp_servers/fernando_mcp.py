@@ -191,12 +191,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         continuation = arguments.get("continuation")
         if continuation:
             # Find which chat session we belong to via PID map
+            # Walk up process tree since MCP -> kiro-cli-chat -> kiro-cli
             session_id = None
             try:
                 pid_map_file = os.path.join(project_root, "data", "acp_pid_map.json")
                 with open(pid_map_file) as f:
                     pid_map = json.load(f)
-                session_id = pid_map.get(str(os.getppid()))
+                pid = os.getpid()
+                for _ in range(5):
+                    pid = os.popen(f"ps -o ppid= -p {pid}").read().strip()
+                    if not pid:
+                        break
+                    session_id = pid_map.get(pid)
+                    if session_id:
+                        break
             except Exception:
                 pass
             cont_file = os.path.join(project_root, "data", "pending_continuation.json")
