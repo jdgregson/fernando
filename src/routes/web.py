@@ -5,6 +5,7 @@ import requests
 import msal
 from src.services.tmux import tmux_service
 from src.services.docker import docker_service
+from src.services.acp import acp_manager
 
 bp = Blueprint("web", __name__)
 
@@ -123,6 +124,16 @@ def kasm_proxy(path):
         return Response(content, resp.status_code, response_headers)
     except Exception as e:
         return f"Kasm desktop error: {str(e)}", 503
+
+
+@bp.route("/chat/<session_id>")
+def chat_page(session_id):
+    try:
+        with open("/tmp/fernando-api-key", "r") as f:
+            api_key = f.read().strip()
+    except:
+        api_key = ""
+    return render_template("chat.html", acp_session_id=session_id, api_key=api_key)
 
 
 @bp.route("/auth/callback")

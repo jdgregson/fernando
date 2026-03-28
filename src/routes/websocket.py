@@ -7,6 +7,7 @@ import websocket as ws_client
 from src.services.tmux import tmux_service
 from src.services.docker import docker_service
 from src.services.subagent import subagent_service
+from src.services.acp import acp_manager
 import threading
 import base64
 import secrets
@@ -294,3 +295,56 @@ def register_handlers(socketio):
             return
         result = subagent_service.remove_cron_job(data["task_id"])
         emit("cron_job_removed", result)
+
+    # --- ACP Chat handlers ---
+
+    # Track which socket sids are subscribed to which ACP sessions
+    acp_subscribers = {}  # acp_session_id -> set of socket sids
+
+    @socketio.on("acp_create")
+    def acp_create(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        client_sid = request.sid
+
+        def on_event(acp_sid, event):
+            sids = acp_subscribers.get(acp_sid, set())
+            for sid in sids:
+                socketio.emit("acp_event", {"session_id": acp_sid, "event": event}, room=sid)
+
+        session_id = acp_manager.create_session(on_event=on_event)
+        emit("acp_created", {"session_id": session_id})
+
+    @socketio.on("acp_subscribe")
+    def acp_subscribe(data):
+        if not validate_csrf(data):
+            return
+        acp_sid = data.get("session_id")
+        if acp_sid:
+            acp_subscribers.setdefault(acp_sid, set()).add(request.sid)
+
+    @socketio.on("acp_prompt")
+    def acp_prompt(data):
+        if not validate_csrf(data):
+            return
+        session = acp_manager.get_session(data.get("session_id"))
+        if session:
+            session.send_prompt(data.get("text", ""))
+
+    @socketio.on("acp_cancel")
+    def acp_cancel(data):
+        if not validate_csrf(data):
+            return
+        session = acp_manager.get_session(data.get("session_id"))
+        if session:
+            session.cancel()
+
+    @socketio.on("acp_close")
+    def acp_close(data):
+        if not validate_csrf(data):
+            return
+        acp_sid = data.get("session_id")
+        if acp_sid:
+            acp_subscribers.pop(acp_sid, None)
+            acp_manager.destroy_session(acp_sid)

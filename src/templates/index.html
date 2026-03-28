@@ -620,6 +620,10 @@
                         <div class="session-card-title">Kiro Unchained</div>
                         <div class="session-card-desc">Kiro CLI chat agent mode</div>
                     </div>
+                    <div class="session-card" onclick="createChatSession()">
+                        <div class="session-card-title">Kiro Chat</div>
+                        <div class="session-card-desc">Graphical chat UI (ACP)</div>
+                    </div>
                 </div>
                 <button class="modal-close" onclick="closeNewSessionModal()">Cancel</button>
             </div>
@@ -1441,21 +1445,8 @@
             e.stopPropagation();
         });
 
-        // Listen for clicks inside Kasm desktop iframe (Kasm sends postMessage on canvas mousedown)
-        window.addEventListener('message', (e) => {
-            if (e.data && e.data.action === 'enable_audio') {
-                for (const paneNum of [1, 2]) {
-                    if (paneTypes[paneNum] === 'browser') {
-                        const browser = document.getElementById(`browser${paneNum}`);
-                        const iframe = browser ? browser.querySelector('iframe') : null;
-                        if (iframe && iframe.contentWindow === e.source) {
-                            setActiveTerminal(paneNum);
-                            return;
-                        }
-                    }
-                }
-            }
-        });
+        // Listen for messages from iframes (Kasm desktop, ACP chat)
+        // Handled in the ACP Chat Sessions section below
 
         function openNewSessionModal() {
             document.getElementById('newSessionModal').classList.add('open');
@@ -1754,6 +1745,118 @@
         // Submit dictation on Enter key
         document.getElementById('dictationInput').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') { e.preventDefault(); submitDictation(); }
+        });
+
+        // --- ACP Chat Sessions ---
+        let chatSessions = {}; // id -> { name }
+
+        function createChatSession() {
+            closeNewSessionModal();
+            emitWithCsrf('acp_create');
+        }
+
+        socket.on('acp_created', (data) => {
+            const id = data.session_id;
+            const name = 'Chat-' + id;
+            chatSessions[id] = { name };
+            addChatToSidebar(id, name);
+            openChatPane(id);
+        });
+
+        function addChatToSidebar(id, name) {
+            const sessionList = document.getElementById('sessionList');
+            const item = document.createElement('div');
+            item.className = 'session-item';
+            item.dataset.session = 'chat:' + id;
+            item.dataset.chatId = id;
+
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'session-name';
+            nameSpan.textContent = name;
+
+            const closeBtn = document.createElement('button');
+            closeBtn.className = 'close-btn';
+            closeBtn.textContent = '✕';
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                closeChatSession(id);
+            };
+
+            item.appendChild(nameSpan);
+            item.appendChild(closeBtn);
+            item.addEventListener('click', () => {
+                openChatPane(id);
+                if (window.innerWidth <= 500) {
+                    document.getElementById('sidebar').classList.remove('open');
+                }
+            });
+            sessionList.appendChild(item);
+        }
+
+        function openChatPane(chatId) {
+            const pane = activeTerminal;
+            const browser = document.getElementById(`browser${pane}`);
+            const terminal = document.getElementById(`terminal${pane}`);
+
+            // Switch to browser pane mode
+            paneTypes[pane] = 'browser';
+            terminal.classList.add('hidden');
+            browser.classList.remove('hidden');
+
+            // Clear and load chat iframe
+            browser.innerHTML = '';
+            const iframe = document.createElement('iframe');
+            iframe.src = '/chat/' + chatId;
+            iframe.style.cssText = 'width:100%;height:100%;border:none';
+            browser.appendChild(iframe);
+
+            if (pane === 1) currentSession1 = null;
+            else currentSession2 = null;
+
+            // Highlight in sidebar
+            document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+            const item = document.querySelector(`.session-item[data-chat-id="${chatId}"]`);
+            if (item) item.classList.add('active');
+        }
+
+        function closeChatSession(chatId) {
+            emitWithCsrf('acp_close', { session_id: chatId });
+            delete chatSessions[chatId];
+            const item = document.querySelector(`.session-item[data-chat-id="${chatId}"]`);
+            if (item) item.remove();
+
+            // If this chat is currently displayed, switch back to terminal
+            [1, 2].forEach(pane => {
+                const browser = document.getElementById(`browser${pane}`);
+                const iframe = browser.querySelector('iframe');
+                if (iframe && iframe.src.includes('/chat/' + chatId)) {
+                    paneTypes[pane] = 'terminal';
+                    document.getElementById(`terminal${pane}`).classList.remove('hidden');
+                    browser.classList.add('hidden');
+                    browser.innerHTML = '';
+                    setTimeout(doFit, 100);
+                }
+            });
+        }
+
+        // Listen for chat close from iframe and Kasm desktop clicks
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.type === 'acp-chat-closing') {
+                closeChatSession(e.data.sessionId);
+                return;
+            }
+            if (e.data && e.data.action === 'enable_audio') {
+                for (const paneNum of [1, 2]) {
+                    if (paneTypes[paneNum] === 'browser') {
+                        const browser = document.getElementById(`browser${paneNum}`);
+                        const iframe = browser ? browser.querySelector('iframe') : null;
+                        if (iframe && iframe.contentWindow === e.source) {
+                            setActiveTerminal(paneNum);
+                            return;
+                        }
+                    }
+                }
+            }
         });
 
         // Close sidebar when clicking outside on mobile
