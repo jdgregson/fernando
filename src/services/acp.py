@@ -7,9 +7,12 @@ import select
 import subprocess
 import threading
 import time
+import shutil
 import uuid
 
 logger = logging.getLogger(__name__)
+
+KIRO_CLI = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
@@ -51,7 +54,7 @@ class ACPSession:
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
         self.proc = subprocess.Popen(
-            ["kiro-cli", "acp", "-a"],
+            [KIRO_CLI, "acp", "-a"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

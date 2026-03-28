@@ -153,6 +153,11 @@ async def list_tools() -> list[Tool]:
             description="Restart Fernando to apply code changes. Blocks until Fernando is back up and healthy, or reports failure with logs. Runs stop/start in a detached background process so the calling Kiro agent session survives. NOTE: This restarts the Flask backend and nginx but preserves tmux sessions including your own. MCP server changes require the user to manually restart the Kiro CLI session.",
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="reboot",
+            description="Reboot the host machine using 'sudo reboot'. This will terminate all sessions.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -212,6 +217,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "message": "Fernando did not come back up within 60 seconds.",
                 "log": log,
             }
+    elif name == "reboot":
+        subprocess.Popen(["sudo", "reboot"])
+        result = {"status": "rebooting", "message": "Host is rebooting now."}
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

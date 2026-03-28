@@ -86,7 +86,7 @@ if [ ! -d "$FERNANDO_HOME" ]; then
 fi
 usermod -aG docker "$FERNANDO_USER"
 
-echo "$FERNANDO_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart fernando, /bin/systemctl stop fernando, /bin/systemctl start fernando" | tee /etc/sudoers.d/99-$FERNANDO_USER-fernando
+echo "$FERNANDO_USER ALL=(ALL) NOPASSWD: /bin/systemctl restart fernando, /bin/systemctl stop fernando, /bin/systemctl start fernando, /sbin/reboot" | tee /etc/sudoers.d/99-$FERNANDO_USER-fernando
 
 # Disable system nginx - Fernando manages its own nginx process
 systemctl stop nginx
