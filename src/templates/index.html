@@ -1215,7 +1215,7 @@
             }
 
             // Check if lists are different
-            const chatKeys = chatSessions.map(id => 'chat:' + id);
+            const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name);
             const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort());
             if (sessionListInitialized && lastSessionsKey === newKey) {
                 return;
@@ -1325,14 +1325,15 @@
             });
 
             // Add chat sessions
-            chatSessions.forEach(chatId => {
+            chatSessions.forEach(chat => {
+                const chatId = chat.id;
                 const item = document.createElement('div');
                 item.className = 'session-item';
                 item.dataset.session = 'chat:' + chatId;
 
                 const nameSpan = document.createElement('span');
                 nameSpan.className = 'session-name';
-                nameSpan.textContent = 'Chat-' + chatId;
+                nameSpan.textContent = chat.name;
 
                 const closeBtn = document.createElement('button');
                 closeBtn.className = 'close-btn';
@@ -1341,11 +1342,59 @@
 
                 item.appendChild(nameSpan);
                 item.appendChild(closeBtn);
-                item.addEventListener('click', () => {
-                    openChatPane(chatId);
-                    if (window.innerWidth <= 500) {
-                        document.getElementById('sidebar').classList.remove('open');
+
+                // Rename on double-click / long-press (same as tmux sessions)
+                let clickTimer = null;
+                function startChatRename() {
+                    const oldName = nameSpan.textContent;
+                    const inp = document.createElement('input');
+                    inp.value = oldName;
+                    inp.style.cssText = 'background:#3c3c3c;color:#fff;border:1px solid #3465a3;outline:none;padding:2px 4px;font-family:monospace;font-size:inherit;width:calc(100% - 32px)';
+                    nameSpan.replaceWith(inp);
+                    inp.focus();
+                    inp.select();
+                    function commit() {
+                        if (!inp.parentNode) return;
+                        const newName = inp.value.trim();
+                        inp.replaceWith(nameSpan);
+                        if (newName && newName !== oldName) {
+                            nameSpan.textContent = newName;
+                            emitWithCsrf('acp_rename', { session_id: chatId, name: newName });
+                        }
                     }
+                    inp.addEventListener('keydown', function(ev) {
+                        ev.stopPropagation();
+                        if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+                        if (ev.key === 'Escape') { inp.replaceWith(nameSpan); }
+                    });
+                    inp.addEventListener('blur', commit);
+                    inp.addEventListener('click', function(ev) { ev.stopPropagation(); });
+                }
+                item.addEventListener('click', function(e) {
+                    if (e.detail === 2) {
+                        clearTimeout(clickTimer);
+                        e.stopPropagation();
+                        startChatRename();
+                        return;
+                    }
+                    clickTimer = setTimeout(() => {
+                        openChatPane(chatId);
+                        if (window.innerWidth <= 500) {
+                            document.getElementById('sidebar').classList.remove('open');
+                        }
+                    }, 250);
+                });
+                let holdTimer = null;
+                nameSpan.addEventListener('touchstart', function(e) {
+                    holdTimer = setTimeout(() => { e.preventDefault(); holdTimer = 'fired'; startChatRename(); }, 500);
+                }, {passive: false});
+                nameSpan.addEventListener('touchend', function(e) {
+                    if (holdTimer === 'fired') e.preventDefault();
+                    else clearTimeout(holdTimer);
+                    holdTimer = null;
+                });
+                nameSpan.addEventListener('touchmove', function() {
+                    if (holdTimer !== 'fired') clearTimeout(holdTimer);
                 });
                 sessionList.appendChild(item);
             });

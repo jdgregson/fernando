@@ -438,7 +438,7 @@
             return;
         }
 
-        if (evt.type === 'session_ready') { setStatus('ready', 'Ready'); return; }
+        if (evt.type === 'session_ready') { finishTurn(); setStatus('ready', 'Ready'); return; }
         if (evt.type === 'session_error') { setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { setStatus('error', 'Session ended'); return; }
 

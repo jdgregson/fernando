@@ -38,6 +38,7 @@ class ACPSession:
         self.on_event = on_event
         self.proc = None
         self.acp_session_id = None
+        self.display_name = "Chat-" + session_id
         self._reader_thread = None
         self._next_id = 0
         self._pending = {}
@@ -45,6 +46,7 @@ class ACPSession:
         self._alive = False
         self.history = []
         self.ready = False
+        self._recording = True  # gate for _record_event
 
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
@@ -78,6 +80,19 @@ class ACPSession:
             self.acp_session_id = resp["sessionId"]
         else:
             raise RuntimeError("ACP session/new failed")
+
+        # Send intro file as initial context (not recorded as user message)
+        intro_file = os.path.join(os.path.dirname(__file__), "..", "..", "data", "intro.md")
+        if os.path.exists(intro_file):
+            with open(intro_file) as f:
+                intro = f.read().strip()
+            if intro:
+                self._recording = False
+                self._request("session/prompt", {
+                    "sessionId": self.acp_session_id,
+                    "prompt": [{"type": "text", "text": intro}],
+                }, timeout=60)
+                self._recording = True
 
     def load(self, acp_session_id):
         """Load an existing ACP session (resume after restart)."""
@@ -165,6 +180,8 @@ class ACPSession:
         return entry.get("result")
 
     def _record_event(self, msg):
+        if not self._recording:
+            return
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             self.history.append(msg)
@@ -263,12 +280,18 @@ class ACPManager:
     def restore_sessions(self, on_event_factory):
         """Restore sessions from disk after restart."""
         saved = _load_sessions_map()
-        for fernando_id, acp_id in saved.items():
-            # Verify the Kiro session file exists
+        for fernando_id, info in saved.items():
+            # Support old format (string) and new format (dict)
+            if isinstance(info, str):
+                acp_id, name = info, "Chat-" + fernando_id
+            else:
+                acp_id, name = info["acp_id"], info.get("name", "Chat-" + fernando_id)
             session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
             if not os.path.exists(session_file):
                 continue
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id))
+            session.display_name = name
+            session.acp_session_id = acp_id  # Set before thread so _save() won't drop it
             with self._lock:
                 self.sessions[fernando_id] = session
             threading.Thread(
@@ -302,12 +325,19 @@ class ACPManager:
 
     def list_sessions(self):
         with self._lock:
-            return list(self.sessions.keys())
+            return [{"id": sid, "name": s.display_name} for sid, s in self.sessions.items()]
+
+    def rename_session(self, session_id, new_name):
+        with self._lock:
+            session = self.sessions.get(session_id)
+        if session:
+            session.display_name = new_name
+            self._save()
 
     def _save(self):
         with self._lock:
             mapping = {
-                sid: s.acp_session_id
+                sid: {"acp_id": s.acp_session_id, "name": s.display_name}
                 for sid, s in self.sessions.items()
                 if s.acp_session_id
             }

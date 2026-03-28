@@ -328,10 +328,10 @@ def register_handlers(socketio):
             # Replay history for reconnecting clients
             session = acp_manager.get_session(acp_sid)
             if session:
-                if session.ready:
-                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 for evt in session.history:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
+                if session.ready:
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
 
     @socketio.on("acp_prompt")
     def acp_prompt(data):
@@ -357,3 +357,9 @@ def register_handlers(socketio):
         if acp_sid:
             acp_subscribers.pop(acp_sid, None)
             acp_manager.destroy_session(acp_sid)
+
+    @socketio.on("acp_rename")
+    def acp_rename(data):
+        if not validate_csrf(data):
+            return
+        acp_manager.rename_session(data.get("session_id"), data.get("name", ""))
