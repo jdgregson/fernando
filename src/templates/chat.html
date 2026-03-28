@@ -250,6 +250,23 @@
         scrollToBottom();
     }
 
+    function extractFilePaths(rawInput) {
+        if (!rawInput) return [];
+        const input = typeof rawInput === 'object' ? rawInput : {};
+        // Handle "paths" array (e.g. fs_read) or "path" string
+        if (Array.isArray(input.paths)) return input.paths;
+        if (typeof input.path === 'string') return [input.path];
+        // Try nested in operations array
+        if (Array.isArray(input.operations)) {
+            return input.operations.map(o => o.path).filter(Boolean);
+        }
+        return [];
+    }
+
+    function fileUrl(filePath) {
+        return '/files/' + filePath.replace(/^\/home\/fernando\//, '');
+    }
+
     function addToolCall(toolCallId, title, status, rawInput) {
         ensureAssistantMsg();
         const div = document.createElement('div');
@@ -287,6 +304,21 @@
 
         div.appendChild(header);
         div.appendChild(body);
+
+        // Show image previews for file read tools
+        const paths = extractFilePaths(rawInput);
+        for (const p of paths) {
+            if (IMAGE_EXTS.test(p)) {
+                const img = document.createElement('img');
+                img.src = fileUrl(p);
+                img.style.cssText = 'max-width:100%;max-height:400px;border-radius:4px;margin-top:6px;display:block';
+                body.appendChild(img);
+                // Auto-expand to show the image
+                arrow.classList.add('open');
+                body.classList.add('open');
+            }
+        }
+
         currentAssistantMsg.appendChild(div);
         toolCalls[toolCallId] = { div, statusSpan, body, title: title || '', rawInput };
         scrollToBottom();
@@ -305,37 +337,23 @@
             for (const c of content) {
                 if (c.type === 'content' && c.content) {
                     if (c.content.type === 'text') {
-                        const text = c.content.text;
-                        tc.body.textContent += text + '\n';
-
-                        // Show file preview for completed read operations
-                        if (status === 'completed' && tc.rawInput) {
-                            const input = typeof tc.rawInput === 'string' ? tc.rawInput : JSON.stringify(tc.rawInput);
-                            // Extract file path from rawInput
-                            const pathMatch = input.match(/"path"\s*:\s*"([^"]+)"/);
-                            if (pathMatch) {
-                                const filePath = pathMatch[1];
-                                if (IMAGE_EXTS.test(filePath)) {
-                                    // Image preview
-                                    const img = document.createElement('img');
-                                    img.src = '/files/' + filePath.replace(/^\/home\/fernando\//, '');
-                                    img.style.cssText = 'max-width:100%;max-height:300px;border-radius:4px;margin-top:6px;display:block';
-                                    tc.body.appendChild(img);
-                                    tc.body.classList.add('open');
-                                    tc.div.querySelector('.arrow').classList.add('open');
-                                }
-                            }
-                        }
+                        // Insert text before any images
+                        const textNode = document.createTextNode(c.content.text + '\n');
+                        const firstImg = tc.body.querySelector('img');
+                        if (firstImg) tc.body.insertBefore(textNode, firstImg);
+                        else tc.body.appendChild(textNode);
                     }
                 }
             }
         }
-        // Auto-expand tool calls that have text content on completion
         if (status === 'completed' && tc.body.textContent.trim()) {
-            // Show first ~20 lines as preview
             const lines = tc.body.textContent.trim().split('\n');
             if (lines.length > 20) {
-                tc.body.textContent = lines.slice(0, 20).join('\n') + '\n... (' + lines.length + ' lines total)';
+                // Preserve images, truncate text
+                const imgs = tc.body.querySelectorAll('img');
+                const truncated = lines.slice(0, 20).join('\n') + '\n... (' + lines.length + ' lines total)';
+                tc.body.textContent = truncated;
+                imgs.forEach(img => tc.body.appendChild(img));
             }
         }
         scrollToBottom();
@@ -387,6 +405,16 @@
     socket.on('acp_event', (data) => {
         if (data.session_id !== sessionId) return;
         const evt = data.event;
+
+        // Handle user prompt replay
+        if (evt.type === 'user_prompt') {
+            const el = document.createElement('div');
+            el.className = 'msg user';
+            el.textContent = evt.text;
+            document.getElementById('messages').appendChild(el);
+            scrollToBottom();
+            return;
+        }
 
         if (evt.type === 'session_ready') { setStatus('ready', 'Ready'); return; }
         if (evt.type === 'session_error') { setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
