@@ -324,6 +324,13 @@ def register_handlers(socketio):
         acp_sid = data.get("session_id")
         if acp_sid:
             acp_subscribers.setdefault(acp_sid, set()).add(request.sid)
+            # Replay history for reconnecting clients
+            session = acp_manager.get_session(acp_sid)
+            if session:
+                if session.ready:
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                for evt in session.history:
+                    emit("acp_event", {"session_id": acp_sid, "event": evt})
 
     @socketio.on("acp_prompt")
     def acp_prompt(data):

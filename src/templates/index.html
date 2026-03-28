@@ -1052,7 +1052,16 @@
             const browser = document.getElementById(`browser${activePane}`);
             const terminal = document.getElementById(`terminal${activePane}`);
 
-            if (paneTypes[activePane] === 'terminal') {
+            // If currently showing desktop, switch back to terminal
+            const currentIframe = browser.querySelector('iframe');
+            const isDesktop = paneTypes[activePane] === 'browser' && currentIframe && currentIframe.src.includes('/kasm/');
+            if (isDesktop) {
+                paneTypes[activePane] = 'terminal';
+                terminal.classList.remove('hidden');
+                browser.classList.add('hidden');
+                setTimeout(doFit, 100);
+            } else {
+                // Switch to desktop (from terminal or chat)
                 paneTypes[activePane] = 'browser';
                 terminal.classList.add('hidden');
                 browser.classList.remove('hidden');
@@ -1063,13 +1072,10 @@
                     currentSession2 = null;
                 }
 
+                browser.innerHTML = '';
                 ensureDesktopIframe(browser);
-            } else {
-                paneTypes[activePane] = 'terminal';
-                terminal.classList.remove('hidden');
-                browser.classList.add('hidden');
-                setTimeout(doFit, 100);
             }
+            highlightSidebarItem('desktop');
             syncUrlParams();
         }
 
@@ -1380,15 +1386,17 @@
             console.log('Attaching session:', sessionName, 'to terminal:', activeTerminal);
 
             if (sessionName === 'desktop') {
-                if (paneTypes[activeTerminal] !== 'browser') {
-                    toggleDesktop();
-                }
+                toggleDesktop();
                 return;
             }
 
-            // If browser is showing, switch to terminal first
+            // If browser is showing (desktop or chat), switch back to terminal
             if (paneTypes[activeTerminal] === 'browser') {
-                toggleDesktop();
+                const browser = document.getElementById(`browser${activeTerminal}`);
+                const terminal = document.getElementById(`terminal${activeTerminal}`);
+                paneTypes[activeTerminal] = 'terminal';
+                terminal.classList.remove('hidden');
+                browser.classList.add('hidden');
             }
 
             const term = activeTerminal === 1 ? term1 : term2;
@@ -1405,6 +1413,7 @@
             emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName });
             console.log('Emitted attach_session');
 
+            highlightSidebarItem(sessionName);
             term.focus();
             setTimeout(doFit, 100);
             syncUrlParams();

@@ -25,6 +25,8 @@ class ACPSession:
         self._pending = {}  # id -> threading.Event, result
         self._lock = threading.Lock()
         self._alive = False
+        self.history = []  # list of events to replay on reconnect
+        self.ready = False
 
     def start(self):
         """Spawn kiro-cli acp subprocess and initialize the ACP connection."""
@@ -63,6 +65,7 @@ class ACPSession:
         """Send a prompt (fire-and-forget, responses come via notifications)."""
         if not self.acp_session_id:
             return
+        self.history.append({"type": "user_prompt", "text": text})
         self._send({
             "jsonrpc": "2.0",
             "id": self._get_id(),
@@ -125,6 +128,13 @@ class ACPSession:
             entry = self._pending.pop(req_id, {})
         return entry.get("result")
 
+    def _record_event(self, msg):
+        """Record conversation-relevant events for history replay."""
+        method = msg.get("method", "")
+        # Record session/update (message chunks, tool calls) and stop responses
+        if method == "session/update" or msg.get("result", {}).get("stopReason"):
+            self.history.append(msg)
+
     def _read_loop(self):
         """Read lines from stdout and dispatch."""
         while self._alive and self.proc and self.proc.poll() is None:
@@ -153,6 +163,7 @@ class ACPSession:
                         self._pending[msg_id]["event"].set()
                         continue
                 # Not a pending request — forward it (e.g. prompt stopReason)
+                self._record_event(msg)
                 if self.on_event:
                     try:
                         self.on_event(self.id, msg)
@@ -171,6 +182,7 @@ class ACPSession:
                 continue
 
             # Otherwise it's a notification — forward to callback
+            self._record_event(msg)
             if self.on_event:
                 try:
                     self.on_event(self.id, msg)
@@ -206,6 +218,7 @@ class ACPManager:
     def _start_session(self, session_id, session):
         try:
             session.start()
+            session.ready = True
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
         except Exception as e:
