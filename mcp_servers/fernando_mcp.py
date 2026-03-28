@@ -150,8 +150,16 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="mutate",
-            description="Restart Fernando to apply code changes. Blocks until Fernando is back up and healthy, or reports failure with logs. Runs stop/start in a detached background process so the calling Kiro agent session survives. NOTE: This restarts the Flask backend and nginx but preserves tmux sessions including your own. MCP server changes require the user to manually restart the Kiro CLI session.",
-            inputSchema={"type": "object", "properties": {}},
+            description="Restart Fernando to apply code changes. Blocks until Fernando is back up and healthy, or reports failure with logs. Runs stop/start in a detached background process so the calling Kiro agent session survives. NOTE: This restarts the Flask backend and nginx but preserves tmux sessions including your own. MCP server changes require the user to manually restart the Kiro CLI session. For ACP chat sessions, provide a continuation message to auto-resume after restart.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "continuation": {
+                        "type": "string",
+                        "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
+                    },
+                },
+            },
         ),
         Tool(
             name="reboot",
@@ -180,6 +188,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = terminate_subagent(arguments["task_id"])
     elif name == "mutate":
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        continuation = arguments.get("continuation")
+        if continuation:
+            cont_file = os.path.join(project_root, "data", "pending_continuation.json")
+            with open(cont_file, "w") as f:
+                json.dump({"message": continuation}, f)
         proc = subprocess.Popen(
             [os.path.join(project_root, "mutate.sh")],
             stdout=subprocess.PIPE,

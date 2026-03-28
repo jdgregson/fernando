@@ -33,6 +33,20 @@ def _load_sessions_map():
         return {}
 
 
+CONTINUATION_FILE = os.path.join(DATA_DIR, "pending_continuation.json")
+
+
+def _pop_continuation():
+    """Read and delete the pending continuation file, if any."""
+    try:
+        with open(CONTINUATION_FILE) as f:
+            data = json.load(f)
+        os.remove(CONTINUATION_FILE)
+        return data.get("message")
+    except Exception:
+        return None
+
+
 class ACPSession:
     """Manages a single kiro-cli acp subprocess and its ACP session."""
 
@@ -282,6 +296,7 @@ class ACPManager:
 
     def restore_sessions(self, on_event_factory):
         """Restore sessions from disk after restart."""
+        continuation = _pop_continuation()
         saved = _load_sessions_map()
         for fernando_id, info in saved.items():
             # Support old format (string) and new format (dict)
@@ -299,16 +314,18 @@ class ACPManager:
                 self.sessions[fernando_id] = session
             threading.Thread(
                 target=self._load_existing,
-                args=(fernando_id, session, acp_id),
+                args=(fernando_id, session, acp_id, continuation),
                 daemon=True,
             ).start()
 
-    def _load_existing(self, session_id, session, acp_session_id):
+    def _load_existing(self, session_id, session, acp_session_id, continuation=None):
         try:
             session.load(acp_session_id)
             session.ready = True
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
+            if continuation:
+                session.send_prompt(continuation)
         except Exception as e:
             logger.error(f"ACP session load failed for {session_id}: {e}")
             if session.on_event:
