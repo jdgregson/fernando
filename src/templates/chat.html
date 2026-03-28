@@ -28,34 +28,37 @@
         .messages {
             flex: 1;
             overflow-y: auto;
-            padding: 16px;
+            padding: 0;
             display: flex;
             flex-direction: column;
-            gap: 12px;
         }
 
         .msg {
-            max-width: 85%;
-            padding: 10px 14px;
-            border-radius: 8px;
+            width: 100%;
+            padding: 14px 20px;
             font-size: 14px;
             line-height: 1.6;
             word-wrap: break-word;
             overflow-wrap: break-word;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        .msg .msg-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            opacity: 0.6;
         }
         .msg.user {
-            align-self: flex-end;
-            background: #264f78;
-            color: #fff;
-            border-bottom-right-radius: 2px;
+            background: #1a2332;
             white-space: pre-wrap;
         }
+        .msg.user .msg-label { color: #569cd6; }
         .msg.assistant {
-            align-self: flex-start;
-            background: #2d2d2d;
-            border: 1px solid #3e3e42;
-            border-bottom-left-radius: 2px;
+            background: #1e1e1e;
         }
+        .msg.assistant .msg-label { color: #4ec9b0; }
         /* Markdown styles inside assistant messages */
         .msg.assistant p { margin: 0.4em 0; }
         .msg.assistant p:first-child { margin-top: 0; }
@@ -212,29 +215,40 @@
 
     let currentAssistantMsg = null;
     let currentText = '';
-    let currentContentDiv = null; // div holding rendered markdown text
-    let toolCalls = {}; // toolCallId -> DOM element
+    let currentContentDiv = null;
+    let toolCalls = {};
 
     function ensureAssistantMsg() {
         if (!currentAssistantMsg) {
             currentText = '';
+            currentContentDiv = null;
             currentAssistantMsg = document.createElement('div');
             currentAssistantMsg.className = 'msg assistant';
-            currentContentDiv = document.createElement('div');
-            currentContentDiv.className = 'msg-content';
-            currentAssistantMsg.appendChild(currentContentDiv);
+            const label = document.createElement('div');
+            label.className = 'msg-label';
+            label.textContent = 'Fernando';
+            currentAssistantMsg.appendChild(label);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }
         return currentAssistantMsg;
     }
 
-    function appendChunk(text) {
+    function ensureContentDiv() {
         ensureAssistantMsg();
+        if (!currentContentDiv) {
+            currentText = '';
+            currentContentDiv = document.createElement('div');
+            currentContentDiv.className = 'msg-content';
+            currentAssistantMsg.appendChild(currentContentDiv);
+        }
+        return currentContentDiv;
+    }
+
+    function appendChunk(text) {
+        ensureContentDiv();
         currentText += text;
         let html = marked.parse(currentText);
-        // Convert local file paths to serveable URLs for images
         html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/files/$1"');
-        // Also handle markdown image syntax with local paths that marked might not convert
         html = html.replace(/!\[([^\]]*)\]\((\/home\/fernando\/[^)]+)\)/g,
             (m, alt, path) => `<img alt="${alt}" src="/files/${path.replace('/home/fernando/', '')}">`);
         currentContentDiv.innerHTML = html;
@@ -242,7 +256,7 @@
     }
 
     function appendImage(data, mimeType) {
-        ensureAssistantMsg();
+        ensureContentDiv();
         const img = document.createElement('img');
         img.src = 'data:' + (mimeType || 'image/png') + ';base64,' + data;
         img.style.cssText = 'max-width:100%;border-radius:4px;margin:6px 0';
@@ -269,6 +283,9 @@
 
     function addToolCall(toolCallId, title, status, rawInput) {
         ensureAssistantMsg();
+        // Seal current text so next text appears after this tool call
+        currentContentDiv = null;
+        currentText = '';
         const div = document.createElement('div');
         div.className = 'tool-call';
 
@@ -379,15 +396,24 @@
         m.scrollTop = m.scrollHeight;
     }
 
+    function addUserMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'msg user';
+        const label = document.createElement('div');
+        label.className = 'msg-label';
+        label.textContent = 'You';
+        el.appendChild(label);
+        el.appendChild(document.createTextNode(text));
+        document.getElementById('messages').appendChild(el);
+        scrollToBottom();
+    }
+
     function sendMessage() {
         const input = document.getElementById('input');
         const text = input.value.trim();
         if (!text || isWorking) return;
 
-        const el = document.createElement('div');
-        el.className = 'msg user';
-        el.textContent = text;
-        document.getElementById('messages').appendChild(el);
+        addUserMessage(text);
 
         input.value = '';
         input.style.height = 'auto';
@@ -408,11 +434,7 @@
 
         // Handle user prompt replay
         if (evt.type === 'user_prompt') {
-            const el = document.createElement('div');
-            el.className = 'msg user';
-            el.textContent = evt.text;
-            document.getElementById('messages').appendChild(el);
-            scrollToBottom();
+            addUserMessage(evt.text);
             return;
         }
 
