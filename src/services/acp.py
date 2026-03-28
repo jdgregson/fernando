@@ -16,6 +16,7 @@ KIRO_CLI = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
+PID_MAP_FILE = os.path.join(DATA_DIR, "acp_pid_map.json")
 KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
 
 
@@ -33,6 +34,19 @@ def _load_sessions_map():
         return {}
 
 
+def _save_pid_map(sessions):
+    """Write mapping of kiro-cli PID -> fernando session ID."""
+    pid_map = {}
+    for sid, session in sessions.items():
+        if session.proc and session.proc.poll() is None:
+            pid_map[str(session.proc.pid)] = sid
+    try:
+        with open(PID_MAP_FILE, "w") as f:
+            json.dump(pid_map, f)
+    except Exception:
+        pass
+
+
 CONTINUATION_FILE = os.path.join(DATA_DIR, "pending_continuation.json")
 
 
@@ -42,7 +56,7 @@ def _pop_continuation():
         with open(CONTINUATION_FILE) as f:
             data = json.load(f)
         os.remove(CONTINUATION_FILE)
-        return data.get("message")
+        return data  # {message, session_id}
     except Exception:
         return None
 
@@ -286,6 +300,7 @@ class ACPManager:
             session.start()
             session.ready = True
             self._save()
+            self._save_pid_map()
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
         except Exception as e:
@@ -322,10 +337,11 @@ class ACPManager:
         try:
             session.load(acp_session_id)
             session.ready = True
+            self._save_pid_map()
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
-            if continuation:
-                session.send_prompt(continuation)
+            if continuation and continuation.get("session_id") == session_id:
+                session.send_prompt(continuation["message"])
         except Exception as e:
             logger.error(f"ACP session load failed for {session_id}: {e}")
             if session.on_event:
@@ -362,6 +378,11 @@ class ACPManager:
                 if s.acp_session_id
             }
         _save_sessions_map(mapping)
+
+    def _save_pid_map(self):
+        with self._lock:
+            sessions = dict(self.sessions)
+        _save_pid_map(sessions)
 
 
 acp_manager = ACPManager()

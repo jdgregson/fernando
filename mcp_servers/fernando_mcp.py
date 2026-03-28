@@ -190,9 +190,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         continuation = arguments.get("continuation")
         if continuation:
+            # Find which chat session we belong to via PID map
+            session_id = None
+            try:
+                pid_map_file = os.path.join(project_root, "data", "acp_pid_map.json")
+                with open(pid_map_file) as f:
+                    pid_map = json.load(f)
+                session_id = pid_map.get(str(os.getppid()))
+            except Exception:
+                pass
             cont_file = os.path.join(project_root, "data", "pending_continuation.json")
             with open(cont_file, "w") as f:
-                json.dump({"message": continuation}, f)
+                json.dump({"message": continuation, "session_id": session_id}, f)
         proc = subprocess.Popen(
             [os.path.join(project_root, "mutate.sh")],
             stdout=subprocess.PIPE,
