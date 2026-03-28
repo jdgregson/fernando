@@ -53,7 +53,8 @@ def register_handlers(socketio):
             emit("error", {"message": "Invalid CSRF token"})
             return
         sessions = tmux_service.list_sessions()
-        emit("sessions_list", {"sessions": sessions})
+        chat_sessions = acp_manager.list_sessions()
+        emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions})
 
     @socketio.on("kasm_ws")
     def handle_kasm_ws(data):

@@ -288,9 +288,11 @@
         div.appendChild(header);
         div.appendChild(body);
         currentAssistantMsg.appendChild(div);
-        toolCalls[toolCallId] = { div, statusSpan, body };
+        toolCalls[toolCallId] = { div, statusSpan, body, title: title || '', rawInput };
         scrollToBottom();
     }
+
+    const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
 
     function updateToolCall(toolCallId, status, content) {
         const tc = toolCalls[toolCallId];
@@ -303,9 +305,37 @@
             for (const c of content) {
                 if (c.type === 'content' && c.content) {
                     if (c.content.type === 'text') {
-                        tc.body.textContent += c.content.text + '\n';
+                        const text = c.content.text;
+                        tc.body.textContent += text + '\n';
+
+                        // Show file preview for completed read operations
+                        if (status === 'completed' && tc.rawInput) {
+                            const input = typeof tc.rawInput === 'string' ? tc.rawInput : JSON.stringify(tc.rawInput);
+                            // Extract file path from rawInput
+                            const pathMatch = input.match(/"path"\s*:\s*"([^"]+)"/);
+                            if (pathMatch) {
+                                const filePath = pathMatch[1];
+                                if (IMAGE_EXTS.test(filePath)) {
+                                    // Image preview
+                                    const img = document.createElement('img');
+                                    img.src = '/files/' + filePath.replace(/^\/home\/fernando\//, '');
+                                    img.style.cssText = 'max-width:100%;max-height:300px;border-radius:4px;margin-top:6px;display:block';
+                                    tc.body.appendChild(img);
+                                    tc.body.classList.add('open');
+                                    tc.div.querySelector('.arrow').classList.add('open');
+                                }
+                            }
+                        }
                     }
                 }
+            }
+        }
+        // Auto-expand tool calls that have text content on completion
+        if (status === 'completed' && tc.body.textContent.trim()) {
+            // Show first ~20 lines as preview
+            const lines = tc.body.textContent.trim().split('\n');
+            if (lines.length > 20) {
+                tc.body.textContent = lines.slice(0, 20).join('\n') + '\n... (' + lines.length + ' lines total)';
             }
         }
         scrollToBottom();

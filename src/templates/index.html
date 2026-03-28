@@ -1187,11 +1187,18 @@
         });
 
         socket.on('sessions_list', data => {
-            updateSessionList(data.sessions);
+            updateSessionList(data.sessions, data.chat_sessions || []);
         });
 
+        function highlightSidebarItem(sessionKey) {
+            document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+            const item = document.querySelector(`.session-item[data-session="${sessionKey}"]`);
+            if (item) item.classList.add('active');
+        }
+
         let sessionListInitialized = false;
-        function updateSessionList(sessions) {
+        let lastSessionsKey = '';
+        function updateSessionList(sessions, chatSessions) {
             const sessionList = document.getElementById('sessionList');
             const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session).filter(s => s !== 'desktop');
 
@@ -1202,10 +1209,13 @@
             }
 
             // Check if lists are different
-            if (sessionListInitialized && JSON.stringify(currentSessions.sort()) === JSON.stringify(sessions.sort())) {
+            const chatKeys = chatSessions.map(id => 'chat:' + id);
+            const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort());
+            if (sessionListInitialized && lastSessionsKey === newKey) {
                 return;
             }
             sessionListInitialized = true;
+            lastSessionsKey = newKey;
 
             sessionList.innerHTML = '';
 
@@ -1304,6 +1314,32 @@
                 });
                 nameSpan.addEventListener('touchmove', function() {
                     if (holdTimer !== 'fired') clearTimeout(holdTimer);
+                });
+                sessionList.appendChild(item);
+            });
+
+            // Add chat sessions
+            chatSessions.forEach(chatId => {
+                const item = document.createElement('div');
+                item.className = 'session-item';
+                item.dataset.session = 'chat:' + chatId;
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'session-name';
+                nameSpan.textContent = 'Chat-' + chatId;
+
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'close-btn';
+                closeBtn.textContent = '✕';
+                closeBtn.onclick = (e) => { e.stopPropagation(); closeChatSession(chatId); };
+
+                item.appendChild(nameSpan);
+                item.appendChild(closeBtn);
+                item.addEventListener('click', () => {
+                    openChatPane(chatId);
+                    if (window.innerWidth <= 500) {
+                        document.getElementById('sidebar').classList.remove('open');
+                    }
                 });
                 sessionList.appendChild(item);
             });
@@ -1748,7 +1784,6 @@
         });
 
         // --- ACP Chat Sessions ---
-        let chatSessions = {}; // id -> { name }
 
         function createChatSession() {
             closeNewSessionModal();
@@ -1756,76 +1791,37 @@
         }
 
         socket.on('acp_created', (data) => {
-            const id = data.session_id;
-            const name = 'Chat-' + id;
-            chatSessions[id] = { name };
-            addChatToSidebar(id, name);
-            openChatPane(id);
+            openChatPane(data.session_id);
         });
-
-        function addChatToSidebar(id, name) {
-            const sessionList = document.getElementById('sessionList');
-            const item = document.createElement('div');
-            item.className = 'session-item';
-            item.dataset.session = 'chat:' + id;
-            item.dataset.chatId = id;
-
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'session-name';
-            nameSpan.textContent = name;
-
-            const closeBtn = document.createElement('button');
-            closeBtn.className = 'close-btn';
-            closeBtn.textContent = '✕';
-            closeBtn.onclick = (e) => {
-                e.stopPropagation();
-                closeChatSession(id);
-            };
-
-            item.appendChild(nameSpan);
-            item.appendChild(closeBtn);
-            item.addEventListener('click', () => {
-                openChatPane(id);
-                if (window.innerWidth <= 500) {
-                    document.getElementById('sidebar').classList.remove('open');
-                }
-            });
-            sessionList.appendChild(item);
-        }
 
         function openChatPane(chatId) {
             const pane = activeTerminal;
             const browser = document.getElementById(`browser${pane}`);
             const terminal = document.getElementById(`terminal${pane}`);
 
-            // Switch to browser pane mode
             paneTypes[pane] = 'browser';
             terminal.classList.add('hidden');
             browser.classList.remove('hidden');
 
-            // Clear and load chat iframe
-            browser.innerHTML = '';
-            const iframe = document.createElement('iframe');
-            iframe.src = '/chat/' + chatId;
-            iframe.style.cssText = 'width:100%;height:100%;border:none';
-            browser.appendChild(iframe);
+            // Only reload iframe if not already showing this chat
+            const existing = browser.querySelector('iframe');
+            if (!existing || !existing.src.includes('/chat/' + chatId)) {
+                browser.innerHTML = '';
+                const iframe = document.createElement('iframe');
+                iframe.src = '/chat/' + chatId;
+                iframe.style.cssText = 'width:100%;height:100%;border:none';
+                browser.appendChild(iframe);
+            }
 
             if (pane === 1) currentSession1 = null;
             else currentSession2 = null;
 
-            // Highlight in sidebar
-            document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
-            const item = document.querySelector(`.session-item[data-chat-id="${chatId}"]`);
-            if (item) item.classList.add('active');
+            highlightSidebarItem('chat:' + chatId);
         }
 
         function closeChatSession(chatId) {
             emitWithCsrf('acp_close', { session_id: chatId });
-            delete chatSessions[chatId];
-            const item = document.querySelector(`.session-item[data-chat-id="${chatId}"]`);
-            if (item) item.remove();
 
-            // If this chat is currently displayed, switch back to terminal
             [1, 2].forEach(pane => {
                 const browser = document.getElementById(`browser${pane}`);
                 const iframe = browser.querySelector('iframe');
