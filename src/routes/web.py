@@ -136,6 +136,22 @@ def chat_page(session_id):
     return render_template("chat.html", acp_session_id=session_id, api_key=api_key)
 
 
+@bp.route("/files/<path:filepath>")
+def serve_file(filepath):
+    """Serve files from the home directory (for displaying screenshots etc.)."""
+    import mimetypes
+    from flask import send_file
+    full_path = os.path.join(os.path.expanduser("~"), filepath)
+    full_path = os.path.realpath(full_path)
+    home = os.path.realpath(os.path.expanduser("~"))
+    if not full_path.startswith(home + "/"):
+        return "Forbidden", 403
+    if not os.path.isfile(full_path):
+        return "Not found", 404
+    mime = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
+    return send_file(full_path, mimetype=mime)
+
+
 @bp.route("/auth/callback")
 def auth_callback():
     code = request.args.get("code")

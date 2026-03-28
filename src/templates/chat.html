@@ -2,6 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; background: #1e1e1e; color: #d4d4d4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
@@ -38,15 +39,16 @@
             padding: 10px 14px;
             border-radius: 8px;
             font-size: 14px;
-            line-height: 1.5;
-            white-space: pre-wrap;
+            line-height: 1.6;
             word-wrap: break-word;
+            overflow-wrap: break-word;
         }
         .msg.user {
             align-self: flex-end;
             background: #264f78;
             color: #fff;
             border-bottom-right-radius: 2px;
+            white-space: pre-wrap;
         }
         .msg.assistant {
             align-self: flex-start;
@@ -54,18 +56,62 @@
             border: 1px solid #3e3e42;
             border-bottom-left-radius: 2px;
         }
-        .msg.assistant .tool-call {
+        /* Markdown styles inside assistant messages */
+        .msg.assistant p { margin: 0.4em 0; }
+        .msg.assistant p:first-child { margin-top: 0; }
+        .msg.assistant p:last-child { margin-bottom: 0; }
+        .msg.assistant code { background: #1a1a2e; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+        .msg.assistant pre { background: #1a1a2e; border: 1px solid #3e3e42; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
+        .msg.assistant pre code { background: none; padding: 0; }
+        .msg.assistant ul, .msg.assistant ol { margin: 0.4em 0; padding-left: 1.5em; }
+        .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 0.6em 0 0.3em; color: #e0e0e0; }
+        .msg.assistant h1 { font-size: 1.3em; }
+        .msg.assistant h2 { font-size: 1.15em; }
+        .msg.assistant h3 { font-size: 1.05em; }
+        .msg.assistant a { color: #569cd6; }
+        .msg.assistant blockquote { border-left: 3px solid #3e3e42; padding-left: 10px; color: #999; margin: 0.4em 0; }
+        .msg.assistant table { border-collapse: collapse; margin: 0.4em 0; }
+        .msg.assistant th, .msg.assistant td { border: 1px solid #3e3e42; padding: 4px 8px; }
+        .msg.assistant img { max-width: 100%; border-radius: 4px; margin: 6px 0; }
+
+        .tool-call {
             background: #1a1a2e;
             border: 1px solid #3e3e42;
             border-radius: 4px;
-            padding: 6px 10px;
             margin: 6px 0;
             font-size: 12px;
             font-family: 'SF Mono', Menlo, Consolas, monospace;
             color: #9cdcfe;
+            overflow: hidden;
         }
-        .msg.assistant .tool-call .tool-name { color: #dcdcaa; font-weight: bold; }
-        .msg.assistant .tool-call .tool-status { color: #888; font-style: italic; }
+        .tool-call-header {
+            padding: 6px 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+        }
+        .tool-call-header:hover { background: #252545; }
+        .tool-call-header .arrow { transition: transform 0.15s; font-size: 10px; color: #888; }
+        .tool-call-header .arrow.open { transform: rotate(90deg); }
+        .tool-call-header .tool-name { color: #dcdcaa; font-weight: bold; }
+        .tool-call-header .tool-status { color: #888; font-style: italic; margin-left: auto; }
+        .tool-call-header .tool-status.completed { color: #4ec9b0; }
+        .tool-call-header .tool-status.failed { color: #f44747; }
+        .tool-call-header .tool-status.in_progress { color: #dcdcaa; }
+        .tool-call-body {
+            display: none;
+            padding: 6px 10px;
+            border-top: 1px solid #3e3e42;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            color: #aaa;
+            font-size: 11px;
+        }
+        .tool-call-body.open { display: block; }
+
         .msg.system {
             align-self: center;
             color: #888;
@@ -128,6 +174,9 @@
     let csrfToken = null;
     let isWorking = false;
 
+    // Configure marked for safe rendering
+    marked.setOptions({ breaks: true, gfm: true });
+
     const socket = io({
         path: window.location.pathname.replace(/\/chat\/.*$/, '') + '/socket.io',
         query: { api_key: apiKey },
@@ -136,15 +185,19 @@
 
     socket.on('connected', (data) => {
         csrfToken = data.csrf_token;
-        // Register this socket for ACP events
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId });
     });
 
+    // Notify parent on any click so it can focus this pane
+    document.addEventListener('mousedown', () => {
+        if (window.parent !== window) {
+            window.parent.postMessage({ type: 'acp-chat-focus', sessionId: sessionId }, '*');
+        }
+    });
+
     function setStatus(state, text) {
-        const el = document.getElementById('status');
-        const txt = document.getElementById('statusText');
-        el.className = 'status ' + state;
-        txt.textContent = text;
+        document.getElementById('status').className = 'status ' + state;
+        document.getElementById('statusText').textContent = text;
         const input = document.getElementById('input');
         const btn = document.getElementById('sendBtn');
         if (state === 'ready') {
@@ -157,49 +210,112 @@
         }
     }
 
-    function addMessage(role, content) {
-        const el = document.createElement('div');
-        el.className = 'msg ' + role;
-        if (role === 'system') {
-            el.textContent = content;
-        } else {
-            el.innerHTML = content;
-        }
-        document.getElementById('messages').appendChild(el);
-        scrollToBottom();
-        return el;
-    }
-
     let currentAssistantMsg = null;
     let currentText = '';
+    let currentContentDiv = null; // div holding rendered markdown text
+    let toolCalls = {}; // toolCallId -> DOM element
 
-    function appendChunk(text) {
+    function ensureAssistantMsg() {
         if (!currentAssistantMsg) {
             currentText = '';
-            currentAssistantMsg = addMessage('assistant', '');
+            currentAssistantMsg = document.createElement('div');
+            currentAssistantMsg.className = 'msg assistant';
+            currentContentDiv = document.createElement('div');
+            currentContentDiv.className = 'msg-content';
+            currentAssistantMsg.appendChild(currentContentDiv);
+            document.getElementById('messages').appendChild(currentAssistantMsg);
         }
+        return currentAssistantMsg;
+    }
+
+    function appendChunk(text) {
+        ensureAssistantMsg();
         currentText += text;
-        currentAssistantMsg.innerHTML = escapeHtml(currentText);
+        let html = marked.parse(currentText);
+        // Convert local file paths to serveable URLs for images
+        html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/files/$1"');
+        // Also handle markdown image syntax with local paths that marked might not convert
+        html = html.replace(/!\[([^\]]*)\]\((\/home\/fernando\/[^)]+)\)/g,
+            (m, alt, path) => `<img alt="${alt}" src="/files/${path.replace('/home/fernando/', '')}">`);
+        currentContentDiv.innerHTML = html;
         scrollToBottom();
     }
 
-    function addToolCall(name, status, params) {
-        if (!currentAssistantMsg) {
-            currentText = '';
-            currentAssistantMsg = addMessage('assistant', '');
-        }
+    function appendImage(data, mimeType) {
+        ensureAssistantMsg();
+        const img = document.createElement('img');
+        img.src = 'data:' + (mimeType || 'image/png') + ';base64,' + data;
+        img.style.cssText = 'max-width:100%;border-radius:4px;margin:6px 0';
+        currentContentDiv.appendChild(img);
+        scrollToBottom();
+    }
+
+    function addToolCall(toolCallId, title, status, rawInput) {
+        ensureAssistantMsg();
         const div = document.createElement('div');
         div.className = 'tool-call';
-        div.id = 'tool-' + name + '-' + Date.now();
-        div.innerHTML = '<span class="tool-name">' + escapeHtml(name) + '</span> <span class="tool-status">' + escapeHtml(status) + '</span>';
+
+        const header = document.createElement('div');
+        header.className = 'tool-call-header';
+
+        const arrow = document.createElement('span');
+        arrow.className = 'arrow';
+        arrow.textContent = '▶';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tool-name';
+        nameSpan.textContent = title || toolCallId;
+
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'tool-status ' + (status || 'pending');
+        statusSpan.textContent = status || 'pending';
+
+        header.appendChild(arrow);
+        header.appendChild(nameSpan);
+        header.appendChild(statusSpan);
+
+        const body = document.createElement('div');
+        body.className = 'tool-call-body';
+        if (rawInput) {
+            body.textContent = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2);
+        }
+
+        header.addEventListener('click', () => {
+            arrow.classList.toggle('open');
+            body.classList.toggle('open');
+        });
+
+        div.appendChild(header);
+        div.appendChild(body);
         currentAssistantMsg.appendChild(div);
+        toolCalls[toolCallId] = { div, statusSpan, body };
         scrollToBottom();
-        return div.id;
+    }
+
+    function updateToolCall(toolCallId, status, content) {
+        const tc = toolCalls[toolCallId];
+        if (!tc) return;
+        if (status) {
+            tc.statusSpan.className = 'tool-status ' + status;
+            tc.statusSpan.textContent = status;
+        }
+        if (content) {
+            for (const c of content) {
+                if (c.type === 'content' && c.content) {
+                    if (c.content.type === 'text') {
+                        tc.body.textContent += c.content.text + '\n';
+                    }
+                }
+            }
+        }
+        scrollToBottom();
     }
 
     function finishTurn() {
         currentAssistantMsg = null;
+        currentContentDiv = null;
         currentText = '';
+        toolCalls = {};
         isWorking = false;
         setStatus('ready', 'Ready');
     }
@@ -220,7 +336,11 @@
         const text = input.value.trim();
         if (!text || isWorking) return;
 
-        addMessage('user', escapeHtml(text));
+        const el = document.createElement('div');
+        el.className = 'msg user';
+        el.textContent = text;
+        document.getElementById('messages').appendChild(el);
+
         input.value = '';
         input.style.height = 'auto';
         isWorking = true;
@@ -231,50 +351,39 @@
             session_id: sessionId,
             text: text,
         });
+        scrollToBottom();
     }
 
-    // ACP events from backend
     socket.on('acp_event', (data) => {
         if (data.session_id !== sessionId) return;
         const evt = data.event;
 
-        if (evt.type === 'session_ready') {
-            setStatus('ready', 'Ready');
-            return;
-        }
-        if (evt.type === 'session_error') {
-            setStatus('error', 'Error: ' + (evt.error || 'unknown'));
-            return;
-        }
-        if (evt.type === 'session_ended') {
-            setStatus('error', 'Session ended');
-            return;
-        }
+        if (evt.type === 'session_ready') { setStatus('ready', 'Ready'); return; }
+        if (evt.type === 'session_error') { setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
+        if (evt.type === 'session_ended') { setStatus('error', 'Session ended'); return; }
 
-        // ACP notifications
-        const method = evt.method;
-        const params = evt.params || {};
-        const update = params.update || {};
-        const sessionUpdate = update.sessionUpdate;
+        const update = (evt.params || {}).update || {};
+        const su = update.sessionUpdate;
 
-        if (sessionUpdate === 'agent_message_chunk') {
+        if (su === 'agent_message_chunk') {
             setStatus('working', 'Responding...');
             const c = update.content;
             if (c && c.type === 'text') appendChunk(c.text);
-        } else if (sessionUpdate === 'tool_call') {
+            else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
+        } else if (su === 'tool_call') {
             setStatus('working', 'Using ' + (update.title || 'tool') + '...');
-            addToolCall(update.title || 'tool', update.status || '', null);
-        } else if (sessionUpdate === 'tool_call_update') {
-            setStatus('working', 'Running tool...');
+            addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
+        } else if (su === 'tool_call_update') {
+            const st = update.status || '';
+            if (st === 'in_progress') setStatus('working', 'Running tool...');
+            updateToolCall(update.toolCallId, update.status, update.content);
         }
 
-        // Handle prompt response (end of turn)
-        if (evt.id && evt.result && evt.result.stopReason) {
+        if (evt.result && evt.result.stopReason) {
             finishTurn();
         }
     });
 
-    // Auto-resize textarea
     const input = document.getElementById('input');
     input.addEventListener('input', () => {
         input.style.height = 'auto';
@@ -287,7 +396,6 @@
         }
     });
 
-    // Notify parent frame that chat is closing
     window.addEventListener('beforeunload', () => {
         if (window.parent !== window) {
             window.parent.postMessage({ type: 'acp-chat-closing', sessionId: sessionId }, '*');

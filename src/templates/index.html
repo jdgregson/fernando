@@ -1845,6 +1845,20 @@
                 closeChatSession(e.data.sessionId);
                 return;
             }
+            if (e.data && e.data.type === 'acp-chat-focus') {
+                // Focus the pane containing this chat iframe
+                for (const paneNum of [1, 2]) {
+                    if (paneTypes[paneNum] === 'browser') {
+                        const browser = document.getElementById(`browser${paneNum}`);
+                        const iframe = browser ? browser.querySelector('iframe') : null;
+                        if (iframe && iframe.contentWindow === e.source) {
+                            setActiveTerminal(paneNum);
+                            return;
+                        }
+                    }
+                }
+                return;
+            }
             if (e.data && e.data.action === 'enable_audio') {
                 for (const paneNum of [1, 2]) {
                     if (paneTypes[paneNum] === 'browser') {
