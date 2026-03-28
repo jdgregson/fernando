@@ -34,6 +34,31 @@ from src.services.subagent_core import (
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _save_continuation(continuation):
+    """Save a continuation message for the calling chat session."""
+    if not continuation:
+        return
+    session_id = None
+    try:
+        with open(os.path.join(_project_root, "data", "acp_pid_map.json")) as f:
+            pid_map = json.load(f)
+        pid = os.getpid()
+        for _ in range(5):
+            pid = os.popen(f"ps -o ppid= -p {pid}").read().strip()
+            if not pid:
+                break
+            session_id = pid_map.get(pid)
+            if session_id:
+                break
+    except Exception:
+        pass
+    with open(os.path.join(_project_root, "data", "pending_continuation.json"), "w") as f:
+        json.dump({"message": continuation, "session_id": session_id}, f)
+
+
 app = Server("fernando")
 
 
@@ -164,7 +189,15 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="reboot",
             description="Reboot the host machine using 'sudo reboot'. This will terminate all sessions.",
-            inputSchema={"type": "object", "properties": {}},
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "continuation": {
+                        "type": "string",
+                        "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
+                    },
+                },
+            },
         ),
     ]
 
@@ -187,31 +220,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "terminate_subagent":
         result = terminate_subagent(arguments["task_id"])
     elif name == "mutate":
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        continuation = arguments.get("continuation")
-        if continuation:
-            # Find which chat session we belong to via PID map
-            # Walk up process tree since MCP -> kiro-cli-chat -> kiro-cli
-            session_id = None
-            try:
-                pid_map_file = os.path.join(project_root, "data", "acp_pid_map.json")
-                with open(pid_map_file) as f:
-                    pid_map = json.load(f)
-                pid = os.getpid()
-                for _ in range(5):
-                    pid = os.popen(f"ps -o ppid= -p {pid}").read().strip()
-                    if not pid:
-                        break
-                    session_id = pid_map.get(pid)
-                    if session_id:
-                        break
-            except Exception:
-                pass
-            cont_file = os.path.join(project_root, "data", "pending_continuation.json")
-            with open(cont_file, "w") as f:
-                json.dump({"message": continuation, "session_id": session_id}, f)
+        _save_continuation(arguments.get("continuation"))
         proc = subprocess.Popen(
-            [os.path.join(project_root, "mutate.sh")],
+            [os.path.join(_project_root, "mutate.sh")],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -248,6 +259,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "log": log,
             }
     elif name == "reboot":
+        _save_continuation(arguments.get("continuation"))
         subprocess.Popen(["sudo", "reboot"])
         result = {"status": "rebooting", "message": "Host is rebooting now."}
     else:
