@@ -432,7 +432,7 @@
         if (data.session_id !== sessionId) return;
         const evt = data.event;
 
-        // Handle user prompt replay
+        // Handle user prompt from our history
         if (evt.type === 'user_prompt') {
             addUserMessage(evt.text);
             return;
@@ -445,7 +445,13 @@
         const update = (evt.params || {}).update || {};
         const su = update.sessionUpdate;
 
-        if (su === 'agent_message_chunk') {
+        // user_message_chunk from session/load replay
+        if (su === 'user_message_chunk') {
+            // End any in-progress assistant message
+            if (currentAssistantMsg) finishTurn();
+            const c = update.content;
+            if (c && c.type === 'text') addUserMessage(c.text);
+        } else if (su === 'agent_message_chunk') {
             setStatus('working', 'Responding...');
             const c = update.content;
             if (c && c.type === 'text') appendChunk(c.text);

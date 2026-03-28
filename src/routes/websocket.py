@@ -299,22 +299,23 @@ def register_handlers(socketio):
 
     # --- ACP Chat handlers ---
 
-    # Track which socket sids are subscribed to which ACP sessions
-    acp_subscribers = {}  # acp_session_id -> set of socket sids
+    acp_subscribers = {}  # fernando_session_id -> set of socket sids
+
+    def acp_on_event(session_id, event):
+        """Broadcast ACP events to subscribed websocket clients."""
+        sids = acp_subscribers.get(session_id, set())
+        for sid in sids:
+            socketio.emit("acp_event", {"session_id": session_id, "event": event}, room=sid)
+
+    # Restore persisted chat sessions on startup
+    acp_manager.restore_sessions(lambda sid: acp_on_event)
 
     @socketio.on("acp_create")
     def acp_create(data):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        client_sid = request.sid
-
-        def on_event(acp_sid, event):
-            sids = acp_subscribers.get(acp_sid, set())
-            for sid in sids:
-                socketio.emit("acp_event", {"session_id": acp_sid, "event": event}, room=sid)
-
-        session_id = acp_manager.create_session(on_event=on_event)
+        session_id = acp_manager.create_session(on_event=acp_on_event)
         emit("acp_created", {"session_id": session_id})
 
     @socketio.on("acp_subscribe")
