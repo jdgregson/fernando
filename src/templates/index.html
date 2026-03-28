@@ -1447,6 +1447,7 @@
                 terminal.classList.remove('hidden');
                 browser.classList.add('hidden');
             }
+            document.querySelector('.mobile-controls').style.display = '';
 
             const term = activeTerminal === 1 ? term1 : term2;
             term.clear();
@@ -1875,6 +1876,7 @@
             else currentSession2 = null;
 
             highlightSidebarItem('chat:' + chatId);
+            document.querySelector('.mobile-controls').style.display = 'none';
         }
 
         function closeChatSession(chatId) {
