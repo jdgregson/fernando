@@ -163,6 +163,21 @@ class ACPSession:
             },
         })
 
+    def send_continuation(self, text):
+        """Send a prompt that displays as a system message, not a user message."""
+        if not self.acp_session_id:
+            return
+        self.history.append({"type": "continuation", "text": text})
+        self._send({
+            "jsonrpc": "2.0",
+            "id": self._get_id(),
+            "method": "session/prompt",
+            "params": {
+                "sessionId": self.acp_session_id,
+                "prompt": [{"type": "text", "text": text}],
+            },
+        })
+
     def cancel(self):
         if not self.acp_session_id:
             return
@@ -341,7 +356,7 @@ class ACPManager:
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
-                session.send_prompt(continuation["message"])
+                session.send_continuation(continuation["message"])
         except Exception as e:
             logger.error(f"ACP session load failed for {session_id}: {e}")
             if session.on_event:

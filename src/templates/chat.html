@@ -408,6 +408,14 @@
         scrollToBottom();
     }
 
+    function addSystemMessage(text) {
+        const el = document.createElement('div');
+        el.className = 'msg system';
+        el.textContent = '⟳ ' + text;
+        document.getElementById('messages').appendChild(el);
+        scrollToBottom();
+    }
+
     function sendMessage() {
         const input = document.getElementById('input');
         const text = input.value.trim();
@@ -435,6 +443,11 @@
         // Handle user prompt from our history
         if (evt.type === 'user_prompt') {
             addUserMessage(evt.text);
+            return;
+        }
+
+        if (evt.type === 'continuation') {
+            addSystemMessage(evt.text);
             return;
         }
 
