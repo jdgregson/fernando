@@ -25,7 +25,7 @@
 
         .top-bar {
             background: #0d2748;
-            border-bottom: 1px solid #3e3e42;
+            border-bottom: 1px solid #143151;
             padding: 4px 8px;
             display: flex;
             justify-content: space-between;
@@ -68,7 +68,7 @@
         .sidebar {
             width: 250px;
             background: #0d2748;
-            border-right: 1px solid #3e3e42;
+            border-right: 1px solid #143151;
             display: flex;
             flex-direction: column;
             height: 100%;
@@ -104,7 +104,7 @@
 
         .sidebar-header {
             padding: 15px;
-            border-bottom: 1px solid #3e3e42;
+            border-bottom: 1px solid #143151;
             font-size: 18px;
             font-weight: bold;
         }
@@ -117,7 +117,7 @@
         .session-item {
             padding: 12px 15px;
             cursor: pointer;
-            border-bottom: 1px solid #3e3e42;
+            border-bottom: 1px solid #143151;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -167,7 +167,7 @@
 
         .new-session {
             padding: 15px;
-            border-top: 1px solid #3e3e42;
+            border-top: 1px solid #143151;
             background: #0d2748;
         }
 
@@ -181,7 +181,7 @@
             width: 100%;
             padding: 8px;
             background: #3c3c3c;
-            border: 1px solid #3e3e42;
+            border: 1px solid #143151;
             color: #fff;
             margin-bottom: 8px;
         }
@@ -226,7 +226,7 @@
         .modal-content {
             background: #0d2748;
             padding: 20px;
-            border: 1px solid #3e3e42;
+            border: 1px solid #143151;
             max-width: 400px;
             width: 90%;
         }
@@ -270,7 +270,7 @@
 
         .session-card {
             background: #3c3c3c;
-            border: 1px solid #3e3e42;
+            border: 1px solid #143151;
             padding: 15px;
             cursor: pointer;
             transition: background 0.2s;
@@ -306,7 +306,7 @@
         .terminal-container {
             flex: 1;
             position: relative;
-            border-bottom: 1px solid #3e3e42;
+            border-bottom: 1px solid #143151;
             border: 2px solid transparent;
         }
 
@@ -411,7 +411,7 @@
 
         .alert-modal-content {
             background: #0d2748;
-            border: 1px solid #3e3e42;
+            border: 1px solid #143151;
             max-width: 400px;
             width: 90%;
             padding: 20px;
@@ -1651,7 +1651,7 @@
             }
 
             list.innerHTML = subagents.map(s => `
-                <div style="border: 1px solid #3e3e42; padding: 10px; margin-bottom: 10px; border-radius: 3px;">
+                <div style="border: 1px solid #143151; padding: 10px; margin-bottom: 10px; border-radius: 3px;">
                     <div style="font-weight: bold;">${s.task_id}</div>
                     <div style="font-size: 12px; color: #888; margin: 5px 0;">${s.task}</div>
                     <div style="font-size: 11px; color: #888;">Status: ${s.status} (${s.progress}%)</div>
@@ -1759,7 +1759,7 @@
                 atList.innerHTML = '<p style="color: #888;">No scheduled one-time jobs</p>';
             } else {
                 atList.innerHTML = atJobs.map(job => `
-                    <div style="border: 1px solid #3e3e42; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
+                    <div style="border: 1px solid #143151; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
                         <div style="font-size: 12px;">Job ${job.job_id}: ${job.scheduled_time}</div>
                         <button onclick="removeAtJob('${job.job_id}')" style="font-size: 11px; padding: 3px 8px; margin-top: 5px;">Remove</button>
                     </div>
@@ -1775,7 +1775,7 @@
                 cronList.innerHTML = '<p style="color: #888;">No recurring jobs</p>';
             } else {
                 cronList.innerHTML = cronJobs.map(job => `
-                    <div style="border: 1px solid #3e3e42; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
+                    <div style="border: 1px solid #143151; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
                         <div style="font-size: 12px; font-weight: bold;">${job.task_id || 'Unknown task'}</div>
                         <div style="font-size: 11px; color: #888; margin: 3px 0;">Schedule: ${job.cron_time}</div>
                         <div style="font-size: 10px; color: #666; word-break: break-all;">${job.command}</div>
