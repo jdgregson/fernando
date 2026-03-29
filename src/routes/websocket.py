@@ -328,6 +328,8 @@ def register_handlers(socketio):
             # Replay history for reconnecting clients
             session = acp_manager.get_session(acp_sid)
             if session:
+                if session.continuation_text:
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "set_continuation", "text": session.continuation_text}})
                 for evt in session.history:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
                 if session.ready:

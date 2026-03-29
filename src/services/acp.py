@@ -78,6 +78,7 @@ class ACPSession:
         self.history = []
         self.ready = False
         self._recording = True  # gate for _record_event
+        self.continuation_text = None  # text of auto-sent continuation prompt
 
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
@@ -356,6 +357,7 @@ class ACPManager:
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
+                session.continuation_text = continuation["message"]
                 session.send_continuation(continuation["message"])
         except Exception as e:
             logger.error(f"ACP session load failed for {session_id}: {e}")

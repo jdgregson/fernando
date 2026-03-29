@@ -218,6 +218,7 @@
     let currentContentDiv = null;
     let toolCalls = {};
     let userMsgCount = 0;
+    let continuationText = null;
 
     function ensureAssistantMsg() {
         if (!currentAssistantMsg) {
@@ -462,6 +463,11 @@
         if (data.session_id !== sessionId) return;
         const evt = data.event;
 
+        if (evt.type === 'set_continuation') {
+            continuationText = evt.text;
+            return;
+        }
+
         // Handle user prompt from our history
         if (evt.type === 'user_prompt') {
             addUserMessage(evt.text);
@@ -487,7 +493,12 @@
             const c = update.content;
             if (c && c.type === 'text') {
                 userMsgCount++;
-                addUserMessage(c.text, userMsgCount === 1);
+                if (continuationText && c.text === continuationText) {
+                    addSystemMessage(c.text);
+                    continuationText = null;
+                } else {
+                    addUserMessage(c.text, userMsgCount === 1);
+                }
             }
         } else if (su === 'agent_message_chunk') {
             setStatus('working', 'Responding...');
