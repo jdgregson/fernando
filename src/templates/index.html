@@ -83,6 +83,13 @@
             display: none;
         }
 
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1001;
+        }
+
         @media (max-width: 500px) {
             .sidebar {
                 position: fixed;
@@ -95,6 +102,10 @@
 
             .sidebar.open {
                 transform: translateX(0);
+            }
+
+            .sidebar.open ~ .sidebar-overlay {
+                display: block;
             }
 
             .sidebar-toggle {
@@ -588,6 +599,7 @@
                 <button onclick="openSubagentsModal()">Subagents</button>
             </div>
         </div>
+        <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
         <div class="main-content">
             <div class="terminals-wrapper">
