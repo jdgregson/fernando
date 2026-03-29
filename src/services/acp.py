@@ -82,7 +82,7 @@ class ACPSession:
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
         self.proc = subprocess.Popen(
-            [KIRO_CLI, "acp", "-a"],
+            [KIRO_CLI, "acp", "-a", "--model", "claude-opus-4.6"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
