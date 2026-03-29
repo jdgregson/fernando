@@ -358,6 +358,8 @@ class ACPManager:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
                 session.continuation_text = continuation["message"]
+                if session.on_event:
+                    session.on_event(session_id, {"type": "set_continuation", "text": continuation["message"]})
                 session.send_continuation(continuation["message"])
         except Exception as e:
             logger.error(f"ACP session load failed for {session_id}: {e}")

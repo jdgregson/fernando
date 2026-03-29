@@ -506,6 +506,7 @@
             if (c && c.type === 'text') appendChunk(c.text);
             else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
         } else if (su === 'tool_call') {
+            console.log('TOOL_CALL:', JSON.stringify(update));
             setStatus('working', 'Using ' + (update.title || 'tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
         } else if (su === 'tool_call_update') {
