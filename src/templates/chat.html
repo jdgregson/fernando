@@ -52,9 +52,11 @@
         }
         .msg.user {
             background: #1a2332;
-            white-space: pre-wrap;
         }
         .msg.user .msg-label { color: #569cd6; }
+        .msg.user code { background: #0a1929; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+        .msg.user pre { background: #0a1929; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
+        .msg.user pre code { background: none; padding: 0; }
         .msg.assistant {
             background: #0d2748;
         }
@@ -407,6 +409,27 @@
         m.scrollTop = m.scrollHeight;
     }
 
+    function collapseCodeBlocks(container, maxLines) {
+        container.querySelectorAll('pre code').forEach(code => {
+            const lines = code.textContent.split('\n');
+            if (lines.length <= maxLines) return;
+            const pre = code.parentElement;
+            const truncated = lines.slice(0, maxLines).join('\n');
+            const full = code.textContent;
+            code.textContent = truncated;
+            const toggle = document.createElement('div');
+            toggle.style.cssText = 'color:#569cd6;cursor:pointer;font-size:12px;margin-top:4px;font-family:sans-serif';
+            toggle.textContent = '▶ Show all ' + lines.length + ' lines';
+            let expanded = false;
+            toggle.onclick = () => {
+                expanded = !expanded;
+                code.textContent = expanded ? full : truncated;
+                toggle.textContent = expanded ? '▼ Collapse' : '▶ Show all ' + lines.length + ' lines';
+            };
+            pre.after(toggle);
+        });
+    }
+
     function addUserMessage(text, collapsed) {
         const el = document.createElement('div');
         el.className = 'msg user';
@@ -434,7 +457,11 @@
             el.appendChild(preview);
             el.appendChild(full);
         } else {
-            el.appendChild(document.createTextNode(text));
+            const content = document.createElement('div');
+            content.className = 'msg-content';
+            content.innerHTML = marked.parse(text);
+            collapseCodeBlocks(content, 30);
+            el.appendChild(content);
         }
         document.getElementById('messages').appendChild(el);
         scrollToBottom();
