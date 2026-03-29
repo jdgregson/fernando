@@ -78,7 +78,6 @@ class ACPSession:
         self.history = []
         self.ready = False
         self._recording = True  # gate for _record_event
-        self.continuation_text = None  # text of auto-sent continuation prompt
 
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
@@ -168,14 +167,15 @@ class ACPSession:
         """Send a prompt that displays as a system message, not a user message."""
         if not self.acp_session_id:
             return
-        self.history.append({"type": "continuation", "text": text})
+        prefixed = "[CONTINUATION] " + text
+        self.history.append({"type": "continuation", "text": prefixed})
         self._send({
             "jsonrpc": "2.0",
             "id": self._get_id(),
             "method": "session/prompt",
             "params": {
                 "sessionId": self.acp_session_id,
-                "prompt": [{"type": "text", "text": text}],
+                "prompt": [{"type": "text", "text": prefixed}],
             },
         })
 
@@ -357,9 +357,6 @@ class ACPManager:
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
-                session.continuation_text = continuation["message"]
-                if session.on_event:
-                    session.on_event(session_id, {"type": "set_continuation", "text": continuation["message"]})
                 session.send_continuation(continuation["message"])
         except Exception as e:
             logger.error(f"ACP session load failed for {session_id}: {e}")

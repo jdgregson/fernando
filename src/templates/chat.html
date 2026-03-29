@@ -218,7 +218,6 @@
     let currentContentDiv = null;
     let toolCalls = {};
     let userMsgCount = 0;
-    let continuationText = null;
 
     function ensureAssistantMsg() {
         if (!currentAssistantMsg) {
@@ -463,19 +462,13 @@
         if (data.session_id !== sessionId) return;
         const evt = data.event;
 
-        if (evt.type === 'set_continuation') {
-            continuationText = evt.text;
-            return;
-        }
-
         // Handle user prompt from our history
-        if (evt.type === 'user_prompt') {
-            addUserMessage(evt.text);
-            return;
-        }
-
-        if (evt.type === 'continuation') {
-            addSystemMessage(evt.text);
+        if (evt.type === 'user_prompt' || evt.type === 'continuation') {
+            if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
+                addSystemMessage(evt.text.slice(15));
+            } else {
+                addUserMessage(evt.text);
+            }
             return;
         }
 
@@ -492,11 +485,10 @@
             if (currentAssistantMsg) finishTurn();
             const c = update.content;
             if (c && c.type === 'text') {
-                userMsgCount++;
-                if (continuationText && c.text === continuationText) {
-                    addSystemMessage(c.text);
-                    continuationText = null;
+                if (c.text.startsWith('[CONTINUATION] ')) {
+                    addSystemMessage(c.text.slice(15));
                 } else {
+                    userMsgCount++;
                     addUserMessage(c.text, userMsgCount === 1);
                 }
             }
@@ -506,7 +498,6 @@
             if (c && c.type === 'text') appendChunk(c.text);
             else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
         } else if (su === 'tool_call') {
-            console.log('TOOL_CALL:', JSON.stringify(update));
             setStatus('working', 'Using ' + (update.title || 'tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
         } else if (su === 'tool_call_update') {
