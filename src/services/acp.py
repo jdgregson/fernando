@@ -168,7 +168,10 @@ class ACPSession:
         if not self.acp_session_id:
             return
         prefixed = "[CONTINUATION] " + text
-        self.history.append({"type": "continuation", "text": prefixed})
+        evt = {"type": "continuation", "text": prefixed}
+        self.history.append(evt)
+        if self.on_event:
+            self.on_event(self.id, evt)
         self._send({
             "jsonrpc": "2.0",
             "id": self._get_id(),

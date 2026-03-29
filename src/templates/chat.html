@@ -282,6 +282,16 @@
         return '/files/' + filePath.replace(/^\/home\/fernando\//, '');
     }
 
+    const TOOL_SERVERS = {
+        spawn_subagent:'fernando', get_subagent_status:'fernando', list_subagents:'fernando', terminate_subagent:'fernando', mutate:'fernando', reboot:'fernando',
+        type_text:'desktop', press_key:'desktop', click_mouse:'desktop', open_application:'desktop', run_command:'desktop', screenshot:'desktop', scroll:'desktop', move_mouse:'desktop', drag_mouse:'desktop', get_mouse_position:'desktop', double_click:'desktop', right_click:'desktop', get_window_info:'desktop', focus_window:'desktop', get_screen_size:'desktop', set_screen_size:'desktop', get_clipboard:'desktop', set_clipboard:'desktop', desktop_exec:'desktop',
+    };
+    function toolDisplayName(title) {
+        if (!title) return title;
+        const server = TOOL_SERVERS[title] || (title.startsWith('microsoft_') ? 'microsoft' : null);
+        return server ? '@' + server + '/' + title : title;
+    }
+
     function addToolCall(toolCallId, title, status, rawInput) {
         ensureAssistantMsg();
         // Seal current text so next text appears after this tool call
@@ -299,7 +309,7 @@
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tool-name';
-        nameSpan.textContent = title || toolCallId;
+        nameSpan.textContent = toolDisplayName(title) || toolCallId;
 
         const statusSpan = document.createElement('span');
         statusSpan.className = 'tool-status ' + (status || 'pending');
