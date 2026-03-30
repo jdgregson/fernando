@@ -3,7 +3,7 @@
 <head>
     <title>fernando</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, maximum-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#091d35">
+    <meta name="theme-color" content="#0d2848">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
     <meta name="mobile-web-app-capable" content="yes">
@@ -16,15 +16,15 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.css" integrity="sha384-3K5+KOWDosY1TkoDWxPkGjncHOU5L57iOnkapqUQ7lPzlNYDE05ADJlUh4iRvtqu" crossorigin="anonymous" />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
-        html, body { height: 100%; overflow: hidden; background: #091d35; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+        html, body { height: 100%; overflow: hidden; background: #0d2848; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
         @supports (height: 100dvh) {
-            html, body { height: 100dvh; background: #091d35; }
+            html, body { height: 100dvh; background: #0d2848; }
         }
-        body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; background: #091d35; color: #fff; display: flex; flex-direction: column; position: fixed; width: 100%; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+        body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; background: #0d2848; color: #fff; display: flex; flex-direction: column; position: fixed; width: 100%; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 
         .top-bar {
-            background: #091d35;
+            background: #0d2848;
             border-bottom: 1px solid #143151;
             padding: 4px 8px;
             display: flex;
@@ -67,7 +67,7 @@
 
         .sidebar {
             width: 250px;
-            background: #091d35;
+            background: #0d2848;
             border-right: 1px solid #143151;
             display: flex;
             flex-direction: column;
@@ -179,7 +179,7 @@
         .new-session {
             padding: 15px;
             border-top: 1px solid #143151;
-            background: #091d35;
+            background: #0d2848;
         }
 
         @supports (-webkit-touch-callout: none) {
@@ -235,7 +235,7 @@
         }
 
         .modal-content {
-            background: #091d35;
+            background: #0d2848;
             padding: 20px;
             border: 1px solid #143151;
             max-width: 400px;
@@ -421,7 +421,7 @@
         }
 
         .alert-modal-content {
-            background: #091d35;
+            background: #0d2848;
             border: 1px solid #143151;
             max-width: 400px;
             width: 90%;
@@ -1230,9 +1230,19 @@
             const currentSessions = Array.from(sessionList.querySelectorAll('.session-item')).map(el => el.dataset.session).filter(s => s !== 'desktop');
 
             // Auto-attach if no session attached and not showing desktop
-            if (!currentSession1 && paneTypes[1] !== 'browser' && sessions.length > 0) {
-                const saved = sessionStorage.getItem('fernando_session1');
-                attachSession(saved && sessions.includes(saved) ? saved : sessions[0]);
+            if (!currentSession1 && paneTypes[1] !== 'browser') {
+                const params = new URLSearchParams(window.location.search);
+                const urlSession = params.get('session');
+                if (urlSession && urlSession.startsWith('chat:')) {
+                    openChatPane(urlSession.slice(5));
+                } else if (urlSession === 'desktop') {
+                    toggleDesktop();
+                } else if (urlSession && sessions.includes(urlSession)) {
+                    attachSession(urlSession);
+                } else if (sessions.length > 0) {
+                    const saved = sessionStorage.getItem('fernando_session1');
+                    attachSession(saved && sessions.includes(saved) ? saved : sessions[0]);
+                }
             }
 
             // Check if lists are different
