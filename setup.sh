@@ -211,11 +211,11 @@ if [ -n "$1" ]; then
     gecho "Cloudflare tunnel configured."
 fi
 
-# Install global Kiro instructions
-gecho "Installing Kiro instructions..."
-sudo -u "$FERNANDO_USER" mkdir -p "$FERNANDO_HOME/.kiro"
+# Install global Kiro steering file
+gecho "Installing Kiro steering file..."
+sudo -u "$FERNANDO_USER" mkdir -p "$FERNANDO_HOME/.kiro/steering"
 instructions_src="$INSTALL_DIR/instructions.md"
-instructions_dst="$FERNANDO_HOME/.kiro/instructions.md"
+instructions_dst="$FERNANDO_HOME/.kiro/steering/instructions.md"
 if [ ! -f "$instructions_dst" ]; then
     sudo -u "$FERNANDO_USER" cp "$instructions_src" "$instructions_dst"
     gecho "Copied instructions template to $instructions_dst — edit it to fill in your details."
