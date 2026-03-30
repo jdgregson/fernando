@@ -100,8 +100,8 @@
         .tool-call-header:hover { background: #061628; }
         .tool-call-header .arrow { transition: transform 0.15s; font-size: 10px; color: #888; }
         .tool-call-header .arrow.open { transform: rotate(90deg); }
-        .tool-call-header .tool-name { color: #dcdcaa; word-break: break-all; min-width: 0; }
-        .tool-call-header .tool-status { color: #888; font-style: italic; margin-left: auto; flex-shrink: 0; }
+        .tool-call-header .tool-name { color: #dcdcaa; font-weight: bold; }
+        .tool-call-header .tool-status { color: #888; font-style: italic; margin-left: auto; }
         .tool-call-header .tool-status.completed { color: #4ec9b0; }
         .tool-call-header .tool-status.failed { color: #f44747; }
         .tool-call-header .tool-status.in_progress { color: #dcdcaa; }
@@ -309,13 +309,9 @@
         arrow.className = 'arrow';
         arrow.textContent = '▶';
 
-        const purpose = rawInput && (typeof rawInput === 'object') && rawInput.__tool_use_purpose;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tool-name';
-        const bold = document.createElement('b');
-        bold.textContent = toolDisplayName(title) || toolCallId;
-        nameSpan.appendChild(bold);
-        if (purpose) nameSpan.appendChild(document.createTextNode(': ' + purpose));
+        nameSpan.textContent = toolDisplayName(title) || toolCallId;
 
         const statusSpan = document.createElement('span');
         statusSpan.className = 'tool-status ' + (status || 'pending');
@@ -360,7 +356,7 @@
 
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
 
-    function updateToolCall(toolCallId, status, content, rawOutput) {
+    function updateToolCall(toolCallId, status, content) {
         const tc = toolCalls[toolCallId];
         if (!tc) return;
         if (status) {
@@ -380,10 +376,6 @@
                 }
             }
         }
-        if (rawOutput && !tc.body.textContent.trim()) {
-            const text = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2);
-            tc.body.textContent = text;
-        }
         if (status === 'completed' && tc.body.textContent.trim()) {
             const lines = tc.body.textContent.trim().split('\n');
             if (lines.length > 20) {
@@ -398,12 +390,6 @@
     }
 
     function finishTurn() {
-        for (const tc of Object.values(toolCalls)) {
-            if (tc.statusSpan && tc.statusSpan.textContent !== 'completed') {
-                tc.statusSpan.className = 'tool-status completed';
-                tc.statusSpan.textContent = 'completed';
-            }
-        }
         currentAssistantMsg = null;
         currentContentDiv = null;
         currentText = '';
@@ -515,7 +501,6 @@
 
         // Handle user prompt from our history
         if (evt.type === 'user_prompt' || evt.type === 'continuation') {
-            if (currentAssistantMsg) finishTurn();
             if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
                 addSystemMessage(evt.text.slice(15));
             } else {
@@ -555,7 +540,7 @@
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
             if (st === 'in_progress') setStatus('working', 'Running tool...');
-            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput);
+            updateToolCall(update.toolCallId, update.status, update.content);
         }
 
         if (evt.result && evt.result.stopReason) {
