@@ -320,7 +320,7 @@
     });
 
     function forceUnstick() {
-        if (!confirm('Kill the stuck kiro-cli process and reload the session? The agent\\'s last partial response will be lost.')) return;
+        if (!confirm("Kill the stuck kiro-cli process and reload the session? The agent's last partial response will be lost.")) return;
         setStatus('working', 'Restarting agent...');
         socket.emit('acp_force_unstick', { csrf_token: csrfToken, session_id: sessionId });
     }
