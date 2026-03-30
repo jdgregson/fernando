@@ -152,6 +152,7 @@
             background: #3465a3;
             border: none;
             color: #fff;
+            transition: background 0.2s;
             padding: 8px 16px;
             border-radius: 6px;
             cursor: pointer;
@@ -210,11 +211,26 @@
         if (state === 'ready') {
             input.disabled = false;
             btn.disabled = false;
+            btn.textContent = 'Send';
+            btn.onclick = sendMessage;
+            btn.style.background = '';
             input.focus();
+        } else if (state === 'working') {
+            btn.disabled = false;
+            btn.textContent = 'Stop';
+            btn.onclick = cancelMessage;
+            btn.style.background = '#a03030';
         } else if (state === 'error') {
             input.disabled = true;
             btn.disabled = true;
+            btn.textContent = 'Send';
+            btn.onclick = sendMessage;
+            btn.style.background = '';
         }
+    }
+
+    function cancelMessage() {
+        socket.emit('acp_cancel', { csrf_token: csrfToken, session_id: sessionId });
     }
 
     let currentAssistantMsg = null;
@@ -424,6 +440,27 @@
         setStatus('ready', 'Ready');
     }
 
+    function renderUserText(text) {
+        // Split on fenced code blocks first
+        const parts = text.split(/(```[\s\S]*?```)/g);
+        return parts.map(part => {
+            if (part.startsWith('```') && part.endsWith('```')) {
+                const inner = part.slice(3, -3);
+                const nl = inner.indexOf('\n');
+                const lang = nl > -1 ? inner.slice(0, nl).trim() : '';
+                const code = nl > -1 ? inner.slice(nl + 1) : inner;
+                return '<pre><code' + (lang ? ' class="language-' + escapeHtml(lang) + '"' : '') + '>' + escapeHtml(code) + '</code></pre>';
+            }
+            // Handle inline backticks, escape everything else
+            return part.split(/(`[^`]+`)/g).map(s => {
+                if (s.startsWith('`') && s.endsWith('`')) {
+                    return '<code>' + escapeHtml(s.slice(1, -1)) + '</code>';
+                }
+                return escapeHtml(s);
+            }).join('');
+        }).join('');
+    }
+
     function escapeHtml(s) {
         const div = document.createElement('div');
         div.textContent = s;
@@ -485,9 +522,8 @@
         } else {
             const content = document.createElement('div');
             content.className = 'msg-content';
-            // Preserve consecutive newlines by replacing them with a placeholder before markdown parsing
-            const preserved = text.replace(/\n\n/g, '\n\n&nbsp;\n\n');
-            content.innerHTML = marked.parse(preserved);
+            content.style.whiteSpace = 'pre-wrap';
+            content.innerHTML = renderUserText(text);
             collapseCodeBlocks(content, 30);
             el.appendChild(content);
         }

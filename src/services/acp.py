@@ -187,7 +187,6 @@ class ACPSession:
             return
         self._send({
             "jsonrpc": "2.0",
-            "id": self._get_id(),
             "method": "session/cancel",
             "params": {"sessionId": self.acp_session_id},
         })
