@@ -804,6 +804,9 @@
                         attachSession(urlSession2);
                     }
                 }
+            } else if (currentSession1) {
+                // Reconnect: reattach existing sessions with fresh CSRF token
+                handleForeground();
             }
         });
 
@@ -874,31 +877,33 @@
                     icon.textContent = '🧬';
                     icon.classList.add('spin');
                     label.textContent = 'mutating...';
+                    // Only poll+reload for mutations (server restart)
+                    window._mutatePoll = setInterval(() => {
+                        fetch('/', { method: 'HEAD' }).then(r => {
+                            if (r.ok) {
+                                clearInterval(window._mutatePoll);
+                                window.location.reload();
+                            }
+                        }).catch(() => {});
+                    }, 1500);
                 } else {
                     spinner.style.display = '';
                     icon.style.display = 'none';
                     label.textContent = 'connecting...';
                 }
                 overlay.classList.add('open');
-                // Start polling — when server is back, reload the page
-                window._mutatePoll = setInterval(() => {
-                    fetch('/', { method: 'HEAD' }).then(r => {
-                        if (r.ok) {
-                            clearInterval(window._mutatePoll);
-                            window.location.reload();
-                        }
-                    }).catch(() => {});
-                }, 1500);
             }, 800);
         });
 
-        socket.on('reconnect', () => {
+        socket.io.on('reconnect', () => {
             console.log('Socket reconnected');
             clearTimeout(window._mutateTimer);
             clearInterval(window._mutatePoll);
-            isMutating = false;
+            if (isMutating) {
+                window.location.reload();
+                return;
+            }
             document.getElementById('mutateOverlay').classList.remove('open');
-            handleForeground();
         });
 
         const term1 = new Terminal({

@@ -260,6 +260,10 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             }
     elif name == "reboot":
         _save_continuation(arguments.get("continuation"))
+        try:
+            subprocess.run(["curl", "-s", "-X", "POST", "http://localhost:5000/api/mutating"], timeout=2)
+        except Exception:
+            pass
         subprocess.Popen(["sudo", "reboot"])
         result = {"status": "rebooting", "message": "Host is rebooting now."}
     else:
