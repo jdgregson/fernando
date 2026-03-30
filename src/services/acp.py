@@ -123,19 +123,6 @@ class ACPSession:
         else:
             raise RuntimeError("ACP session/new failed")
 
-        # Send intro file as initial context (not recorded as user message)
-        intro_file = os.path.join(os.path.dirname(__file__), "..", "..", "data", "intro.md")
-        if os.path.exists(intro_file):
-            with open(intro_file) as f:
-                intro = f.read().strip()
-            if intro:
-                self._recording = False
-                self._request("session/prompt", {
-                    "sessionId": self.acp_session_id,
-                    "prompt": [{"type": "text", "text": intro}],
-                }, timeout=60)
-                self._recording = True
-
     def load(self, acp_session_id):
         """Load an existing ACP session (resume after restart)."""
         self._load_history()

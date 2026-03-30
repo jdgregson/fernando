@@ -211,10 +211,15 @@ if [ -n "$1" ]; then
     gecho "Cloudflare tunnel configured."
 fi
 
-# Create intro file
-intro_file="$INSTALL_DIR/data/intro.md"
-if [ ! -f "$intro_file" ]; then
-    sudo -u "$FERNANDO_USER" mkdir -p "$INSTALL_DIR/data"
-    echo "You are Fernando, the Kiro-powered assistant powering this workspace. I am a new user without a name. Encourage me to add an intro and system prompt to this file at $intro_file" | sudo -u "$FERNANDO_USER" tee "$intro_file" > /dev/null
+# Install global Kiro instructions
+gecho "Installing Kiro instructions..."
+sudo -u "$FERNANDO_USER" mkdir -p "$FERNANDO_HOME/.kiro"
+instructions_src="$INSTALL_DIR/instructions.md"
+instructions_dst="$FERNANDO_HOME/.kiro/instructions.md"
+if [ ! -f "$instructions_dst" ]; then
+    sudo -u "$FERNANDO_USER" cp "$instructions_src" "$instructions_dst"
+    gecho "Copied instructions template to $instructions_dst — edit it to fill in your details."
+else
+    gecho "Instructions already exist at $instructions_dst, skipping."
 fi
 
