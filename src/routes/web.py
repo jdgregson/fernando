@@ -152,6 +152,22 @@ def serve_file(filepath):
     return send_file(full_path, mimetype=mime)
 
 
+@bp.route("/upload", methods=["POST"])
+def upload_file():
+    """Handle file uploads from chat UI. Saves to ~/uploads/ and returns the path."""
+    from flask import jsonify
+    import uuid
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify(error="No file"), 400
+    upload_dir = os.path.join(os.path.expanduser("~"), "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex[:8]}_{os.path.basename(f.filename)}"
+    dest = os.path.join(upload_dir, safe_name)
+    f.save(dest)
+    return jsonify(path=dest, name=f.filename)
+
+
 @bp.route("/auth/callback")
 def auth_callback():
     code = request.args.get("code")

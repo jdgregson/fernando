@@ -40,7 +40,6 @@
             line-height: 1.6;
             word-wrap: break-word;
             overflow-wrap: break-word;
-            border-bottom: 1px solid #3b73b938;
         }
         .msg .msg-label {
             font-size: 11px;
@@ -51,7 +50,7 @@
             opacity: 0.6;
         }
         .msg.user {
-            background: #1a2332;
+            background: #102d50;
         }
         .msg.user .msg-label { color: #569cd6; }
         .msg.user code { background: #0a1929; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
@@ -130,15 +129,51 @@
             background: #0d2848;
             padding: 12px 16px;
             display: flex;
-            gap: 8px;
+            flex-direction: column;
+            gap: 6px;
             flex-shrink: 0;
+            border-top: 1px solid #223450;
         }
-        .input-area textarea {
+        .attached-files {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+        .attached-files:empty { display: none; }
+        .attached-file {
+            background: #091d35;
+            border: 1px solid #143151;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 11px;
+            color: #9cdcfe;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            max-width: 150px;
+        }
+        .attached-file .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .attached-file .remove { cursor: pointer; color: #f44747; font-size: 13px; flex-shrink: 0; }
+        .uploading-indicator {
+            color: #dcdcaa;
+            font-size: 11px;
+            animation: pulse 1s infinite;
+        }
+        .input-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+        .textarea-wrap {
             flex: 1;
+            position: relative;
+        }
+        .textarea-wrap textarea {
+            width: 100%;
             background: #091d35;
             border: 1px solid #143151;
             color: #d4d4d4;
-            padding: 8px 12px;
+            padding: 8px 36px 8px 12px;
             border-radius: 6px;
             font-size: 14px;
             font-family: inherit;
@@ -146,22 +181,35 @@
             outline: none;
             min-height: 40px;
             max-height: 120px;
+            line-height: 22px;
         }
-        .input-area textarea:focus { border-color: #3465a3; }
-        .input-area button {
-            background: #3465a3;
+        .textarea-wrap textarea:focus { border-color: #3465a3; }
+        .attach-btn {
+            position: absolute;
+            right: 8px;
+            background: none;
             border: none;
+            color: #555;
+            cursor: pointer;
+            padding: 0;
+            line-height: 0;
+            bottom: 14px;
+        }
+        .attach-btn:hover { color: #aaa; }
+        .input-row > button {
+            background: #3465a3;
             color: #fff;
             transition: background 0.2s;
             padding: 8px 16px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
-            height: 39px;
-            align-self: flex-end;
+            height: 41px;
+            border: 1px solid #143151;
+            margin-bottom: 3px;
         }
-        .input-area button:hover { background: #4a7bc8; }
-        .input-area button:disabled { background: #555; cursor: not-allowed; }
+        .input-row > button:hover { background: #143151; }
+        .input-row > button:disabled { background: #555; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -171,8 +219,16 @@
     </div>
     <div class="messages" id="messages"></div>
     <div class="input-area">
-        <textarea id="input" placeholder="Message Kiro..." rows="1" disabled></textarea>
-        <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+        <div class="attached-files" id="attachedFiles"></div>
+        <span class="uploading-indicator" id="uploadingIndicator" style="display:none">Uploading...</span>
+        <div class="input-row">
+            <div class="textarea-wrap">
+                <textarea id="input" placeholder="Message Kiro..." rows="1" disabled></textarea>
+                <label class="attach-btn" id="attachBtn" for="fileInput"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg></label>
+                <input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">
+            </div>
+            <button id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+        </div>
     </div>
 
 <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
@@ -214,12 +270,14 @@
             btn.textContent = 'Send';
             btn.onclick = sendMessage;
             btn.style.background = '';
+            btn.style.borderColor = '';
             input.focus();
         } else if (state === 'working') {
             btn.disabled = false;
             btn.textContent = 'Stop';
             btn.onclick = cancelMessage;
             btn.style.background = '#a03030';
+            btn.style.borderColor = '#511414';
         } else if (state === 'error') {
             input.disabled = true;
             btn.disabled = true;
@@ -541,8 +599,16 @@
 
     function sendMessage() {
         const input = document.getElementById('input');
-        const text = input.value.trim();
-        if (!text || isWorking) return;
+        let text = input.value.trim();
+        if ((!text && attachedFiles.length === 0) || isWorking) return;
+
+        if (attachedFiles.length > 0) {
+            const filePaths = attachedFiles.map(f => f.path).join('\n');
+            const prefix = `[Attached files - saved to disk, use tools to read them]\n${filePaths}\n\n`;
+            text = prefix + text;
+            attachedFiles = [];
+            renderAttached();
+        }
 
         addUserMessage(text);
 
@@ -620,6 +686,45 @@
     });
     input.addEventListener('keydown', (e) => {
     });
+
+    let attachedFiles = []; // [{name, path}]
+
+    async function handleFiles(fileList) {
+        const indicator = document.getElementById('uploadingIndicator');
+        indicator.style.display = '';
+        for (const file of fileList) {
+            indicator.textContent = 'Uploading ' + file.name + '...';
+            const form = new FormData();
+            form.append('file', file);
+            try {
+                const resp = await fetch('/upload', { method: 'POST', body: form });
+                const data = await resp.json();
+                if (data.path) {
+                    attachedFiles.push({ name: data.name, path: data.path });
+                    renderAttached();
+                }
+            } catch(e) {
+                console.error('Upload failed:', e);
+            }
+        }
+        indicator.style.display = 'none';
+        document.getElementById('fileInput').value = '';
+    }
+
+    function renderAttached() {
+        const container = document.getElementById('attachedFiles');
+        container.innerHTML = attachedFiles.map((f, i) =>
+            `<span class="attached-file"><span class="name">${escapeHtml(f.name)}</span><span class="remove" data-idx="${i}">✕</span></span>`
+        ).join('');
+        container.querySelectorAll('.remove').forEach(el => {
+            el.onclick = () => removeAttached(parseInt(el.dataset.idx));
+        });
+    }
+
+    function removeAttached(idx) {
+        attachedFiles.splice(idx, 1);
+        renderAttached();
+    }
 
     window.addEventListener('beforeunload', () => {
         if (window.parent !== window) {
