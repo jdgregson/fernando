@@ -9,6 +9,7 @@
     <meta name="mobile-web-app-capable" content="yes">
     <link rel="icon" type="image/png" sizes="128x128" href="/static/icons/fernando-128.png">
     <link rel="apple-touch-icon" href="/static/icons/fernando-512.png">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js" integrity="sha384-oSLfJWgcKdFR8ARaFNNT3eS7AVclV2nA1uRLQ1eJhgXWEF+NA7DyMoU1Go+Qk3SP" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js" integrity="sha384-dSvoEq1wDH6yHh7QfeqGKs0/rMUW6IKuS+qUJircrP1EjyEYzCNSbOwyNke0LJKr" crossorigin="anonymous"></script>
@@ -46,17 +47,17 @@
 
         .top-bar button {
             background: #3465a3;
-            border: none;
+            border: 1px solid #143151;
             color: #fff;
             padding: 4px 10px;
             cursor: pointer;
-            border-radius: 0;
+            border-radius: 6px;
             font-size: 12px;
             font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
         }
 
         .top-bar button:hover {
-            background: #4a7bc8;
+            background: #143151;
         }
 
         .content-wrapper {
@@ -201,10 +202,10 @@
             width: 100%;
             padding: 8px;
             background: #3465a3;
-            border: none;
+            border: 1px solid #143151;
             color: #fff;
             cursor: pointer;
-            border-radius: 0;
+            border-radius: 6px;
             font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
             margin-bottom: 8px;
         }
@@ -214,7 +215,7 @@
         }
 
         .new-session button:hover {
-            background: #4a7bc8;
+            background: #143151;
         }
 
         .modal {
@@ -238,8 +239,11 @@
             background: #0d2848;
             padding: 20px;
             border: 1px solid #143151;
-            max-width: 400px;
-            width: 90%;
+            border-radius: 8px;
+            max-width: 500px;
+            width: 90vw;
+            max-height: 90vh;
+            overflow-y: auto;
         }
 
         .modal-header {
@@ -249,29 +253,188 @@
         }
 
         .modal-body button {
-            width: 100%;
-            padding: 10px;
+            width: auto;
+            display: inline-block;
+            padding: 8px 16px;
             background: #3465a3;
-            border: none;
+            border: 1px solid #143151;
             color: #fff;
             cursor: pointer;
             margin-bottom: 10px;
+            border-radius: 6px;
             font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
         }
 
         .modal-body button:hover {
-            background: #4a7bc8;
+            background: #143151;
         }
 
         .modal-close {
-            background: #c72e2e !important;
-            color: white !important;
+            background: #143151 !important;
+            color: #fff !important;
             margin-top: 10px !important;
         }
 
         .modal-close:hover {
-            background: #e81123 !important;
+            background: #3465a3 !important;
         }
+
+        /* Subagent panel */
+        .panel-overlay {
+            display: none;
+            position: fixed;
+            z-index: 999;
+            left: 0; top: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5);
+        }
+        .panel-overlay.open { display: block; }
+        .sa-panel {
+            position: fixed;
+            z-index: 1000;
+            top: 0; right: -100%; width: 100%; height: 100%;
+            background: #0d2848;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.25s ease;
+        }
+        @media (min-width: 600px) {
+            .sa-panel { width: 500px; right: -500px; }
+        }
+        .sa-panel.open { right: 0; }
+        .sa-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            font-size: 16px;
+            font-weight: 600;
+            color: #e0e0e0;
+            border-bottom: 1px solid #143151;
+            flex-shrink: 0;
+        }
+        .sa-panel-close {
+            background: none; border: none; color: #888; font-size: 18px; cursor: pointer; padding: 4px 8px;
+        }
+        .sa-panel-close:hover { color: #fff; }
+        .sa-panel-tabs {
+            display: flex;
+            border-bottom: 1px solid #143151;
+            flex-shrink: 0;
+        }
+        .sa-tab {
+            flex: 1;
+            padding: 10px;
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: #888;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        .sa-tab:hover { color: #d4d4d4; }
+        .sa-tab.active { color: #3465a3; border-bottom-color: #3465a3; }
+        .sa-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 20px;
+        }
+        .sa-tab-content { display: none; }
+        .sa-tab-content.active { display: block; }
+
+        .subagent-card {
+            background: #0d2848;
+            border: 1px solid #143151;
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 12px;
+        }
+        .subagent-card .sa-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .subagent-card .sa-id {
+            font-weight: 600;
+            color: #9cdcfe;
+            font-size: 14px;
+            font-family: 'SF Mono', Menlo, Consolas, monospace;
+        }
+        .sa-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 3px;
+            margin-left: auto;
+        }
+        .sa-badge.running { background: #143151; color: #4ec9b0; }
+        .sa-badge.completed { background: #143151; color: #3465a3; }
+        .sa-badge.failed { background: #143151; color: #c72e2e; }
+        .sa-badge.scheduled { background: #143151; color: #d4a017; }
+        .subagent-card .sa-task {
+            font-size: 13px;
+            color: #bbb;
+            line-height: 1.6;
+            margin-bottom: 8px;
+        }
+        .subagent-card .sa-task p { margin: 0.3em 0; }
+        .subagent-card .sa-task p:first-child { margin-top: 0; }
+        .subagent-card .sa-task p:last-child { margin-bottom: 0; }
+        .subagent-card .sa-task code { background: #091d35; padding: 1px 5px; border-radius: 3px; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+        .subagent-card .sa-task pre { background: #091d35; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 6px 0; overflow-x: auto; font-size: 12px; }
+        .subagent-card .sa-task pre code { background: none; padding: 0; }
+        .subagent-card .sa-task ul, .subagent-card .sa-task ol { padding-left: 1.3em; }
+        .sa-meta { font-size: 12px; color: #666; margin-bottom: 6px; }
+        .sa-schedule { font-size: 12px; color: #3465a3; margin-bottom: 6px; }
+        .sa-panel a { color: #1a77ec; }
+        .sa-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .sa-btn {
+            background: #3465a3;
+            color: #fff;
+            transition: background 0.2s;
+            padding: 6px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            border: 1px solid #143151;
+            font-family: inherit;
+        }
+        .sa-btn:hover { background: #143151; }
+        .sa-btn-primary { width: 100%; padding: 10px; margin-top: 12px; font-size: 14px; }
+        .sa-btn-primary:hover { background: #143151; }
+        .sa-btn-danger { background: #c72e2e; border-color: #c72e2e; }
+        .sa-btn-danger:hover { background: #e81123; }
+        .sa-section-label { font-size: 11px; color: #fff; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .sa-form-label { display: block; font-size: 12px; color: #888; margin-bottom: 4px; margin-top: 12px; }
+        .sa-form-label:first-child { margin-top: 0; }
+        .sa-input {
+            width: 100%;
+            background: #091d35;
+            border: 1px solid #143151;
+            color: #d4d4d4;
+            padding: 10px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+        }
+        .sa-input:focus { border-color: #3465a3; }
+        .sa-textarea { min-height: 120px; resize: vertical; }
+        .sa-hint { font-size: 11px; color: #555; margin-top: 4px; }
+        .sa-empty { color: #fff; text-align: center; padding: 40px 20px; font-size: 14px; }
+
+        .sa-detail-section { margin-bottom: 14px; }
+        .sa-detail-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .sa-detail-value { font-size: 14px; color: #d4d4d4; line-height: 1.6; }
+        .sa-detail-value p { margin: 0.3em 0; }
+        .sa-detail-value code { background: #091d35; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+        .sa-detail-value pre { background: #091d35; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 6px 0; overflow-x: auto; font-size: 12px; }
+        .sa-detail-value pre code { background: none; padding: 0; }
 
         .session-cards {
             display: flex;
@@ -280,15 +443,16 @@
         }
 
         .session-card {
-            background: #3c3c3c;
+            background: #091d35;
             border: 1px solid #143151;
             padding: 15px;
             cursor: pointer;
             transition: background 0.2s;
+            border-radius: 6px;
         }
 
         .session-card:hover {
-            background: #4e4e4e;
+            background: #143151;
         }
 
         .session-card-title {
@@ -299,7 +463,7 @@
 
         .session-card-desc {
             font-size: 12px;
-            color: #ccc;
+            color: #888;
         }
 
         .main-content {
@@ -423,6 +587,7 @@
         .alert-modal-content {
             background: #0d2848;
             border: 1px solid #143151;
+            border-radius: 8px;
             max-width: 400px;
             width: 90%;
             padding: 20px;
@@ -431,6 +596,8 @@
         .alert-modal-message {
             margin-bottom: 20px;
             line-height: 1.5;
+            max-height: 60vh;
+            overflow-y: auto;
         }
 
         .alert-modal-buttons {
@@ -441,7 +608,8 @@
         .alert-modal-buttons button {
             flex: 1;
             padding: 10px;
-            border: none;
+            border: 1px solid #143151;
+            border-radius: 6px;
             cursor: pointer;
             font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace;
             background: #3465a3;
@@ -449,16 +617,16 @@
         }
 
         .alert-modal-buttons button:hover {
-            background: #4a7bc8;
+            background: #143151;
         }
 
         .alert-modal-buttons button.cancel {
-            background: #c72e2e;
-            color: white;
+            background: #143151;
+            color: #fff;
         }
 
         .alert-modal-buttons button.cancel:hover {
-            background: #e81123;
+            background: #3465a3;
         }
 
         .mutate-overlay {
@@ -642,58 +810,43 @@
         </div>
     </div>
 
-    <div class="modal" id="subagentsModal" onclick="closeSubagentsModal()">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-header">Scheduled Subagents</div>
-            <div class="modal-body">
-                <button onclick="openNewSubagentModal()">New Subagent</button>
-                <button onclick="showSchedules()">View Schedules</button>
-                <div id="subagentsList" style="margin-top: 15px; max-height: 400px; overflow-y: auto;"></div>
-                <button class="modal-close" onclick="closeSubagentsModal()">Close</button>
-            </div>
+    <div class="panel-overlay" id="subagentsOverlay" onclick="closeSubagentsPanel()"></div>
+    <div class="sa-panel" id="subagentsPanel">
+        <div class="sa-panel-header">
+            <span>Subagents</span>
+            <button class="sa-panel-close" onclick="closeSubagentsPanel()">✕</button>
         </div>
-    </div>
-
-    <div class="modal" id="schedulesModal" onclick="closeSchedulesModal()">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-header">Active Schedules</div>
-            <div class="modal-body">
-                <h3 style="margin-top: 0;">One-time (at)</h3>
-                <div id="atJobsList" style="margin-bottom: 20px;"></div>
-
-                <h3>Recurring (cron)</h3>
-                <div id="cronJobsList" style="margin-bottom: 20px;"></div>
-
-                <button class="modal-close" onclick="closeSchedulesModal()">Close</button>
-            </div>
+        <div class="sa-panel-tabs">
+            <button class="sa-tab active" onclick="switchSaTab('list',this)">All</button>
+            <button class="sa-tab" onclick="switchSaTab('schedules',this)">Schedules</button>
+            <button class="sa-tab" onclick="switchSaTab('create',this)">+ New</button>
         </div>
-    </div>
-
-    <div class="modal" id="newSubagentModal" onclick="closeNewSubagentModal()">
-        <div class="modal-content" onclick="event.stopPropagation()">
-            <div class="modal-header">Create Subagent</div>
-            <div class="modal-body">
-                <label>Task ID:</label>
-                <input type="text" id="subagentTaskId" placeholder="e.g., research-aws-pricing" style="width: 100%; margin-bottom: 10px;">
-
-                <label>Task Description:</label>
-                <textarea id="subagentTask" placeholder="Describe the task..." style="width: 100%; height: 100px; margin-bottom: 10px;"></textarea>
-
-                <label>Context File Path (optional):</label>
-                <input type="text" id="subagentContextPath" placeholder="/path/to/context.txt" style="width: 100%; margin-bottom: 10px;">
-                <div style="font-size: 11px; color: #888; margin-bottom: 10px;">File will be created if it doesn't exist. Subagent will read and append to it.</div>
-
-                <label>Schedule (optional):</label>
-                <select id="subagentScheduleType" onchange="updateScheduleInput()" style="width: 100%; margin-bottom: 10px;">
+        <div class="sa-panel-body">
+            <div class="sa-tab-content active" id="saTabList">
+                <div id="subagentsList"></div>
+            </div>
+            <div class="sa-tab-content" id="saTabSchedules">
+                <div class="sa-section-label">One-time (at)</div>
+                <div id="atJobsList"></div>
+                <div class="sa-section-label" style="margin-top:16px">Recurring (cron)</div>
+                <div id="cronJobsList"></div>
+            </div>
+            <div class="sa-tab-content" id="saTabCreate">
+                <label class="sa-form-label">Task ID</label>
+                <input type="text" id="subagentTaskId" class="sa-input" placeholder="e.g., research-aws-pricing">
+                <label class="sa-form-label">Task Description</label>
+                <textarea id="subagentTask" class="sa-input sa-textarea" placeholder="Describe the task..."></textarea>
+                <label class="sa-form-label">Context File (optional)</label>
+                <input type="text" id="subagentContextPath" class="sa-input" placeholder="/path/to/context.txt">
+                <div class="sa-hint">File will be created if it doesn't exist.</div>
+                <label class="sa-form-label">Schedule</label>
+                <select id="subagentScheduleType" class="sa-input" onchange="updateScheduleInput()">
                     <option value="">Run immediately</option>
                     <option value="at">At specific time</option>
                     <option value="every">Recurring</option>
                 </select>
-
                 <div id="scheduleInputContainer"></div>
-
-                <button class="modal-close" onclick="closeNewSubagentModal()">Cancel</button>
-                <button onclick="createSubagent()">Create</button>
+                <button class="sa-btn sa-btn-primary" onclick="createSubagent()">Create Subagent</button>
             </div>
         </div>
     </div>
@@ -725,6 +878,8 @@
 </html>
 
     <script>
+        function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
         function showAlert(message) {
             return new Promise(resolve => {
                 document.getElementById('alertMessage').textContent = message;
@@ -1621,34 +1776,44 @@
         }
 
         function openSubagentsModal() {
-            document.getElementById('subagentsModal').classList.add('open');
+            document.getElementById('subagentsOverlay').classList.add('open');
+            document.getElementById('subagentsPanel').classList.add('open');
             if (window.innerWidth <= 500) {
                 document.getElementById('sidebar').classList.remove('open');
             }
             loadSubagents();
         }
 
-        function closeSubagentsModal() {
-            document.getElementById('subagentsModal').classList.remove('open');
+        function closeSubagentsPanel() {
+            document.getElementById('subagentsOverlay').classList.remove('open');
+            document.getElementById('subagentsPanel').classList.remove('open');
+        }
+        // Keep old name for sidebar button
+        function closeSubagentsModal() { closeSubagentsPanel(); }
+
+        function switchSaTab(tab, btn) {
+            document.querySelectorAll('.sa-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.sa-tab-content').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('saTab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+            if (tab === 'schedules') {
+                emitWithCsrf('get_at_jobs');
+                emitWithCsrf('get_cron_jobs');
+            }
         }
 
-        function openNewSubagentModal() {
-            document.getElementById('newSubagentModal').classList.add('open');
-        }
-
-        function closeNewSubagentModal() {
-            document.getElementById('newSubagentModal').classList.remove('open');
-        }
+        function openNewSubagentModal() { /* no-op, handled by tab now */ }
+        function closeNewSubagentModal() { /* no-op */ }
 
         function updateScheduleInput() {
             const type = document.getElementById('subagentScheduleType').value;
             const container = document.getElementById('scheduleInputContainer');
 
             if (type === 'at') {
-                container.innerHTML = '<input type="time" id="scheduleTime" style="width: 100%; margin-bottom: 10px;">';
+                container.innerHTML = '<input type="time" id="scheduleTime" class="sa-input" style="margin-top:8px">';
             } else if (type === 'every') {
                 container.innerHTML = `
-                    <select id="scheduleInterval" style="width: 100%; margin-bottom: 10px;">
+                    <select id="scheduleInterval" class="sa-input" style="margin-top:8px">
                         <option value="minute">Every minute</option>
                         <option value="5 minutes">Every 5 minutes</option>
                         <option value="10 minutes">Every 10 minutes</option>
@@ -1673,24 +1838,28 @@
             const list = document.getElementById('subagentsList');
 
             if (subagents.length === 0) {
-                list.innerHTML = '<p style="color: #888;">No subagents yet</p>';
+                list.innerHTML = '<div class="sa-empty">No subagents yet</div>';
                 return;
             }
 
-            list.innerHTML = subagents.map(s => `
-                <div style="border: 1px solid #143151; padding: 10px; margin-bottom: 10px; border-radius: 3px;">
-                    <div style="font-weight: bold;">${s.task_id}</div>
-                    <div style="font-size: 12px; color: #888; margin: 5px 0;">${s.task}</div>
-                    <div style="font-size: 11px; color: #888;">Status: ${s.status} (${s.progress}%)</div>
-                    ${s.schedule ? `<div style="font-size: 11px; color: #3465a3;">Schedule: ${s.schedule}</div>` : ''}
-                    <div style="font-size: 11px; color: #888;">${s.current_step}</div>
-                    <div style="margin-top: 5px;">
-                        <button onclick="viewSubagent('${s.task_id}')" style="font-size: 11px; padding: 3px 8px;">View</button>
-                        <button onclick="terminateSubagent('${s.task_id}')" style="font-size: 11px; padding: 3px 8px;">Terminate</button>
-                        <button onclick="deleteSubagent('${s.task_id}')" style="font-size: 11px; padding: 3px 8px;">Delete</button>
+            list.innerHTML = subagents.map(s => {
+                const statusClass = s.status === 'running' ? 'running' : s.status === 'completed' ? 'completed' : s.status === 'failed' ? 'failed' : s.schedule ? 'scheduled' : '';
+                return `
+                <div class="subagent-card">
+                    <div class="sa-header">
+                        <span class="sa-id">${escapeHtml(s.task_id)}</span>
+                        <span class="sa-badge ${statusClass}">${escapeHtml(s.status)}${s.progress > 0 ? ' ' + s.progress + '%' : ''}</span>
                     </div>
-                </div>
-            `).join('');
+                    <div class="sa-task">${marked.parse(s.task || '')}</div>
+                    ${s.schedule ? `<div class="sa-schedule">⏱ ${escapeHtml(s.schedule)}</div>` : ''}
+                    ${s.current_step ? `<div class="sa-meta">${escapeHtml(s.current_step)}</div>` : ''}
+                    <div class="sa-actions">
+                        <button class="sa-btn" onclick="viewSubagent('${escapeHtml(s.task_id)}')">View</button>
+                        <button class="sa-btn" onclick="terminateSubagent('${escapeHtml(s.task_id)}')">Terminate</button>
+                        <button class="sa-btn sa-btn-danger" onclick="deleteSubagent('${escapeHtml(s.task_id)}')">Delete</button>
+                    </div>
+                </div>`;
+            }).join('');
         });
 
         function createSubagent() {
@@ -1723,7 +1892,7 @@
 
         socket.on('subagent_created', (data) => {
             showAlert('Subagent created successfully');
-            closeNewSubagentModal();
+            document.querySelector('.sa-tab').click();
             loadSubagents();
             document.getElementById('subagentTaskId').value = '';
             document.getElementById('subagentTask').value = '';
@@ -1741,7 +1910,20 @@
         }
 
         socket.on('subagent_status', (data) => {
-            showAlert(JSON.stringify(data, null, 2));
+            const s = data;
+            const statusClass = s.status === 'running' ? 'running' : s.status === 'completed' ? 'completed' : s.status === 'failed' ? 'failed' : 'scheduled';
+            const sections = [
+                `<div class="sa-detail-section"><div class="sa-detail-label">Task ID</div><div class="sa-detail-value"><code>${escapeHtml(s.task_id || '')}</code></div></div>`,
+                `<div class="sa-detail-section"><div class="sa-detail-label">Status</div><div class="sa-detail-value"><span class="sa-badge ${statusClass}">${escapeHtml(s.status || '')}</span></div></div>`,
+                `<div class="sa-detail-section"><div class="sa-detail-label">Task</div><div class="sa-detail-value">${marked.parse(s.task || '')}</div></div>`,
+                s.current_step ? `<div class="sa-detail-section"><div class="sa-detail-label">Current Step</div><div class="sa-detail-value">${escapeHtml(s.current_step)}</div></div>` : '',
+                s.schedule ? `<div class="sa-detail-section"><div class="sa-detail-label">Schedule</div><div class="sa-detail-value">${escapeHtml(s.schedule)}</div></div>` : '',
+                s.context_path ? `<div class="sa-detail-section"><div class="sa-detail-label">Context File</div><div class="sa-detail-value"><code>${escapeHtml(s.context_path)}</code></div></div>` : '',
+                typeof s.progress !== 'undefined' ? `<div class="sa-detail-section"><div class="sa-detail-label">Progress</div><div class="sa-detail-value">${s.progress}%</div></div>` : '',
+            ].filter(Boolean).join('');
+            document.getElementById('alertMessage').innerHTML = sections;
+            document.getElementById('alertButtons').innerHTML = '<button onclick="closeAlert()">Close</button>';
+            document.getElementById('alertModal').classList.add('open');
         });
 
         async function terminateSubagent(taskId) {
@@ -1768,27 +1950,24 @@
             loadSubagents();
         });
 
-        function closeSchedulesModal() {
-            document.getElementById('schedulesModal').classList.remove('open');
-        }
+        function closeSchedulesModal() { /* no-op, handled by panel */ }
 
-        function showSchedules() {
-            document.getElementById('schedulesModal').classList.add('open');
-            emitWithCsrf('get_at_jobs');
-            emitWithCsrf('get_cron_jobs');
-        }
+        function showSchedules() { /* no-op, handled by tab */ }
 
         socket.on('at_jobs', (data) => {
             const atJobs = data.jobs;
             const atList = document.getElementById('atJobsList');
 
             if (atJobs.length === 0) {
-                atList.innerHTML = '<p style="color: #888;">No scheduled one-time jobs</p>';
+                atList.innerHTML = '<p>No scheduled one-time jobs</p>';
             } else {
                 atList.innerHTML = atJobs.map(job => `
-                    <div style="border: 1px solid #143151; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
-                        <div style="font-size: 12px;">Job ${job.job_id}: ${job.scheduled_time}</div>
-                        <button onclick="removeAtJob('${job.job_id}')" style="font-size: 11px; padding: 3px 8px; margin-top: 5px;">Remove</button>
+                    <div class="subagent-card">
+                        <div class="sa-header">
+                            <span class="sa-id">Job ${escapeHtml(String(job.job_id))}</span>
+                            <span class="sa-status scheduled">${escapeHtml(job.scheduled_time)}</span>
+                        </div>
+                        <div class="sa-actions"><button class="sa-btn sa-btn-danger" onclick="removeAtJob('${escapeHtml(String(job.job_id))}')">Remove</button></div>
                     </div>
                 `).join('');
             }
@@ -1799,14 +1978,16 @@
             const cronList = document.getElementById('cronJobsList');
 
             if (cronJobs.length === 0) {
-                cronList.innerHTML = '<p style="color: #888;">No recurring jobs</p>';
+                cronList.innerHTML = '<p>No recurring jobs</p>';
             } else {
                 cronList.innerHTML = cronJobs.map(job => `
-                    <div style="border: 1px solid #143151; padding: 8px; margin-bottom: 8px; border-radius: 3px;">
-                        <div style="font-size: 12px; font-weight: bold;">${job.task_id || 'Unknown task'}</div>
-                        <div style="font-size: 11px; color: #888; margin: 3px 0;">Schedule: ${job.cron_time}</div>
-                        <div style="font-size: 10px; color: #666; word-break: break-all;">${job.command}</div>
-                        ${job.task_id ? `<button onclick="removeCronJob('${job.task_id}')" style="font-size: 11px; padding: 3px 8px; margin-top: 5px;">Remove</button>` : ''}
+                    <div class="subagent-card">
+                        <div class="sa-header">
+                            <span class="sa-id">${escapeHtml(job.task_id || 'Unknown')}</span>
+                            <span class="sa-status scheduled">${escapeHtml(job.cron_time)}</span>
+                        </div>
+                        <div class="sa-meta" style="word-break:break-all">${escapeHtml(job.command)}</div>
+                        ${job.task_id ? `<div class="sa-actions"><button class="sa-btn sa-btn-danger" onclick="removeCronJob('${escapeHtml(job.task_id)}')">Remove</button></div>` : ''}
                     </div>
                 `).join('');
             }
