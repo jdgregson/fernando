@@ -321,12 +321,14 @@ def register_handlers(socketio):
     @socketio.on("acp_subscribe")
     def acp_subscribe(data):
         if not validate_csrf(data):
+            logger.warning(f"acp_subscribe: CSRF validation failed for sid={request.sid}")
             return
         acp_sid = data.get("session_id")
         if acp_sid:
             acp_subscribers.setdefault(acp_sid, set()).add(request.sid)
             # Replay history for reconnecting clients
             session = acp_manager.get_session(acp_sid)
+            logger.info(f"acp_subscribe: session_id={acp_sid} found={session is not None} ready={session.ready if session else 'N/A'} history_len={len(session.history) if session else 0}")
             if session:
                 for evt in session.history:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})

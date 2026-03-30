@@ -100,8 +100,8 @@
         .tool-call-header:hover { background: #061628; }
         .tool-call-header .arrow { transition: transform 0.15s; font-size: 10px; color: #888; }
         .tool-call-header .arrow.open { transform: rotate(90deg); }
-        .tool-call-header .tool-name { color: #dcdcaa; font-weight: bold; }
-        .tool-call-header .tool-status { color: #888; font-style: italic; margin-left: auto; }
+        .tool-call-header .tool-name { color: #dcdcaa; font-weight: bold; word-break: break-all; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .tool-call-header .tool-status { color: #888; font-style: italic; margin-left: auto; flex-shrink: 0; }
         .tool-call-header .tool-status.completed { color: #4ec9b0; }
         .tool-call-header .tool-status.failed { color: #f44747; }
         .tool-call-header .tool-status.in_progress { color: #dcdcaa; }
@@ -116,6 +116,8 @@
             font-size: 11px;
         }
         .tool-call-body.open { display: block; }
+        .tool-toggle { color: #666; font-size: 10px; cursor: pointer; padding-bottom: 4px; }
+        .tool-toggle:hover { color: #aaa; }
 
         .msg.system {
             align-self: center;
@@ -323,9 +325,27 @@
 
         const body = document.createElement('div');
         body.className = 'tool-call-body';
-        if (rawInput) {
-            body.textContent = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2);
+
+        const toggle = document.createElement('div');
+        toggle.className = 'tool-toggle';
+        toggle.textContent = '▸ show input';
+        const tcState = { inputText: '', outputText: '', showingInput: false };
+        toggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            tcState.showingInput = !tcState.showingInput;
+            toggle.textContent = tcState.showingInput ? '▸ show output' : '▸ show input';
+            bodyContent.textContent = tcState.showingInput ? (tcState.inputText || '(no input)') : (tcState.outputText || '(no output yet)');
+        });
+
+        const bodyContent = document.createElement('div');
+        tcState.inputText = rawInput ? (typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2)) : '';
+        if (tcState.inputText) {
+            bodyContent.textContent = tcState.inputText;
         }
+
+        body.appendChild(toggle);
+        body.appendChild(bodyContent);
 
         header.addEventListener('click', () => {
             arrow.classList.toggle('open');
@@ -350,13 +370,13 @@
         }
 
         currentAssistantMsg.appendChild(div);
-        toolCalls[toolCallId] = { div, statusSpan, body, title: title || '', rawInput };
+        toolCalls[toolCallId] = { div, statusSpan, body, bodyContent, tcState, title: title || '', rawInput };
         scrollToBottom();
     }
 
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
 
-    function updateToolCall(toolCallId, status, content) {
+    function updateToolCall(toolCallId, status, content, rawOutput) {
         const tc = toolCalls[toolCallId];
         if (!tc) return;
         if (status) {
@@ -367,29 +387,35 @@
             for (const c of content) {
                 if (c.type === 'content' && c.content) {
                     if (c.content.type === 'text') {
-                        // Insert text before any images
-                        const textNode = document.createTextNode(c.content.text + '\n');
-                        const firstImg = tc.body.querySelector('img');
-                        if (firstImg) tc.body.insertBefore(textNode, firstImg);
-                        else tc.body.appendChild(textNode);
+                        tc.bodyContent.appendChild(document.createTextNode(c.content.text + '\n'));
                     }
                 }
             }
         }
-        if (status === 'completed' && tc.body.textContent.trim()) {
-            const lines = tc.body.textContent.trim().split('\n');
+        if (rawOutput) {
+            const text = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2);
+            tc.tcState.outputText = text;
+            if (!tc.tcState.showingInput) {
+                tc.bodyContent.textContent = text;
+            }
+        }
+        if (status === 'completed' && tc.bodyContent.textContent.trim()) {
+            const lines = tc.bodyContent.textContent.trim().split('\n');
             if (lines.length > 20) {
-                // Preserve images, truncate text
-                const imgs = tc.body.querySelectorAll('img');
                 const truncated = lines.slice(0, 20).join('\n') + '\n... (' + lines.length + ' lines total)';
-                tc.body.textContent = truncated;
-                imgs.forEach(img => tc.body.appendChild(img));
+                tc.bodyContent.textContent = truncated;
             }
         }
         scrollToBottom();
     }
 
     function finishTurn() {
+        for (const tc of Object.values(toolCalls)) {
+            if (tc.statusSpan && tc.statusSpan.textContent !== 'completed') {
+                tc.statusSpan.className = 'tool-status completed';
+                tc.statusSpan.textContent = 'completed';
+            }
+        }
         currentAssistantMsg = null;
         currentContentDiv = null;
         currentText = '';
@@ -501,6 +527,7 @@
 
         // Handle user prompt from our history
         if (evt.type === 'user_prompt' || evt.type === 'continuation') {
+            if (currentAssistantMsg) finishTurn();
             if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
                 addSystemMessage(evt.text.slice(15));
             } else {
@@ -540,7 +567,7 @@
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
             if (st === 'in_progress') setStatus('working', 'Running tool...');
-            updateToolCall(update.toolCallId, update.status, update.content);
+            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput);
         }
 
         if (evt.result && evt.result.stopReason) {

@@ -17,6 +17,7 @@ KIRO_CLI = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
 PID_MAP_FILE = os.path.join(DATA_DIR, "acp_pid_map.json")
+HISTORY_DIR = os.path.join(DATA_DIR, "chat_history")
 KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
 
 
@@ -127,6 +128,8 @@ class ACPSession:
 
     def load(self, acp_session_id):
         """Load an existing ACP session (resume after restart)."""
+        self._load_history()
+        self._recording = False  # Don't overwrite rich history with kiro's stripped replay
         self._spawn_and_init()
         self.acp_session_id = acp_session_id
 
@@ -142,17 +145,13 @@ class ACPSession:
             "cwd": os.path.expanduser("~/fernando"),
             "mcpServers": [],
         }, timeout=120)
-        # session/load returns result (possibly null) on success, error on failure
-        # The conversation is replayed as notifications before the response
-        if resp is None:
-            # Check if it was an error (resp would be None from timeout too)
-            # If we got here, the request completed — history was replayed
-            pass
+        self._recording = True
 
     def send_prompt(self, text):
         if not self.acp_session_id:
             return
         self.history.append({"type": "user_prompt", "text": text})
+        self._save_history()
         self._send({
             "jsonrpc": "2.0",
             "id": self._get_id(),
@@ -170,6 +169,7 @@ class ACPSession:
         prefixed = "[CONTINUATION] " + text
         evt = {"type": "continuation", "text": prefixed}
         self.history.append(evt)
+        self._save_history()
         if self.on_event:
             self.on_event(self.id, evt)
         self._send({
@@ -235,6 +235,25 @@ class ACPSession:
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             self.history.append(msg)
+            self._save_history()
+
+    def _history_path(self):
+        return os.path.join(HISTORY_DIR, f"{self.id}.json")
+
+    def _save_history(self):
+        try:
+            os.makedirs(HISTORY_DIR, exist_ok=True)
+            with open(self._history_path(), "w") as f:
+                json.dump(self.history, f)
+        except Exception:
+            pass
+
+    def _load_history(self):
+        try:
+            with open(self._history_path()) as f:
+                self.history = json.load(f)
+        except Exception:
+            pass
 
     def _read_loop(self):
         buf = b""
@@ -354,15 +373,17 @@ class ACPManager:
 
     def _load_existing(self, session_id, session, acp_session_id, continuation=None):
         try:
+            logger.info(f"_load_existing: starting for {session_id} acp={acp_session_id}")
             session.load(acp_session_id)
             session.ready = True
+            logger.info(f"_load_existing: session {session_id} ready, history_len={len(session.history)}")
             self._save_pid_map()
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
                 session.send_continuation(continuation["message"])
         except Exception as e:
-            logger.error(f"ACP session load failed for {session_id}: {e}")
+            logger.error(f"ACP session load failed for {session_id}: {e}", exc_info=True)
             if session.on_event:
                 session.on_event(session_id, {"type": "session_error", "error": str(e)})
             self.destroy_session(session_id)
@@ -376,6 +397,10 @@ class ACPManager:
             session = self.sessions.pop(session_id, None)
         if session:
             session.stop()
+            try:
+                os.remove(session._history_path())
+            except OSError:
+                pass
         self._save()
 
     def list_sessions(self):
