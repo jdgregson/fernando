@@ -72,6 +72,7 @@ class ACPSession:
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
         self._reader_thread = None
+        self._stderr_thread = None
         self._next_id = 0
         self._pending = {}
         self._lock = threading.Lock()
@@ -79,9 +80,12 @@ class ACPSession:
         self.history = []
         self.ready = False
         self._recording = True  # gate for _record_event
+        self._last_activity = time.time()  # track last stdout data for stall detection
+        self._is_prompting = False  # True while waiting for agent response
 
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
+        logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
         self.proc = subprocess.Popen(
             [KIRO_CLI, "acp", "-a", "--model", "claude-opus-4.6"],
             stdin=subprocess.PIPE,
@@ -89,9 +93,14 @@ class ACPSession:
             stderr=subprocess.PIPE,
             cwd=os.path.expanduser("~/fernando"),
         )
+        logger.info(f"[{self.id}] kiro-cli pid={self.proc.pid}")
         self._alive = True
+        self._last_activity = time.time()
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._reader_thread.start()
+        # Drain stderr to prevent pipe buffer deadlock
+        self._stderr_thread = threading.Thread(target=self._stderr_loop, daemon=True)
+        self._stderr_thread.start()
 
         resp = self._request("initialize", {
             "protocolVersion": 1,
@@ -100,6 +109,7 @@ class ACPSession:
         }, timeout=15)
         if not resp:
             raise RuntimeError("ACP initialize failed")
+        logger.info(f"[{self.id}] ACP initialized successfully")
 
     def start(self):
         """Create a new ACP session."""
@@ -149,7 +159,11 @@ class ACPSession:
 
     def send_prompt(self, text):
         if not self.acp_session_id:
+            logger.warning(f"[{self.id}] send_prompt called but no acp_session_id")
             return
+        logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}")
+        self._is_prompting = True
+        self._last_activity = time.time()
         self.history.append({"type": "user_prompt", "text": text})
         self._save_history()
         self._send({
@@ -166,6 +180,9 @@ class ACPSession:
         """Send a prompt that displays as a system message, not a user message."""
         if not self.acp_session_id:
             return
+        logger.info(f"[{self.id}] send_continuation: {len(text)} chars")
+        self._is_prompting = True
+        self._last_activity = time.time()
         prefixed = "[CONTINUATION] " + text
         evt = {"type": "continuation", "text": prefixed}
         self.history.append(evt)
@@ -185,6 +202,8 @@ class ACPSession:
     def cancel(self):
         if not self.acp_session_id:
             return
+        stall_secs = time.time() - self._last_activity
+        logger.info(f"[{self.id}] cancel requested, stall={stall_secs:.0f}s, proc_poll={self.proc.poll() if self.proc else 'N/A'}")
         self._send({
             "jsonrpc": "2.0",
             "method": "session/cancel",
@@ -193,6 +212,7 @@ class ACPSession:
 
     def stop(self):
         self._alive = False
+        self._is_prompting = False
         if self.proc:
             try:
                 self.proc.terminate()
@@ -203,6 +223,16 @@ class ACPSession:
                 except Exception:
                     pass
             self.proc = None
+
+    def get_stall_info(self):
+        """Return diagnostic info about current session state."""
+        return {
+            "alive": self._alive,
+            "prompting": self._is_prompting,
+            "last_activity_secs_ago": round(time.time() - self._last_activity, 1),
+            "proc_alive": self.proc is not None and self.proc.poll() is None,
+            "proc_poll": self.proc.poll() if self.proc else None,
+        }
 
     def _get_id(self):
         with self._lock:
@@ -256,14 +286,24 @@ class ACPSession:
 
     def _read_loop(self):
         buf = b""
+        stall_warned = 0  # last stall warning threshold (seconds)
         while self._alive and self.proc and self.proc.poll() is None:
             try:
                 ready, _, _ = select.select([self.proc.stdout], [], [], 0.5)
                 if not ready:
+                    # Stall detection: log warnings at increasing intervals while prompting
+                    if self._is_prompting:
+                        elapsed = time.time() - self._last_activity
+                        if elapsed > 60 and elapsed > stall_warned + 60:
+                            stall_warned = int(elapsed)
+                            logger.warning(f"[{self.id}] STALL: no stdout data for {elapsed:.0f}s while prompting, proc_poll={self.proc.poll()}")
                     continue
                 chunk = self.proc.stdout.read1(65536)
                 if not chunk:
+                    logger.warning(f"[{self.id}] stdout EOF, proc_poll={self.proc.poll()}")
                     break
+                self._last_activity = time.time()
+                stall_warned = 0
                 buf += chunk
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
@@ -273,17 +313,37 @@ class ACPSession:
                     try:
                         msg = json.loads(line.decode())
                     except (json.JSONDecodeError, ValueError):
+                        logger.warning(f"[{self.id}] non-JSON stdout line: {line[:200]}")
                         continue
                     self._dispatch(msg)
-            except Exception:
+            except Exception as e:
+                logger.error(f"[{self.id}] _read_loop exception: {e}", exc_info=True)
                 break
 
         self._alive = False
+        self._is_prompting = False
+        logger.info(f"[{self.id}] _read_loop exited, proc_poll={self.proc.poll() if self.proc else 'dead'}")
         if self.on_event:
             try:
                 self.on_event(self.id, {"type": "session_ended"})
             except Exception:
                 pass
+
+    def _stderr_loop(self):
+        """Drain stderr to prevent pipe buffer deadlock and log any output."""
+        try:
+            while self._alive and self.proc and self.proc.poll() is None:
+                ready, _, _ = select.select([self.proc.stderr], [], [], 1.0)
+                if not ready:
+                    continue
+                chunk = self.proc.stderr.read1(65536)
+                if not chunk:
+                    break
+                for line in chunk.decode(errors="replace").splitlines():
+                    if line.strip():
+                        logger.warning(f"[{self.id}] kiro-cli stderr: {line.rstrip()}")
+        except Exception:
+            pass
 
     def _dispatch(self, msg):
         msg_id = msg.get("id")
@@ -294,6 +354,11 @@ class ACPSession:
                     self._pending[msg_id]["result"] = msg["result"]
                     self._pending[msg_id]["event"].set()
                     return
+            # Check for stopReason to track prompting state
+            stop_reason = msg.get("result", {}).get("stopReason")
+            if stop_reason:
+                logger.info(f"[{self.id}] turn ended: stopReason={stop_reason}")
+                self._is_prompting = False
             self._record_event(msg)
             if self.on_event:
                 try:
@@ -308,15 +373,22 @@ class ACPSession:
                     self._pending[msg_id]["result"] = None
                     self._pending[msg_id]["event"].set()
                     return
-            logger.warning(f"ACP error: {msg.get('error')}")
+            logger.warning(f"[{self.id}] ACP error: {msg.get('error')}")
+            self._is_prompting = False
             return
+
+        # Notification (no id) — log session/update type
+        params = msg.get("params", {})
+        su = (params.get("update") or {}).get("sessionUpdate", "")
+        if su and su != "agent_message_chunk":
+            logger.debug(f"[{self.id}] session/update: {su}")
 
         self._record_event(msg)
         if self.on_event:
             try:
                 self.on_event(self.id, msg)
             except Exception as e:
-                logger.error(f"ACP event callback error: {e}")
+                logger.error(f"[{self.id}] ACP event callback error: {e}")
 
 
 class ACPManager:

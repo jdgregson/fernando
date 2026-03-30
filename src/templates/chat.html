@@ -291,6 +291,40 @@
         socket.emit('acp_cancel', { csrf_token: csrfToken, session_id: sessionId });
     }
 
+    // Stall detection: if no acp_event for 90s while working, show diagnostic info
+    let stallTimer = null;
+    let stallCount = 0;
+    function resetStallTimer() {
+        stallCount = 0;
+        if (stallTimer) clearInterval(stallTimer);
+        stallTimer = null;
+        if (isWorking) {
+            stallTimer = setInterval(() => {
+                stallCount++;
+                const secs = stallCount * 30;
+                if (secs >= 90) {
+                    socket.emit('acp_stall_info', { csrf_token: csrfToken, session_id: sessionId });
+                }
+            }, 30000);
+        }
+    }
+
+    socket.on('acp_stall_info', (data) => {
+        if (data.session_id !== sessionId) return;
+        const ago = Math.round(data.last_activity_secs_ago);
+        const statusEl = document.getElementById('statusText');
+        if (ago > 90 && isWorking) {
+            statusEl.innerHTML = `Stalled (${ago}s no data, proc=${data.proc_alive ? 'alive' : 'dead'}) ` +
+                `<a href="#" onclick="forceUnstick();return false" style="color:#f44747;text-decoration:underline">Force restart</a>`;
+        }
+    });
+
+    function forceUnstick() {
+        if (!confirm('Kill the stuck kiro-cli process and reload the session? The agent\\'s last partial response will be lost.')) return;
+        setStatus('working', 'Restarting agent...');
+        socket.emit('acp_force_unstick', { csrf_token: csrfToken, session_id: sessionId });
+    }
+
     let currentAssistantMsg = null;
     let currentText = '';
     let currentContentDiv = null;
@@ -496,6 +530,7 @@
         toolCalls = {};
         isWorking = false;
         setStatus('ready', 'Ready');
+        resetStallTimer();
     }
 
     function renderUserText(text) {
@@ -616,6 +651,7 @@
         input.style.height = 'auto';
         isWorking = true;
         setStatus('working', 'Thinking...');
+        resetStallTimer();
 
         socket.emit('acp_prompt', {
             csrf_token: csrfToken,
@@ -627,6 +663,7 @@
 
     socket.on('acp_event', (data) => {
         if (data.session_id !== sessionId) return;
+        resetStallTimer();
         const evt = data.event;
 
         // Handle user prompt from our history
@@ -641,8 +678,8 @@
         }
 
         if (evt.type === 'session_ready') { finishTurn(); setStatus('ready', 'Ready'); return; }
-        if (evt.type === 'session_error') { setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
-        if (evt.type === 'session_ended') { setStatus('error', 'Session ended'); return; }
+        if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
+        if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
 
         const update = (evt.params || {}).update || {};
         const su = update.sessionUpdate;

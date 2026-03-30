@@ -351,6 +351,34 @@ def register_handlers(socketio):
         if session:
             session.cancel()
 
+    @socketio.on("acp_stall_info")
+    def acp_stall_info(data):
+        if not validate_csrf(data):
+            return
+        session = acp_manager.get_session(data.get("session_id"))
+        if session:
+            emit("acp_stall_info", {"session_id": data["session_id"], **session.get_stall_info()})
+
+    @socketio.on("acp_force_unstick")
+    def acp_force_unstick(data):
+        """Kill the stuck kiro-cli process and reload the session."""
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        session = acp_manager.get_session(sid)
+        if not session or not session.acp_session_id:
+            return
+        acp_id = session.acp_session_id
+        logger.warning(f"acp_force_unstick: killing session {sid} acp={acp_id}")
+        session.stop()
+        # Reload in background
+        session.on_event = acp_on_event
+        threading.Thread(
+            target=acp_manager._load_existing,
+            args=(sid, session, acp_id),
+            daemon=True,
+        ).start()
+
     @socketio.on("acp_close")
     def acp_close(data):
         if not validate_csrf(data):
