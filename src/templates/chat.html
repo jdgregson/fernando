@@ -65,8 +65,8 @@
         .msg.assistant p { margin: 0.4em 0; }
         .msg.assistant p:first-child { margin-top: 0; }
         .msg.assistant p:last-child { margin-bottom: 0; }
-        .msg.assistant code { background: #0d2748; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
-        .msg.assistant pre { background: #0d2748; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
+        .msg.assistant code { background: #0a1929; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+        .msg.assistant pre { background: #0a1929; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
         .msg.assistant pre code { background: none; padding: 0; }
         .msg.assistant ul, .msg.assistant ol { margin: 0.4em 0; padding-left: 1.5em; }
         .msg.assistant h1, .msg.assistant h2, .msg.assistant h3 { margin: 0.6em 0 0.3em; color: #e0e0e0; }
@@ -485,7 +485,9 @@
         } else {
             const content = document.createElement('div');
             content.className = 'msg-content';
-            content.innerHTML = marked.parse(text);
+            // Preserve consecutive newlines by replacing them with a placeholder before markdown parsing
+            const preserved = text.replace(/\n\n/g, '\n\n&nbsp;\n\n');
+            content.innerHTML = marked.parse(preserved);
             collapseCodeBlocks(content, 30);
             el.appendChild(content);
         }
@@ -581,10 +583,6 @@
         input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     });
     input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            sendMessage();
-        }
     });
 
     window.addEventListener('beforeunload', () => {
