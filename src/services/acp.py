@@ -200,6 +200,7 @@ class ACPSession:
     def stop(self):
         self._alive = False
         self._is_prompting = False
+        self._save_history()
         if self.proc:
             try:
                 self.proc.terminate()
@@ -251,7 +252,10 @@ class ACPSession:
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             self.history.append(msg)
-            self._save_history()
+            # Only save to disk on turn boundaries, not every chunk
+            su = ((msg.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
+            if su != "agent_message_chunk" or msg.get("result", {}).get("stopReason"):
+                self._save_history()
 
     def _history_path(self):
         return os.path.join(HISTORY_DIR, f"{self.id}.json")
@@ -259,8 +263,10 @@ class ACPSession:
     def _save_history(self):
         try:
             os.makedirs(HISTORY_DIR, exist_ok=True)
-            with open(self._history_path(), "w") as f:
+            tmp = self._history_path() + ".tmp"
+            with open(tmp, "w") as f:
                 json.dump(self.history, f)
+            os.replace(tmp, self._history_path())
         except Exception:
             pass
 

@@ -301,11 +301,15 @@ def register_handlers(socketio):
 
     acp_subscribers = {}  # fernando_session_id -> set of socket sids
 
+    acp_event_seq = {}  # session_id -> sequence counter
+
     def acp_on_event(session_id, event):
         """Broadcast ACP events to subscribed websocket clients."""
+        seq = acp_event_seq.get(session_id, 0)
+        acp_event_seq[session_id] = seq + 1
         sids = acp_subscribers.get(session_id, set())
         for sid in sids:
-            socketio.emit("acp_event", {"session_id": session_id, "event": event}, room=sid)
+            socketio.emit("acp_event", {"session_id": session_id, "seq": seq, "event": event}, room=sid)
 
     # Restore persisted chat sessions on startup
     acp_manager.restore_sessions(lambda sid: acp_on_event)
@@ -331,8 +335,26 @@ def register_handlers(socketio):
             logger.info(f"acp_subscribe: session_id={acp_sid} found={session is not None} ready={session.ready if session else 'N/A'} history_len={len(session.history) if session else 0}")
             if session:
                 offset = data.get("history_offset", 0)
-                for evt in session.history[offset:]:
+                history = session.history[offset:]
+                # Collapse consecutive agent_message_chunk text events into single events
+                collapsed = []
+                text_buf = ""
+                for evt in history:
+                    su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
+                    content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
+                    if su == "agent_message_chunk" and content.get("type") == "text":
+                        text_buf += content["text"]
+                    else:
+                        if text_buf:
+                            collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                            text_buf = ""
+                        collapsed.append(evt)
+                if text_buf:
+                    collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                for evt in collapsed:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
+                # Tell client the actual history length and next live sequence number
+                emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": acp_event_seq.get(acp_sid, 0), "history_length": len(session.history)}})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
 

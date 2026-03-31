@@ -332,6 +332,8 @@
     let toolCalls = {};
     let userMsgCount = 0;
     let historyOffset = 0;
+    let expectedSeq = -1;  // -1 = not yet synced, accept everything
+    let seqBuffer = {};    // seq -> data, for out-of-order events
 
     function ensureAssistantMsg() {
         if (!currentAssistantMsg) {
@@ -666,10 +668,51 @@
     socket.on('acp_event', (data) => {
         if (data.session_id !== sessionId) return;
         resetStallTimer();
+
+        // Sequence-based reordering for live events
+        if (data.seq !== undefined) {
+            if (expectedSeq === -1) {
+                // Not synced yet, buffer it
+                seqBuffer[data.seq] = data;
+                return;
+            }
+            if (data.seq !== expectedSeq) {
+                // Out of order — buffer and wait
+                seqBuffer[data.seq] = data;
+                return;
+            }
+            // In order — process it and drain buffer
+            processEvent(data);
+            expectedSeq++;
+            while (seqBuffer[expectedSeq]) {
+                processEvent(seqBuffer[expectedSeq]);
+                delete seqBuffer[expectedSeq];
+                expectedSeq++;
+            }
+            return;
+        }
+
+        // Unsequenced events (history replay, synthetic)
+        const evt = data.event;
+        if (evt.type === 'sync_seq') {
+            // Server tells us the next live seq to expect and actual history length
+            expectedSeq = evt.seq;
+            if (evt.history_length !== undefined) historyOffset = evt.history_length;
+            while (seqBuffer[expectedSeq]) {
+                processEvent(seqBuffer[expectedSeq]);
+                delete seqBuffer[expectedSeq];
+                expectedSeq++;
+            }
+            return;
+        }
+        processEvent(data);
+    });
+
+    function processEvent(data) {
         const evt = data.event;
 
-        // Track history offset for reconnect (skip synthetic events not in server history)
-        if (evt.type !== 'session_ready' && evt.type !== 'session_error' && evt.type !== 'session_ended') {
+        // Track history offset for reconnect — only for live (sequenced) events
+        if (data.seq !== undefined && evt.type !== 'session_ready' && evt.type !== 'session_error' && evt.type !== 'session_ended' && evt.type !== 'sync_seq') {
             historyOffset++;
         }
 
@@ -721,7 +764,7 @@
         if (evt.result && evt.result.stopReason) {
             finishTurn();
         }
-    });
+    }
 
     const input = document.getElementById('input');
     input.addEventListener('input', () => {
