@@ -330,7 +330,8 @@ def register_handlers(socketio):
             session = acp_manager.get_session(acp_sid)
             logger.info(f"acp_subscribe: session_id={acp_sid} found={session is not None} ready={session.ready if session else 'N/A'} history_len={len(session.history) if session else 0}")
             if session:
-                for evt in session.history:
+                offset = data.get("history_offset", 0)
+                for evt in session.history[offset:]:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
