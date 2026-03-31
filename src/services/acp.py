@@ -252,10 +252,7 @@ class ACPSession:
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             self.history.append(msg)
-            # Only save to disk on turn boundaries, not every chunk
-            su = ((msg.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
-            if su != "agent_message_chunk" or msg.get("result", {}).get("stopReason"):
-                self._save_history()
+            self._save_history()
 
     def _history_path(self):
         return os.path.join(HISTORY_DIR, f"{self.id}.json")
