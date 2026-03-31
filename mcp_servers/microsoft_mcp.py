@@ -269,6 +269,14 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Timezone (default: America/Los_Angeles)",
                     },
+                    "recurrence": {
+                        "type": "string",
+                        "description": "Recurrence pattern: 'daily', 'weekly', 'monthly', 'yearly', or 'weekdays' (Mon-Fri). Optionally add interval e.g. 'weekly:2' for every 2 weeks.",
+                    },
+                    "recurrence_end": {
+                        "type": "string",
+                        "description": "Recurrence end date in YYYY-MM-DD format. Required if recurrence is set.",
+                    },
                 },
                 "required": ["subject", "start", "end"],
             },
@@ -859,6 +867,37 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 {"emailAddress": {"address": a.strip()}, "type": "required"}
                 for a in arguments["attendees"].split(",")
             ]
+        if arguments.get("recurrence"):
+            rec = arguments["recurrence"]
+            parts = rec.split(":")
+            pattern_type = parts[0].lower()
+            interval = int(parts[1]) if len(parts) > 1 else 1
+            rec_pattern = {"interval": interval}
+            if pattern_type == "daily":
+                rec_pattern["type"] = "daily"
+            elif pattern_type == "weekly":
+                rec_pattern["type"] = "weekly"
+                # Default to the day of the start date
+                from datetime import datetime as dt
+                day_names = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
+                start_day = dt.fromisoformat(arguments["start"].replace("Z","")).weekday()
+                rec_pattern["daysOfWeek"] = [day_names[start_day]]
+            elif pattern_type == "weekdays":
+                rec_pattern["type"] = "weekly"
+                rec_pattern["interval"] = 1
+                rec_pattern["daysOfWeek"] = ["monday","tuesday","wednesday","thursday","friday"]
+            elif pattern_type == "monthly":
+                rec_pattern["type"] = "absoluteMonthly"
+                rec_pattern["dayOfMonth"] = int(arguments["start"].split("T")[0].split("-")[2])
+            elif pattern_type == "yearly":
+                rec_pattern["type"] = "absoluteYearly"
+                date_parts = arguments["start"].split("T")[0].split("-")
+                rec_pattern["dayOfMonth"] = int(date_parts[2])
+                rec_pattern["month"] = int(date_parts[1])
+            start_date = arguments["start"].split("T")[0]
+            end_date = arguments.get("recurrence_end", "")
+            rec_range = {"type": "endDate", "startDate": start_date, "endDate": end_date} if end_date else {"type": "noEnd", "startDate": start_date}
+            payload["recurrence"] = {"pattern": rec_pattern, "range": rec_range}
         data = graph_request("POST", "/me/events", json=payload)
         if "error" in data:
             result = data
@@ -869,6 +908,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "subject": data.get("subject"),
                 "start": data.get("start", {}).get("dateTime"),
                 "end": data.get("end", {}).get("dateTime"),
+                "recurrence": data.get("recurrence"),
             }
 
     elif name == "microsoft_calendar_update":
