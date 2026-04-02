@@ -745,6 +745,7 @@
             <span class="top-bar-title">fernando</span>
         </div>
         <div>
+            <button id="kbdBtn" style="display:none" onclick="toggleKasmKeyboard(); this.blur()">⌨</button>
             <button onclick="toggleSplit()">Split</button>
         </div>
     </div>
@@ -1224,6 +1225,27 @@
             return iframe;
         }
 
+        function toggleKasmKeyboard() {
+            for (const pn of [1, 2]) {
+                if (paneTypes[pn] !== 'browser') continue;
+                const iframe = document.getElementById('browser' + pn).querySelector('iframe');
+                if (!iframe || !iframe.src.includes('/kasm/')) continue;
+                try {
+                    const btn = iframe.contentDocument.getElementById('noVNC_keyboard_button');
+                    if (btn) { btn.click(); return; }
+                } catch(e) {}
+            }
+        }
+
+        function updateKbdBtn() {
+            const hasDesktop = [1, 2].some(pn => {
+                if (paneTypes[pn] !== 'browser') return false;
+                const iframe = document.getElementById('browser' + pn).querySelector('iframe');
+                return iframe && iframe.src.includes('/kasm/');
+            });
+            document.getElementById('kbdBtn').style.display = hasDesktop ? '' : 'none';
+        }
+
         function toggleDesktop() {
             const activePane = activeTerminal;
             const browser = document.getElementById(`browser${activePane}`);
@@ -1254,6 +1276,7 @@
             }
             highlightSidebarItem('desktop');
             syncUrlParams();
+            updateKbdBtn();
         }
 
         function restartDesktop() {
@@ -1287,6 +1310,7 @@
                 browser.classList.remove('hidden');
                 ensureDesktopIframe(browser);
             }
+            updateKbdBtn();
         }
 
         function doFit() {
@@ -1643,6 +1667,7 @@
                 browser.classList.add('hidden');
             }
             document.querySelector('.mobile-controls').style.display = '';
+            updateKbdBtn();
 
             const term = activeTerminal === 1 ? term1 : term2;
             term.clear();
@@ -2107,6 +2132,7 @@
 
             highlightSidebarItem('chat:' + chatId);
             document.querySelector('.mobile-controls').style.display = 'none';
+            updateKbdBtn();
             syncUrlParams();
         }
 
@@ -2124,6 +2150,7 @@
                     setTimeout(doFit, 100);
                 }
             });
+            updateKbdBtn();
         }
 
         // Listen for chat close from iframe and Kasm desktop clicks
