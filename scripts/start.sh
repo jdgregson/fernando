@@ -3,8 +3,8 @@
 # Clean up stale Werkzeug environment variables
 unset WERKZEUG_RUN_MAIN WERKZEUG_SERVER_FD
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_DIR"
 
 # Create venv if it doesn't exist
 if [ ! -d "venv" ]; then
@@ -73,7 +73,7 @@ sed -e "s|{{NGINX_HOST}}|$NGINX_HOST|g" \
     nginx.conf.template > nginx.conf
 
 # Ensure desktop data dir exists before Docker creates it as root
-mkdir -p "$SCRIPT_DIR/data/desktop"
+mkdir -p "$REPO_DIR/data/desktop"
 
 # Start Kasm desktop container with VNC_PW
 echo "Starting Kasm desktop container..."
@@ -105,10 +105,10 @@ pkill -TERM -f "tmux attach-session" 2>/dev/null
 sleep 1
 pkill -9 -f "tmux attach-session" 2>/dev/null
 # Graceful nginx stop
-nginx -c "$SCRIPT_DIR/nginx.conf" -s quit 2>/dev/null
+nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null
 pkill nginx 2>/dev/null
 sleep 1
-nginx -c "$SCRIPT_DIR/nginx.conf"
+nginx -c "$REPO_DIR/nginx.conf"
 
 # Start Flask app
 echo "Starting Flask application on port $FLASK_PORT..."

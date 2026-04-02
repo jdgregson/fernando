@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_DIR"
 
 echo "Stopping Flask (graceful)..."
 pkill -TERM -f "run_fernando.py"
@@ -11,7 +11,7 @@ sleep 2
 pkill -0 -f "run_fernando.py" 2>/dev/null && pkill -9 -f "run_fernando.py"
 
 echo "Stopping nginx..."
-nginx -c "$SCRIPT_DIR/nginx.conf" -s quit 2>/dev/null || pkill nginx
+nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null || pkill nginx
 
 echo "Stopping desktop container..."
 docker compose down

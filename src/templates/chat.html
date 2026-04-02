@@ -293,9 +293,9 @@
     }
 
     let _stopClicks = [];
-    function stopGeneration() {
-        document.getElementById('sendBtn').blur();
-        if (!isWorking) return;
+    document.getElementById('sendBtn').addEventListener('pointerdown', function(e) {
+        if (this.textContent !== 'Stop') return;
+        e.preventDefault();
         const now = Date.now();
         _stopClicks.push(now);
         _stopClicks = _stopClicks.filter(t => now - t < 5000);
@@ -305,6 +305,10 @@
             socket.emit('acp_force_unstick', { csrf_token: csrfToken, session_id: sessionId });
             return;
         }
+    });
+    function stopGeneration() {
+        document.getElementById('sendBtn').blur();
+        if (!isWorking) return;
         socket.emit('acp_cancel', { csrf_token: csrfToken, session_id: sessionId });
     }
 

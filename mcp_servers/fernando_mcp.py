@@ -222,7 +222,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "mutate":
         _save_continuation(arguments.get("continuation"))
         proc = subprocess.Popen(
-            [os.path.join(_project_root, "mutate.sh")],
+            [os.path.join(_project_root, "scripts", "mutate.sh")],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )

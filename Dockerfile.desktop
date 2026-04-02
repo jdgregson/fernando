@@ -15,7 +15,7 @@ RUN CfT_URL=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last
     apt-mark hold google-chrome-stable
 
 # Patch out the Chrome for Testing infobar
-COPY patch_cft_infobar.py /tmp/patch_cft_infobar.py
+COPY scripts/patch_cft_infobar.py /tmp/patch_cft_infobar.py
 RUN python3 /tmp/patch_cft_infobar.py --no-backup && rm /tmp/patch_cft_infobar.py
 
 # Replace Chrome wrapper: always enable CDP, use default profile, sandbox enabled

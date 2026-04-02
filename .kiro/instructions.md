@@ -25,7 +25,7 @@ The WebSocket connection requires API key authentication. Flask routes do not ha
 
 ## Self-Mutation
 
-After making code changes to Fernando, use the `mutate` MCP tool to restart Fernando and apply changes. This runs `stop.sh && start.sh` in a detached background process so your Kiro CLI session survives the restart. The tool blocks until Fernando is healthy or reports failure with logs — no manual health-check needed.
+After making code changes to Fernando, use the `mutate` MCP tool to restart Fernando and apply changes. This runs `scripts/stop.sh && scripts/start.sh` in a detached background process so your Kiro CLI session survives the restart. The tool blocks until Fernando is healthy or reports failure with logs — no manual health-check needed.
 
 **Important**: If you changed MCP server code (`mcp_servers/`), the user must manually restart their Kiro CLI session since MCP servers are loaded at CLI startup.
 
