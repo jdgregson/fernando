@@ -14,6 +14,10 @@ RUN CfT_URL=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last
     rm /tmp/chrome.zip && \
     apt-mark hold google-chrome-stable
 
+# Patch out the Chrome for Testing infobar
+COPY patch_cft_infobar.py /tmp/patch_cft_infobar.py
+RUN python3 /tmp/patch_cft_infobar.py --no-backup && rm /tmp/patch_cft_infobar.py
+
 # Replace Chrome wrapper: always enable CDP, use default profile, sandbox enabled
 RUN printf '#!/usr/bin/env bash\nif ! pgrep -f "chrome/chrome" > /dev/null; then\n  rm -f $HOME/.config/google-chrome-for-testing/Singleton*\nfi\nsed -i '\''s/"exited_cleanly":false/"exited_cleanly":true/'\'' ~/.config/google-chrome-for-testing/Default/Preferences 2>/dev/null\nsed -i '\''s/"exit_type":"Crashed"/"exit_type":"None"/'\'' ~/.config/google-chrome-for-testing/Default/Preferences 2>/dev/null\necho "Starting Chrome for Testing"\n/opt/google/chrome/chrome --password-store=basic --no-first-run --disable-search-engine-choice-screen --remote-debugging-port=9222 --remote-allow-origins=* "$@"\n' > /usr/bin/google-chrome && \
     chmod +x /usr/bin/google-chrome && \
