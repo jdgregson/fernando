@@ -1,7 +1,25 @@
 FROM kasmweb/ubuntu-noble-desktop:1.18.0-rolling-daily
 
 USER root
-RUN apt-get update && apt-get install -y scrot socat && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y scrot socat python3-websocket && rm -rf /var/lib/apt/lists/*
+
+# Replace Google Chrome with Chrome for Testing (supports CDP on default profile)
+RUN CfT_URL=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
+      | python3 -c "import sys,json; [print(x['url']) for x in json.load(sys.stdin)['channels']['Stable']['downloads']['chrome'] if x['platform']=='linux64']") && \
+    curl -sL "$CfT_URL" -o /tmp/chrome.zip && \
+    rm -rf /opt/google/chrome && \
+    unzip -q /tmp/chrome.zip -d /opt/google && \
+    mv /opt/google/chrome-linux64 /opt/google/chrome && \
+    ln -sf /opt/google/chrome/chrome /opt/google/chrome/google-chrome && \
+    rm /tmp/chrome.zip && \
+    apt-mark hold google-chrome-stable
+
+# Replace Chrome wrapper: always enable CDP, use default profile, sandbox enabled
+RUN printf '#!/usr/bin/env bash\nif ! pgrep -f "chrome/chrome" > /dev/null; then\n  rm -f $HOME/.config/google-chrome-for-testing/Singleton*\nfi\nsed -i '\''s/"exited_cleanly":false/"exited_cleanly":true/'\'' ~/.config/google-chrome-for-testing/Default/Preferences 2>/dev/null\nsed -i '\''s/"exit_type":"Crashed"/"exit_type":"None"/'\'' ~/.config/google-chrome-for-testing/Default/Preferences 2>/dev/null\necho "Starting Chrome for Testing"\n/opt/google/chrome/chrome --password-store=basic --no-first-run --disable-search-engine-choice-screen --remote-debugging-port=9222 --remote-allow-origins=* "$@"\n' > /usr/bin/google-chrome && \
+    chmod +x /usr/bin/google-chrome && \
+    chown root:root /opt/google/chrome/chrome_sandbox && \
+    chmod 4755 /opt/google/chrome/chrome_sandbox && \
+    ln -sf chrome_sandbox /opt/google/chrome/chrome-sandbox
 
 # Disable smartcard and pcscd services (they can spin at 100% CPU)
 ENV KASM_SVC_SMARTCARD=0
@@ -17,6 +35,7 @@ RUN echo '#!/bin/bash\nsleep 3\nfor monitor in VNC-0 VNC-1 VNC-2 VNC-3; do\n  fo
 RUN if [ ! -f /dockerstartup/custom_startup.sh ]; then \
       echo '#!/bin/bash' > /dockerstartup/custom_startup.sh; \
     fi && \
+    echo 'rm -f /home/kasm-user/.config/google-chrome-for-testing/Singleton* 2>/dev/null' >> /dockerstartup/custom_startup.sh && \
     echo '/dockerstartup/set-fernando-wallpaper.sh &' >> /dockerstartup/custom_startup.sh && \
     echo 'GATEWAY=$(ip route | grep default | awk "{print \$3}") && socat TCP-LISTEN:8080,fork,reuseaddr TCP:$GATEWAY:8080 &' >> /dockerstartup/custom_startup.sh && \
     chmod +x /dockerstartup/custom_startup.sh
@@ -25,3 +44,9 @@ RUN if [ ! -f /dockerstartup/custom_startup.sh ]; then \
 RUN mkdir -p /home/kasm-user/.mozilla/firefox/kasm && \
     printf '[Install4F96D1932A9F858E]\nDefault=kasm\nLocked=1\n\n[Profile0]\nName=default\nIsRelative=1\nPath=kasm\nDefault=1\n' > /home/kasm-user/.mozilla/firefox/profiles.ini && \
     chown -R 1000:1000 /home/kasm-user/.mozilla
+
+# Passwordless sudo for kasm-user
+RUN echo 'kasm-user ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/kasm-user
+
+# Disable services that block/fail in containers
+RUN systemctl mask NetworkManager-wait-online.service colord.service lightdm.service

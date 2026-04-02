@@ -148,7 +148,11 @@ class ACPSession:
         if not self.acp_session_id:
             logger.warning(f"[{self.id}] send_prompt called but no acp_session_id")
             return
-        logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}")
+        logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}, was_prompting={self._is_prompting}")
+        if self._is_prompting:
+            logger.info(f"[{self.id}] cancelling stuck prompt before sending new one")
+            self.cancel()
+            time.sleep(0.5)
         self._is_prompting = True
         self._last_activity = time.time()
         self.history.append({"type": "user_prompt", "text": text})
@@ -363,8 +367,14 @@ class ACPSession:
                     self._pending[msg_id]["result"] = None
                     self._pending[msg_id]["event"].set()
                     return
-            logger.warning(f"[{self.id}] ACP error: {msg.get('error')}")
+            err = msg.get("error", {})
+            logger.warning(f"[{self.id}] ACP error: {err}")
             self._is_prompting = False
+            if self.on_event:
+                try:
+                    self.on_event(self.id, {"type": "acp_error", "error": err.get("data") or err.get("message", "Unknown error")})
+                except Exception:
+                    pass
             return
 
         # Notification (no id) — log session/update type

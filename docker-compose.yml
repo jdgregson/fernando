@@ -17,3 +17,16 @@ services:
     shm_size: 512m
     restart: unless-stopped
     runtime: sysbox-runc
+    devices:
+      - /dev/fuse:/dev/fuse
+      - /dev/loop-control:/dev/loop-control
+      - /dev/loop0:/dev/loop0
+      - /dev/loop1:/dev/loop1
+      - /dev/loop2:/dev/loop2
+      - /dev/loop3:/dev/loop3
+      - /dev/loop4:/dev/loop4
+      - /dev/loop5:/dev/loop5
+      - /dev/loop6:/dev/loop6
+      - /dev/loop7:/dev/loop7
+    entrypoint: ["/sbin/init"]
+    user: "0"

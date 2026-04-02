@@ -5,10 +5,47 @@ Allows AI to control the Kasm desktop via keyboard/mouse commands
 """
 
 import asyncio
+import json
 import os
 import subprocess
 from mcp.server import Server
 from mcp.types import Tool, TextContent
+
+
+CDP_PORT = 9222
+
+
+def cdp_send(ws_url, method, params=None):
+    """Send a CDP command via python3 inside the container and return the result."""
+    msg_json = json.dumps({"id": 1, "method": method, "params": params or {}})
+    script = """
+import websocket, json, sys
+msg = sys.stdin.read()
+ws = websocket.create_connection(sys.argv[1], timeout=10)
+ws.send(msg)
+while True:
+    resp = json.loads(ws.recv())
+    if resp.get("id") == 1:
+        print(json.dumps(resp))
+        break
+ws.close()
+"""
+    result = subprocess.run(
+        ["docker", "exec", "-i", "fernando-desktop", "python3", "-c", script, ws_url],
+        input=msg_json, capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr)
+    return json.loads(result.stdout)
+
+
+def get_chrome_tabs():
+    """Get list of open Chrome tabs via CDP HTTP API."""
+    result = subprocess.run(
+        ["docker", "exec", "fernando-desktop", "curl", "-s", f"http://localhost:{CDP_PORT}/json"],
+        capture_output=True, text=True, timeout=5,
+    )
+    return json.loads(result.stdout) if result.stdout.strip() else []
 
 app = Server("kasm-desktop")
 
@@ -16,7 +53,7 @@ app = Server("kasm-desktop")
 def exec_in_kasm(cmd):
     """Execute command inside Kasm container"""
     result = subprocess.run(
-        ["docker", "exec", "fernando-desktop", "bash", "-c", cmd],
+        ["docker", "exec", "--user", "1000:1000", "fernando-desktop", "bash", "-c", cmd],
         capture_output=True,
         text=True,
     )
@@ -263,6 +300,35 @@ async def list_tools() -> list[Tool]:
                 "required": ["command"],
             },
         ),
+        Tool(
+            name="browser_tabs",
+            description="List open Chrome browser tabs (title, URL, tab ID)",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="browser_get_dom",
+            description="Get the DOM content (outer HTML or extracted text) from a Chrome browser tab. Requires Chrome running with --remote-debugging-port.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tab_index": {
+                        "type": "integer",
+                        "description": "Tab index from browser_tabs (default: 0, the first tab)",
+                        "default": 0,
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector to extract (default: 'body'). Use 'document' for full page HTML.",
+                        "default": "body",
+                    },
+                    "text_only": {
+                        "type": "boolean",
+                        "description": "Return innerText instead of HTML (default: true)",
+                        "default": True,
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -297,7 +363,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "open_application":
         app = arguments["app"]
-        result = exec_in_kasm(f"DISPLAY=:1 {app} &")
+        if app in ("chrome", "google-chrome", "chromium"):
+            app = "google-chrome"
+        result = exec_in_kasm(f"DISPLAY=:1 nohup {app} &>/dev/null & sleep 1")
         return [TextContent(type="text", text=f"Opened: {app}\n{result}")]
 
     elif name == "run_command":
@@ -427,6 +495,41 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         cmd = arguments["command"]
         result = exec_in_kasm(cmd)
         return [TextContent(type="text", text=f"Command output:\n{result}")]
+
+    elif name == "browser_tabs":
+        try:
+            tabs = get_chrome_tabs()
+            pages = [t for t in tabs if t.get("type") == "page"]
+            if not pages:
+                return [TextContent(type="text", text="No browser tabs open (is Chrome running with --remote-debugging-port?)")]
+            lines = [f"[{i}] {t['title']}\n    {t['url']}" for i, t in enumerate(pages)]
+            return [TextContent(type="text", text="\n".join(lines))]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error listing tabs: {e}")]
+
+    elif name == "browser_get_dom":
+        try:
+            tabs = get_chrome_tabs()
+            pages = [t for t in tabs if t.get("type") == "page"]
+            idx = arguments.get("tab_index", 0)
+            if not pages or idx >= len(pages):
+                return [TextContent(type="text", text="Tab not found. Use browser_tabs to list available tabs.")]
+            ws_url = pages[idx]["webSocketDebuggerUrl"]
+            selector = arguments.get("selector", "body")
+            text_only = arguments.get("text_only", True)
+            prop = "innerText" if text_only else "outerHTML"
+            if selector == "document":
+                js = "document.documentElement.outerHTML"
+            else:
+                sel_escaped = json.dumps(selector)
+                js = f"document.querySelector({sel_escaped})?.{prop} || 'Element not found: ' + {sel_escaped}"
+            resp = cdp_send(ws_url, "Runtime.evaluate", {"expression": js, "returnByValue": True})
+            result = resp.get("result", {}).get("result", {})
+            if result.get("type") == "string":
+                return [TextContent(type="text", text=result["value"])]
+            return [TextContent(type="text", text=f"Unexpected result: {json.dumps(result)}")]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error getting DOM: {e}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

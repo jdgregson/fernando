@@ -747,6 +747,7 @@
         if (evt.type === 'session_ready') { finishTurn(); setStatus('ready', 'Ready'); return; }
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
+        if (evt.type === 'acp_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); setTimeout(() => setStatus('ready', 'Ready'), 3000); return; }
 
         const update = (evt.params || {}).update || {};
         const su = update.sessionUpdate;
@@ -770,7 +771,7 @@
             if (c && c.type === 'text') appendChunk(c.text);
             else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
         } else if (su === 'tool_call') {
-            setStatus('working', 'Using ' + (update.title || 'tool') + '...');
+            setStatus('working', (update.title || 'Using tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
@@ -788,7 +789,12 @@
         input.style.height = 'auto';
         input.style.height = Math.min(input.scrollHeight, 120) + 'px';
     });
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !isIOS && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
     });
 
     let attachedFiles = []; // [{name, path}]
