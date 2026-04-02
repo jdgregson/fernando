@@ -8,7 +8,7 @@ Under the hood, it's a Flask + SocketIO web app that manages tmux sessions, an i
 
 ## Request Flow
 
-All state-changing actions go through WebSocket (authenticated via API key). Flask HTTP routes are read-only (serving HTML, proxying Kasm). nginx sits in front, proxying HTTP to Flask and WebSocket traffic to both Flask and the Kasm VNC server.
+All state-changing actions go through WebSocket (authenticated via API key + CSRF token). Flask HTTP POST routes that exist (e.g., `/upload`) are authenticated via API key in `X-API-Key` header — see `.kiro/steering/security.md` for the full security model. Flask GET routes serve HTML and proxy Kasm. nginx sits in front, proxying HTTP to Flask and WebSocket traffic to both Flask and the Kasm VNC server.
 
 ## Source Code (`src/`)
 

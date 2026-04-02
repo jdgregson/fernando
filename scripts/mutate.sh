@@ -7,7 +7,8 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 nohup bash -c "
     cd '$REPO_DIR'
     # Notify frontend that a mutate is happening
-    curl -s -X POST http://localhost:5000/api/mutating > /dev/null 2>&1
+    API_KEY=\$(cat /tmp/fernando-api-key 2>/dev/null)
+    curl -s -X POST -H \"X-API-Key: \$API_KEY\" http://localhost:5000/api/mutating > /dev/null 2>&1
     sleep 0.5
     ./scripts/stop.sh
     ./scripts/start.sh

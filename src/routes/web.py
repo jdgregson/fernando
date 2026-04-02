@@ -9,6 +9,15 @@ from src.services.acp import acp_manager
 
 bp = Blueprint("web", __name__)
 
+
+def _check_api_key():
+    key = request.headers.get("X-API-Key") or request.form.get("api_key")
+    try:
+        with open("/tmp/fernando-api-key") as f:
+            return key == f.read().strip()
+    except Exception:
+        return False
+
 _project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _ms_config_dir = os.path.join(_project_root, "data", "microsoft")
 _ms_config_file = os.path.join(_ms_config_dir, "config.json")
@@ -43,6 +52,8 @@ def index():
 
 @bp.route("/api/mutating", methods=["POST"])
 def api_mutating_notify():
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     from src import socketio
     socketio.emit("mutating", {})
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
@@ -156,6 +167,8 @@ def serve_file(filepath):
 def upload_file():
     """Handle file uploads from chat UI. Saves to ~/uploads/ and returns the path."""
     from flask import jsonify
+    if not _check_api_key():
+        return jsonify(error="Unauthorized"), 401
     import uuid
     f = request.files.get("file")
     if not f or not f.filename:

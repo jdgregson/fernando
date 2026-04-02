@@ -16,12 +16,20 @@ This ensures consistent formatting and removes trailing whitespace.
 - **Flask routes (src/routes/web.py)**: ONLY for GET requests that serve HTML or static data
 - **WebSocket handlers (src/routes/websocket.py)**: ALL actions (create, update, delete, etc.)
 
-The WebSocket connection requires API key authentication. Flask routes do not have authentication.
-
 ### Examples:
 - ✅ Flask: Serve index.html, proxy Kasm desktop (read-only)
 - ✅ WebSocket: Create sessions, manage subagents, terminate processes, modify state
 - ❌ Flask: POST/PUT/DELETE endpoints, any state-changing operations
+
+## Security — MANDATORY
+
+**Read `.kiro/steering/security.md` for the full security model.** The short version:
+
+- **Every Flask POST/PUT/DELETE route MUST call `_check_api_key()` and return 401 on failure.** No exceptions, even if the endpoint seems low-risk or internal-only.
+- **Every frontend caller MUST send the API key** via `X-API-Key` header.
+- **Every script or MCP server making internal HTTP POST calls MUST read `/tmp/fernando-api-key` and send it.**
+- If a Flask POST route is genuinely needed (e.g., file uploads where WebSocket is impractical), it is allowed — but it MUST be authenticated with the API key. An unauthenticated POST endpoint is a CSRF vulnerability exploitable by any website the user visits.
+- **Never assume Cloudflare Zero Trust or CORS protects POST endpoints.** They don't. See the security steering doc for why.
 
 ## Self-Mutation
 

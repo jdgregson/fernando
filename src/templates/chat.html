@@ -813,7 +813,7 @@
             const form = new FormData();
             form.append('file', file);
             try {
-                const resp = await fetch('/upload', { method: 'POST', body: form });
+                const resp = await fetch('/upload', { method: 'POST', body: form, headers: { 'X-API-Key': apiKey } });
                 const data = await resp.json();
                 if (data.path) {
                     attachedFiles.push({ name: data.name, path: data.path });

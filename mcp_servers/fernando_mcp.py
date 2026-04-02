@@ -261,7 +261,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "reboot":
         _save_continuation(arguments.get("continuation"))
         try:
-            subprocess.run(["curl", "-s", "-X", "POST", "http://localhost:5000/api/mutating"], timeout=2)
+            api_key = ""
+            try:
+                with open("/tmp/fernando-api-key") as f:
+                    api_key = f.read().strip()
+            except Exception:
+                pass
+            subprocess.run(["curl", "-s", "-X", "POST", "-H", f"X-API-Key: {api_key}", "http://localhost:5000/api/mutating"], timeout=2)
         except Exception:
             pass
         subprocess.Popen(["sudo", "reboot"])
