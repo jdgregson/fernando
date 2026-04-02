@@ -61,6 +61,12 @@
             background: #143151;
         }
 
+        #kbdBtn { display: none; }
+        @media (max-width: 500px) {
+            #kbdBtn.kbdVisible { display: inline-block; }
+        }
+        #kbdBtn:hover, #kbdBtn:focus { background: #3465a3; outline: none; }
+
         .content-wrapper {
             flex: 1;
             display: flex;
@@ -735,6 +741,7 @@
         .mobile-controls button:not(.send-btn):active {
             background: rgba(255, 255, 255, 0.2);
         }
+        .mobile-controls.chat-active { display: none !important; }
 
     </style>
 </head>
@@ -745,7 +752,7 @@
             <span class="top-bar-title">fernando</span>
         </div>
         <div>
-            <button id="kbdBtn" style="display:none" onclick="toggleKasmKeyboard(); this.blur()">⌨</button>
+            <button id="kbdBtn" onclick="toggleKasmKeyboard(); this.blur()">⌨</button>
             <button onclick="toggleSplit()">Split</button>
         </div>
     </div>
@@ -853,14 +860,14 @@
         </div>
     </div>
 
-    <div class="mobile-controls">
-        <button onmousedown="event.preventDefault(); sendKey('\x03')">^C</button>
-        <button onmousedown="event.preventDefault(); sendKey('\x1b')">ESC</button>
-        <button onmousedown="event.preventDefault(); sendKey('\t')">TAB</button>
-        <button onmousedown="event.preventDefault(); sendKey('\x1b[D')">←</button>
-        <button onmousedown="event.preventDefault(); sendKey('\x1b[A')">↑</button>
-        <button onmousedown="event.preventDefault(); sendKey('\x1b[B')">↓</button>
-        <button onmousedown="event.preventDefault(); sendKey('\x1b[C')">→</button>
+    <div class="mobile-controls" id="mobileControls">
+        <button onmousedown="event.preventDefault(); sendKey('\x03', 'ctrl+c')">^C</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b', 'Escape')">ESC</button>
+        <button onmousedown="event.preventDefault(); sendKey('\t', 'Tab')">TAB</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[D', 'Left')">←</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[A', 'Up')">↑</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[B', 'Down')">↓</button>
+        <button onmousedown="event.preventDefault(); sendKey('\x1b[C', 'Right')">→</button>
         <input type="text" id="dictationInput" placeholder="Dictate..." autocomplete="off" autocorrect="on" autocapitalize="sentences" spellcheck="true">
     </div>
 
@@ -1243,7 +1250,8 @@
                 const iframe = document.getElementById('browser' + pn).querySelector('iframe');
                 return iframe && iframe.src.includes('/kasm/');
             });
-            document.getElementById('kbdBtn').style.display = hasDesktop ? '' : 'none';
+            document.getElementById('kbdBtn').classList.toggle('kbdVisible', hasDesktop);
+            updateMobileControls();
         }
 
         function toggleDesktop() {
@@ -1666,7 +1674,6 @@
                 terminal.classList.remove('hidden');
                 browser.classList.add('hidden');
             }
-            document.querySelector('.mobile-controls').style.display = '';
             updateKbdBtn();
 
             const term = activeTerminal === 1 ? term1 : term2;
@@ -1746,6 +1753,7 @@
                 term1Container.classList.remove('split-mode');
                 term2Container.classList.remove('split-mode');
             }
+            updateMobileControls();
         }
 
         // Click handlers to switch active terminal
@@ -2077,8 +2085,27 @@
         setTimeout(doFit, 500);
         setTimeout(doFit, 1000);
 
-        function sendKey(key) {
-            emitWithCsrf('input', { terminal: activeTerminal, data: key });
+        function isDesktopActive() {
+            return paneTypes[activeTerminal] === 'browser' &&
+                document.getElementById('browser' + activeTerminal).querySelector('iframe[src*="/kasm/"]');
+        }
+
+        function updateMobileControls() {
+            const mc = document.getElementById('mobileControls');
+            mc.classList.toggle('desktop-active', !!isDesktopActive());
+            const chatActive = paneTypes[activeTerminal] === 'browser' && (() => {
+                const iframe = document.getElementById('browser' + activeTerminal).querySelector('iframe');
+                return iframe && iframe.src.includes('/chat/');
+            })();
+            mc.classList.toggle('chat-active', chatActive);
+        }
+
+        function sendKey(key, desktopKey) {
+            if (desktopKey && isDesktopActive()) {
+                emitWithCsrf('desktop_key', { key: desktopKey });
+            } else {
+                emitWithCsrf('input', { terminal: activeTerminal, data: key });
+            }
         }
 
         function submitDictation() {
@@ -2131,7 +2158,6 @@
             else currentSession2 = null;
 
             highlightSidebarItem('chat:' + chatId);
-            document.querySelector('.mobile-controls').style.display = 'none';
             updateKbdBtn();
             syncUrlParams();
         }

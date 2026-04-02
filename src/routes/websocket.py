@@ -99,6 +99,21 @@ def register_handlers(socketio):
             except:
                 pass
 
+    @socketio.on("desktop_key")
+    def handle_desktop_key(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        key = data.get("key", "")
+        if not key or not all(c.isalnum() or c in "+-_" for c in key):
+            return
+        import subprocess
+        subprocess.Popen(
+            ["docker", "exec", "--user", "1000:1000", "fernando-desktop",
+             "bash", "-c", f"DISPLAY=:1 xdotool key {key}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
     @socketio.on("attach_session")
     def attach_session(data):
         if not validate_csrf(data):
