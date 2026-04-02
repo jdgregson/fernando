@@ -11,7 +11,7 @@ bp = Blueprint("web", __name__)
 
 
 def _check_api_key():
-    key = request.headers.get("X-API-Key") or request.form.get("api_key")
+    key = request.headers.get("X-API-Key") or request.form.get("api_key") or request.args.get("api_key")
     try:
         with open("/tmp/fernando-api-key") as f:
             return key == f.read().strip()
@@ -150,6 +150,8 @@ def chat_page(session_id):
 @bp.route("/files/<path:filepath>")
 def serve_file(filepath):
     """Serve files from the home directory (for displaying screenshots etc.)."""
+    if not _check_api_key():
+        return "Unauthorized", 401
     import mimetypes
     from flask import send_file
     full_path = os.path.join(os.path.expanduser("~"), filepath)
@@ -163,7 +165,7 @@ def serve_file(filepath):
     return send_file(full_path, mimetype=mime)
 
 
-@bp.route("/upload", methods=["POST"])
+@bp.route("/api/upload", methods=["POST"])
 def upload_file():
     """Handle file uploads from chat UI. Saves to ~/uploads/ and returns the path."""
     from flask import jsonify

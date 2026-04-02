@@ -387,9 +387,9 @@
         ensureContentDiv();
         currentText += text;
         let html = marked.parse(currentText);
-        html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/files/$1"');
+        html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/files/$1?api_key=' + apiKey + '"');
         html = html.replace(/!\[([^\]]*)\]\((\/home\/fernando\/[^)]+)\)/g,
-            (m, alt, path) => `<img alt="${alt}" src="/files/${path.replace('/home/fernando/', '')}">`);
+            (m, alt, path) => `<img alt="${alt}" src="/files/${path.replace('/home/fernando/', '')}?api_key=${apiKey}">`);
         currentContentDiv.innerHTML = html;
         scrollToBottom();
     }
@@ -417,7 +417,7 @@
     }
 
     function fileUrl(filePath) {
-        return '/files/' + filePath.replace(/^\/home\/fernando\//, '');
+        return '/files/' + filePath.replace(/^\/home\/fernando\//, '') + '?api_key=' + apiKey;
     }
 
     const TOOL_SERVERS = {
@@ -813,7 +813,7 @@
             const form = new FormData();
             form.append('file', file);
             try {
-                const resp = await fetch('/upload', { method: 'POST', body: form, headers: { 'X-API-Key': apiKey } });
+                const resp = await fetch('/api/upload', { method: 'POST', body: form, headers: { 'X-API-Key': apiKey } });
                 const data = await resp.json();
                 if (data.path) {
                     attachedFiles.push({ name: data.name, path: data.path });
