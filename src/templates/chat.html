@@ -60,6 +60,7 @@
         .msg.user code { background: #0a1929; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
         .msg.user pre { background: #0a1929; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
         .msg.user pre code { background: none; padding: 0; }
+        .msg.user blockquote { border-left: 3px solid #143151; padding-left: 10px; color: #999; margin: 0; display: block; }
         .msg.assistant {
             background: #0d2748;
         }
@@ -588,13 +589,21 @@
                 const code = nl > -1 ? inner.slice(nl + 1) : inner;
                 return '<pre><code' + (lang ? ' class="language-' + escapeHtml(lang) + '"' : '') + '>' + escapeHtml(code) + '</code></pre>';
             }
-            // Handle inline backticks, escape everything else
-            return part.split(/(`[^`]+`)/g).map(s => {
-                if (s.startsWith('`') && s.endsWith('`')) {
-                    return '<code>' + escapeHtml(s.slice(1, -1)) + '</code>';
-                }
-                return escapeHtml(s);
-            }).join('');
+            // Handle blockquotes and inline backticks, escape everything else
+            const rendered = part.split('\n').map(line => {
+                const quoteMatch = line.match(/^(>{1,})\s?(.*)/);
+                const inner = quoteMatch ? quoteMatch[2] : line;
+                const inlineRendered = inner.split(/(`[^`]+`)/g).map(s => {
+                    if (s.startsWith('`') && s.endsWith('`')) {
+                        return '<code>' + escapeHtml(s.slice(1, -1)) + '</code>';
+                    }
+                    return escapeHtml(s);
+                }).join('');
+                return quoteMatch ? '<blockquote>' + inlineRendered + '</blockquote>' : inlineRendered;
+            }).join('\n');
+            // Remove newlines between/after blockquotes (pre-wrap would show them as extra gaps)
+            return rendered.replace(/<\/blockquote>\n<blockquote>/g, '</blockquote><blockquote>')
+                .replace(/<\/blockquote>\n/g, '</blockquote>');
         }).join('');
     }
 
