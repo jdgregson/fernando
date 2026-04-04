@@ -138,7 +138,9 @@ def chat_page(session_id):
             api_key = f.read().strip()
     except:
         api_key = ""
-    return render_template("chat.html", acp_session_id=session_id, api_key=api_key)
+    return render_template("chat.html", acp_session_id=session_id, api_key=api_key,
+                           home_dir=os.path.expanduser("~"),
+                           agent_cwd=os.path.expanduser("~/fernando"))
 
 
 @bp.route("/api/files/<path:filepath>")

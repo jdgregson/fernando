@@ -34,4 +34,4 @@ Do NOT use `google-chrome-stable`, `/opt/google/chrome/google-chrome`, or `/usr/
 - You are able to mutate the fernando application as needed, to apply and test changes for the user. You can also reboot the instance if a full reboot is needed.
 - Restarting/Mutating Fernando does not restart the MCP servers. To mutate MCP servers, inform the user to start a new Kiro session, or spawn a subagent to run the new MCP server.
 - Always verify that files are syntactically correct before committing them or mutating.
-- Always ask for approval before committing or pushing changes to the fernando repository. An explicit request to commit or push counts as approval.
+- Always ask for approval before committing or pushing changes to the fernando repository. An explicit request to commit or push counts as approval. This applies even if you were given permission to push different changes earlier in the same conversation.

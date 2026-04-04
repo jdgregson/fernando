@@ -29,6 +29,8 @@
 <script>
     const sessionId = "{{ acp_session_id }}";
     const apiKey = "{{ api_key }}";
+    const homeDir = "{{ home_dir }}";
+    const agentCwd = "{{ agent_cwd }}";
     let csrfToken = null;
     let isWorking = false;
 
@@ -174,10 +176,13 @@
         _chunkRenderPending = false;
         if (!currentContentDiv) return;
         let html = marked.parse(currentText);
-        html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/api/files/$1?api_key=' + apiKey + '&session=' + sessionId + '"');
+        // Rewrite image src attributes to use the file API
+        const homePat = new RegExp('src="' + homeDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/(.*?)"', 'g');
+        html = html.replace(homePat, 'src="/api/files/$1?api_key=' + apiKey + '&session=' + sessionId + '"');
         html = html.replace(/src="\/tmp\/(.*?)"/g, 'src="/api/files/tmp/$1?api_key=' + apiKey + '&session=' + sessionId + '"');
-        html = html.replace(/!\[([^\]]*)\]\((\/home\/fernando\/[^)]+)\)/g,
-            (m, alt, path) => `<img alt="${alt}" src="/api/files/${path.replace('/home/fernando/', '')}?api_key=${apiKey}&session=${sessionId}">`);
+        // Rewrite markdown image syntax that marked didn't convert
+        const mdHomePat = new RegExp('!\\[([^\\]]*)\\]\\((' + homeDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/[^)]+)\\)', 'g');
+        html = html.replace(mdHomePat, (m, alt, path) => `<img alt="${alt}" src="/api/files/${path.slice(homeDir.length + 1)}?api_key=${apiKey}&session=${sessionId}">`);
         html = html.replace(/!\[([^\]]*)\]\((\/tmp\/[^)]+)\)/g,
             (m, alt, path) => `<img alt="${alt}" src="/api/files/tmp${path.slice(4)}?api_key=${apiKey}&session=${sessionId}">`);
         currentContentDiv.innerHTML = html;
@@ -215,7 +220,13 @@
     }
 
     function fileUrl(filePath) {
-        const stripped = filePath.replace(/^\/home\/fernando\//, '').replace(/^\/tmp\//, 'tmp/');
+        let p = filePath;
+        // Expand ~ to home dir
+        if (p.startsWith('~/')) p = homeDir + p.slice(1);
+        // Make relative paths absolute using agent cwd
+        if (!p.startsWith('/')) p = agentCwd + '/' + p;
+        // Strip home prefix for the API route
+        const stripped = p.startsWith(homeDir + '/') ? p.slice(homeDir.length + 1) : p.replace(/^\/tmp\//, 'tmp/');
         return '/api/files/' + stripped + '?api_key=' + apiKey + '&session=' + sessionId;
     }
 
