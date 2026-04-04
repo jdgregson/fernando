@@ -132,13 +132,13 @@ def search(query, limit=5):
     return hits
 
 
-def get_conversation(session_id):
-    """Load full conversation history for a session, returning readable turns."""
-    history_path = os.path.join(HISTORY_DIR, f"{session_id}.json")
-    try:
-        with open(history_path) as f:
-            history = json.load(f)
-    except (OSError, json.JSONDecodeError):
+def get_conversation(session_id, offset=0, limit=None):
+    """Load conversation history for a session, returning readable turns with optional slicing."""
+    from src.services.acp import load_history_file
+    history = load_history_file(session_id)
+    if not history:
         return None
     turns = _extract_turns(history)
-    return [{"turn_index": t[0], "user": t[1], "assistant": t[2]} for t in turns]
+    end = offset + limit if limit else None
+    sliced = turns[offset:end]
+    return [{"turn_index": t[0], "user": t[1], "assistant": t[2]} for t in sliced]

@@ -446,6 +446,8 @@
 
     function addToolCall(toolCallId, title, status, rawInput) {
         ensureAssistantMsg();
+        // Flush any pending text before sealing
+        if (_chunkRenderPending) _renderCurrentChunk();
         // Seal current text so next text appears after this tool call
         currentContentDiv = null;
         currentText = '';
@@ -881,6 +883,43 @@
             window.parent.postMessage({ type: 'acp-chat-closing', sessionId: sessionId }, '*');
         }
     });
+
+    // iOS: throttle scroll speed when dragging text selection to prevent overshoot
+    (function() {
+        const msgs = document.querySelector('.messages');
+        if (!msgs || !('ontouchstart' in window)) return;
+        let selActive = false, lastScrollTop = 0, rafId = null;
+        const MAX_SCROLL_PER_FRAME = 8;
+        function clampScroll() {
+            if (!selActive) return;
+            const delta = msgs.scrollTop - lastScrollTop;
+            if (Math.abs(delta) > MAX_SCROLL_PER_FRAME) {
+                msgs.scrollTop = lastScrollTop + Math.sign(delta) * MAX_SCROLL_PER_FRAME;
+            }
+            lastScrollTop = msgs.scrollTop;
+            rafId = requestAnimationFrame(clampScroll);
+        }
+        document.addEventListener('selectionchange', () => {
+            const sel = window.getSelection();
+            const hasSelection = sel && sel.toString().length > 0;
+            if (hasSelection && !selActive) {
+                selActive = true;
+                lastScrollTop = msgs.scrollTop;
+                rafId = requestAnimationFrame(clampScroll);
+            } else if (!hasSelection && selActive) {
+                selActive = false;
+                if (rafId) cancelAnimationFrame(rafId);
+            }
+        });
+        msgs.addEventListener('touchend', () => {
+            setTimeout(() => {
+                if (selActive && (!window.getSelection() || !window.getSelection().toString())) {
+                    selActive = false;
+                    if (rafId) cancelAnimationFrame(rafId);
+                }
+            }, 300);
+        });
+    })();
 </script>
 </body>
 </html>

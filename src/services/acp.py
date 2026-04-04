@@ -24,6 +24,23 @@ HISTORY_DIR = os.path.join(DATA_DIR, "chat_history")
 KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
 
 
+def load_history_file(session_id):
+    """Load history for a session from its JSONL file."""
+    history = []
+    try:
+        with open(os.path.join(HISTORY_DIR, f"{session_id}.jsonl")) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        history.append(json.loads(line))
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+    except OSError:
+        pass
+    return history
+
+
 def _save_sessions_map(sessions_map):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(SESSIONS_FILE, "w") as f:
@@ -99,6 +116,7 @@ class ACPSession:
         self._recording = True  # gate for _record_event
         self._last_activity = time.time()  # track last stdout data for stall detection
         self._is_prompting = False  # True while waiting for agent response
+        self._flushed = 0  # number of history entries already written to disk
 
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
@@ -336,16 +354,20 @@ class ACPSession:
             self._save_history(index_rag=is_turn_end)
 
     def _history_path(self):
-        return os.path.join(HISTORY_DIR, f"{self.id}.json")
+        return os.path.join(HISTORY_DIR, f"{self.id}.jsonl")
 
     def _save_history(self, index_rag=False):
         try:
             os.makedirs(HISTORY_DIR, exist_ok=True)
-            tmp = self._history_path() + ".tmp"
-            with open(tmp, "w") as f:
-                json.dump(self.history, f)
-            os.replace(tmp, self._history_path())
-            os.chmod(self._history_path(), 0o600)
+            path = self._history_path()
+            new_entries = self.history[self._flushed:]
+            if new_entries:
+                with open(path, "a") as f:
+                    for entry in new_entries:
+                        f.write(json.dumps(entry) + "\n")
+                if self._flushed == 0:
+                    os.chmod(path, 0o600)
+                self._flushed = len(self.history)
         except Exception:
             pass
         if index_rag:
@@ -355,11 +377,8 @@ class ACPSession:
                 logger.warning(f"[{self.id}] RAG index error: {e}")
 
     def _load_history(self):
-        try:
-            with open(self._history_path()) as f:
-                self.history = json.load(f)
-        except Exception:
-            pass
+        self.history = load_history_file(self.id)
+        self._flushed = len(self.history)
 
     def _read_loop(self):
         buf = b""
@@ -606,9 +625,8 @@ class ACPManager:
         archived = _load_archived_map()
         archived.pop(session_id, None)
         _save_archived_map(archived)
-        history_path = os.path.join(HISTORY_DIR, f"{session_id}.json")
         try:
-            os.remove(history_path)
+            os.remove(os.path.join(HISTORY_DIR, f"{session_id}.jsonl"))
         except OSError:
             pass
         try:

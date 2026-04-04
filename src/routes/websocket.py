@@ -8,7 +8,7 @@ import websocket as ws_client
 from src.services.tmux import tmux_service
 from src.services.docker import docker_service
 from src.services.subagent import subagent_service
-from src.services.acp import acp_manager, HISTORY_DIR
+from src.services.acp import acp_manager
 import json
 import threading
 import base64
@@ -375,31 +375,27 @@ def register_handlers(socketio):
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
             else:
                 # Archived session — replay from history file as read-only preview
-                hpath = os.path.join(HISTORY_DIR, f"{acp_sid}.json")
-                if os.path.exists(hpath):
-                    try:
-                        with open(hpath) as f:
-                            history = json.load(f)
-                        collapsed = []
-                        text_buf = ""
-                        for evt in history:
-                            su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
-                            content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
-                            if su == "agent_message_chunk" and content.get("type") == "text":
-                                text_buf += content["text"]
-                            else:
-                                if text_buf:
-                                    collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
-                                    text_buf = ""
-                                collapsed.append(evt)
-                        if text_buf:
-                            collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
-                        for evt in collapsed:
-                            emit("acp_event", {"session_id": acp_sid, "event": evt})
-                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": 0, "history_length": len(history)}})
-                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "archived_preview"}})
-                    except Exception:
-                        pass
+                from src.services.acp import load_history_file
+                history = load_history_file(acp_sid)
+                if history:
+                    collapsed = []
+                    text_buf = ""
+                    for evt in history:
+                        su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
+                        content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
+                        if su == "agent_message_chunk" and content.get("type") == "text":
+                            text_buf += content["text"]
+                        else:
+                            if text_buf:
+                                collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                                text_buf = ""
+                            collapsed.append(evt)
+                    if text_buf:
+                        collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                    for evt in collapsed:
+                        emit("acp_event", {"session_id": acp_sid, "event": evt})
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": 0, "history_length": len(history)}})
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "archived_preview"}})
 
     @socketio.on("acp_prompt")
     def acp_prompt(data):

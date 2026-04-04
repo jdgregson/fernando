@@ -219,6 +219,8 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "session_id": {"type": "string", "description": "The session ID to retrieve"},
+                    "offset": {"type": "integer", "description": "Starting turn index (0-based, default 0)"},
+                    "limit": {"type": "integer", "description": "Max number of turns to return (default: all)"},
                 },
                 "required": ["session_id"],
             },
@@ -276,7 +278,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "search_conversations":
         result = rag.search(arguments["query"], limit=arguments.get("limit", 5))
     elif name == "get_conversation":
-        conv = rag.get_conversation(arguments["session_id"])
+        conv = rag.get_conversation(arguments["session_id"], offset=arguments.get("offset", 0), limit=arguments.get("limit"))
         result = conv if conv is not None else {"error": "Session history not found"}
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
