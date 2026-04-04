@@ -10,12 +10,15 @@ import time
 import shutil
 import uuid
 
+from src.services import rag
+
 logger = logging.getLogger(__name__)
 
 KIRO_CLI = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
+ARCHIVED_FILE = os.path.join(DATA_DIR, "chat_sessions_archived.json")
 PID_MAP_FILE = os.path.join(DATA_DIR, "acp_pid_map.json")
 HISTORY_DIR = os.path.join(DATA_DIR, "chat_history")
 KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
@@ -30,6 +33,20 @@ def _save_sessions_map(sessions_map):
 def _load_sessions_map():
     try:
         with open(SESSIONS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_archived_map(archived_map):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(ARCHIVED_FILE, "w") as f:
+        json.dump(archived_map, f, indent=2)
+
+
+def _load_archived_map():
+    try:
+        with open(ARCHIVED_FILE) as f:
             return json.load(f)
     except Exception:
         return {}
@@ -123,8 +140,67 @@ class ACPSession:
         else:
             raise RuntimeError("ACP session/new failed")
 
+    @staticmethod
+    def _patch_incomplete_mutate(acp_session_id):
+        """If the session's last tool use is a mutate with no ToolResults, append one."""
+        jsonl_path = os.path.join(KIRO_SESSIONS_DIR, f"{acp_session_id}.jsonl")
+        try:
+            with open(jsonl_path, "rb") as f:
+                lines = f.readlines()
+        except OSError:
+            return
+        # Walk backwards to find a dangling mutate/reboot tool use
+        pending_tool_use_id = None
+        has_result_for = set()
+        for line in reversed(lines):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            kind = obj.get("kind", "")
+            if kind == "ToolResults":
+                for c in obj.get("data", {}).get("content", []):
+                    tid = c.get("data", {}).get("toolUseId")
+                    if tid:
+                        has_result_for.add(tid)
+            if kind == "AssistantMessage":
+                for c in obj.get("data", {}).get("content", []):
+                    if c.get("kind") == "toolUse" and c.get("data", {}).get("name") in ("mutate", "reboot"):
+                        tid = c["data"]["toolUseId"]
+                        if tid not in has_result_for:
+                            pending_tool_use_id = tid
+                if pending_tool_use_id:
+                    break
+        if not pending_tool_use_id:
+            return
+        result_entry = {
+            "version": "v1",
+            "kind": "ToolResults",
+            "data": {
+                "message_id": str(uuid.uuid4()),
+                "content": [{
+                    "kind": "toolResult",
+                    "data": {
+                        "toolUseId": pending_tool_use_id,
+                        "content": [{"kind": "text", "data": json.dumps({
+                            "status": "restart_complete",
+                            "message": "Fernando restarted successfully. The mutate tool call was in-flight when the old process was terminated as part of the restart sequence. This result was backfilled on session reload.",
+                        })}],
+                        "status": "success",
+                    },
+                }],
+            },
+        }
+        with open(jsonl_path, "a") as f:
+            f.write(json.dumps(result_entry) + "\n")
+        logger.info(f"Patched incomplete mutate tool use {pending_tool_use_id} in {acp_session_id}")
+
     def load(self, acp_session_id):
         """Load an existing ACP session (resume after restart)."""
+        self._patch_incomplete_mutate(acp_session_id)
         self._load_history()
         self._recording = False  # Don't overwrite rich history with kiro's stripped replay
         self._spawn_and_init()
@@ -204,7 +280,7 @@ class ACPSession:
     def stop(self):
         self._alive = False
         self._is_prompting = False
-        self._save_history()
+        self._save_history(index_rag=True)
         if self.proc:
             try:
                 self.proc.terminate()
@@ -256,20 +332,27 @@ class ACPSession:
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             self.history.append(msg)
-            self._save_history()
+            is_turn_end = bool(msg.get("result", {}).get("stopReason"))
+            self._save_history(index_rag=is_turn_end)
 
     def _history_path(self):
         return os.path.join(HISTORY_DIR, f"{self.id}.json")
 
-    def _save_history(self):
+    def _save_history(self, index_rag=False):
         try:
             os.makedirs(HISTORY_DIR, exist_ok=True)
             tmp = self._history_path() + ".tmp"
             with open(tmp, "w") as f:
                 json.dump(self.history, f)
             os.replace(tmp, self._history_path())
+            os.chmod(self._history_path(), 0o600)
         except Exception:
             pass
+        if index_rag:
+            try:
+                rag.index_session(self.id, self.display_name, self.history)
+            except Exception as e:
+                logger.warning(f"[{self.id}] RAG index error: {e}")
 
     def _load_history(self):
         try:
@@ -473,6 +556,65 @@ class ACPManager:
             except OSError:
                 pass
         self._save()
+
+    def archive_session(self, session_id):
+        """Stop the process and move session from active to archived. History is preserved."""
+        with self._lock:
+            session = self.sessions.pop(session_id, None)
+        if not session:
+            return
+        acp_id = session.acp_session_id
+        name = session.display_name
+        session.stop()
+        self._save()
+        if acp_id:
+            archived = _load_archived_map()
+            archived[session_id] = {"acp_id": acp_id, "name": name, "archived_at": time.time()}
+            _save_archived_map(archived)
+
+    def list_archived(self):
+        return [
+            {"id": sid, "name": info.get("name", "Chat-" + sid)}
+            for sid, info in _load_archived_map().items()
+        ]
+
+    def restore_session(self, session_id, on_event=None):
+        """Restore an archived session back to active."""
+        archived = _load_archived_map()
+        info = archived.pop(session_id, None)
+        if not info:
+            return False
+        _save_archived_map(archived)
+        acp_id = info["acp_id"]
+        session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
+        if not os.path.exists(session_file):
+            return False
+        session = ACPSession(session_id, on_event=on_event)
+        session.display_name = info.get("name", "Chat-" + session_id)
+        session.acp_session_id = acp_id
+        with self._lock:
+            self.sessions[session_id] = session
+        threading.Thread(
+            target=self._load_existing,
+            args=(session_id, session, acp_id),
+            daemon=True,
+        ).start()
+        return True
+
+    def delete_archived(self, session_id):
+        """Permanently delete an archived session and its history."""
+        archived = _load_archived_map()
+        archived.pop(session_id, None)
+        _save_archived_map(archived)
+        history_path = os.path.join(HISTORY_DIR, f"{session_id}.json")
+        try:
+            os.remove(history_path)
+        except OSError:
+            pass
+        try:
+            rag.delete_session(session_id)
+        except Exception as e:
+            logger.warning(f"RAG delete error for {session_id}: {e}")
 
     def list_sessions(self):
         with self._lock:

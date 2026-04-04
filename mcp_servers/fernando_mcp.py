@@ -31,6 +31,7 @@ from src.services.subagent_core import (
     list_subagents,
     terminate_subagent,
 )
+from src.services import rag
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 
@@ -199,6 +200,29 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="search_conversations",
+            description="Search past chat conversations using semantic/vector search (RAG). Returns matching snippets with session IDs. Use get_conversation to fetch full context for a specific session.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query"},
+                    "limit": {"type": "integer", "description": "Max results (default 5)"},
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="get_conversation",
+            description="Retrieve the full conversation history for a specific chat session, as readable user/assistant turns. Use after search_conversations to get full context.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "The session ID to retrieve"},
+                },
+                "required": ["session_id"],
+            },
+        ),
     ]
 
 
@@ -221,43 +245,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = terminate_subagent(arguments["task_id"])
     elif name == "mutate":
         _save_continuation(arguments.get("continuation"))
-        proc = subprocess.Popen(
+        subprocess.Popen(
             [os.path.join(_project_root, "scripts", "mutate.sh")],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        stdout, _ = proc.communicate(timeout=5)
-
-        # Wait for Fernando to come back up
-        healthy = False
-        for i in range(30):
-            time.sleep(2)
-            try:
-                resp = urllib.request.urlopen("http://localhost:5000", timeout=2)
-                if resp.status == 200:
-                    healthy = True
-                    break
-            except Exception:
-                pass
-
-        if healthy:
-            result = {
-                "status": "restart_complete",
-                "message": f"Fernando restarted successfully and is healthy.",
-            }
-        else:
-            # Read the log for diagnostics
-            log = ""
-            try:
-                with open("/tmp/fernando-mutate.log") as f:
-                    log = f.read()[-2000:]
-            except Exception:
-                pass
-            result = {
-                "status": "restart_failed",
-                "message": "Fernando did not come back up within 60 seconds.",
-                "log": log,
-            }
+        result = {
+            "status": "restart_initiated",
+            "message": "Fernando restart initiated. This process will be terminated as part of the restart. The conversation will resume via the continuation message.",
+        }
     elif name == "reboot":
         _save_continuation(arguments.get("continuation"))
         try:
@@ -270,8 +266,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             subprocess.run(["curl", "-s", "-X", "POST", "-H", f"X-API-Key: {api_key}", "http://localhost:5000/api/mutating"], timeout=2)
         except Exception:
             pass
-        subprocess.Popen(["sudo", "reboot"])
-        result = {"status": "rebooting", "message": "Host is rebooting now."}
+        subprocess.Popen(
+            ["nohup", "bash", "-c", "sleep 5 && sudo reboot"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        result = {"status": "rebooting", "message": "Host will reboot in 5 seconds."}
+    elif name == "search_conversations":
+        result = rag.search(arguments["query"], limit=arguments.get("limit", 5))
+    elif name == "get_conversation":
+        conv = rag.get_conversation(arguments["session_id"])
+        result = conv if conv is not None else {"error": "Session history not found"}
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

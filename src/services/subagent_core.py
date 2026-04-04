@@ -250,12 +250,19 @@ def list_subagents():
 
 
 def terminate_subagent(task_id):
-    session_name = f"subagent-{task_id}"
+    prefix = f"subagent-{task_id}"
+    # Find actual session name (spawn.sh appends a timestamp)
     result = subprocess.run(
-        ["tmux", "kill-session", "-t", session_name], capture_output=True, text=True
+        ["tmux", "list-sessions", "-F", "#{session_name}"],
+        capture_output=True, text=True,
     )
+    killed = False
+    for name in result.stdout.strip().split("\n"):
+        if name.startswith(prefix):
+            subprocess.run(["tmux", "kill-session", "-t", name], capture_output=True, text=True)
+            killed = True
     remove_cron_job(task_id)
-    return {"task_id": task_id, "session_name": session_name, "terminated": result.returncode == 0}
+    return {"task_id": task_id, "terminated": killed}
 
 
 def delete_subagent(task_id):

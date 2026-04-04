@@ -30,7 +30,7 @@ def get_config(key, default=None):
 class Config:
     SECRET_KEY = get_config("SECRET_KEY", os.urandom(32).hex())
     TMUX_HISTORY_LINES = int(get_config("TMUX_HISTORY_LINES", "32768"))
-    HOST = get_config("FLASK_HOST", "0.0.0.0")
+    HOST = get_config("FLASK_HOST", "127.0.0.1")
     PORT = int(get_config("FLASK_PORT", "5000"))
     DEBUG = get_config("DEBUG", "True").lower() == "true"
     NGINX_HOST = get_config("NGINX_HOST", "127.0.0.1")

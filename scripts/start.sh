@@ -71,6 +71,7 @@ sed -e "s|{{NGINX_HOST}}|$NGINX_HOST|g" \
     -e "s|{{ALLOWED_ORIGINS}}|$ALLOWED_ORIGINS|g" \
     -e "s|{{VNC_AUTH}}|$VNC_AUTH|g" \
     nginx.conf.template > nginx.conf
+chmod 600 nginx.conf
 
 # Ensure desktop data dir exists before Docker creates it as root
 mkdir -p "$REPO_DIR/data/desktop"

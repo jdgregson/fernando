@@ -3,11 +3,13 @@ from flask_socketio import emit
 import os
 import select
 import ssl
+import subprocess
 import websocket as ws_client
 from src.services.tmux import tmux_service
 from src.services.docker import docker_service
 from src.services.subagent import subagent_service
-from src.services.acp import acp_manager
+from src.services.acp import acp_manager, HISTORY_DIR
+import json
 import threading
 import base64
 import secrets
@@ -48,8 +50,8 @@ def register_handlers(socketio):
         return token and csrf_tokens.get(request.sid) == token
 
     @socketio.on("get_sessions")
-    def get_sessions(data=None):
-        if data and not validate_csrf(data):
+    def get_sessions(data={}):
+        if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
         sessions = tmux_service.list_sessions()
@@ -107,10 +109,9 @@ def register_handlers(socketio):
         key = data.get("key", "")
         if not key or not all(c.isalnum() or c in "+-_" for c in key):
             return
-        import subprocess
         subprocess.Popen(
-            ["docker", "exec", "--user", "1000:1000", "fernando-desktop",
-             "bash", "-c", f"DISPLAY=:1 xdotool key {key}"],
+            ["docker", "exec", "-e", "DISPLAY=:1", "--user", "1000:1000", "fernando-desktop",
+             "xdotool", "key", "--", key],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
 
@@ -219,8 +220,8 @@ def register_handlers(socketio):
         tmux_service.cleanup_session(f"{sid}_2")
 
     @socketio.on("restart_desktop")
-    def restart_desktop(data=None):
-        if data and not validate_csrf(data):
+    def restart_desktop(data={}):
+        if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
         try:
@@ -233,8 +234,8 @@ def register_handlers(socketio):
             emit("desktop_restart_error", {"error": str(e)})
 
     @socketio.on("list_subagents")
-    def list_subagents(data=None):
-        if data and not validate_csrf(data):
+    def list_subagents(data={}):
+        if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
         result = subagent_service.list_subagents()
@@ -281,16 +282,16 @@ def register_handlers(socketio):
         emit("subagent_deleted", result)
 
     @socketio.on("get_at_jobs")
-    def get_at_jobs(data=None):
-        if data and not validate_csrf(data):
+    def get_at_jobs(data={}):
+        if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
         result = subagent_service.get_at_jobs()
         emit("at_jobs", {"jobs": result})
 
     @socketio.on("get_cron_jobs")
-    def get_cron_jobs(data=None):
-        if data and not validate_csrf(data):
+    def get_cron_jobs(data={}):
+        if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
         result = subagent_service.get_cron_jobs()
@@ -372,6 +373,33 @@ def register_handlers(socketio):
                 emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": acp_event_seq.get(acp_sid, 0), "history_length": len(session.history)}})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+            else:
+                # Archived session — replay from history file as read-only preview
+                hpath = os.path.join(HISTORY_DIR, f"{acp_sid}.json")
+                if os.path.exists(hpath):
+                    try:
+                        with open(hpath) as f:
+                            history = json.load(f)
+                        collapsed = []
+                        text_buf = ""
+                        for evt in history:
+                            su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
+                            content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
+                            if su == "agent_message_chunk" and content.get("type") == "text":
+                                text_buf += content["text"]
+                            else:
+                                if text_buf:
+                                    collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                                    text_buf = ""
+                                collapsed.append(evt)
+                        if text_buf:
+                            collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                        for evt in collapsed:
+                            emit("acp_event", {"session_id": acp_sid, "event": evt})
+                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": 0, "history_length": len(history)}})
+                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "archived_preview"}})
+                    except Exception:
+                        pass
 
     @socketio.on("acp_prompt")
     def acp_prompt(data):
@@ -424,7 +452,30 @@ def register_handlers(socketio):
         acp_sid = data.get("session_id")
         if acp_sid:
             acp_subscribers.pop(acp_sid, None)
-            acp_manager.destroy_session(acp_sid)
+            acp_manager.archive_session(acp_sid)
+
+    @socketio.on("acp_list_archived")
+    def acp_list_archived(data):
+        if not validate_csrf(data):
+            return
+        emit("acp_archived_list", {"sessions": acp_manager.list_archived()})
+
+    @socketio.on("acp_restore")
+    def acp_restore(data):
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        if sid:
+            ok = acp_manager.restore_session(sid, on_event=acp_on_event)
+            emit("acp_restored", {"session_id": sid, "ok": ok})
+
+    @socketio.on("acp_delete_archived")
+    def acp_delete_archived(data):
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        if sid:
+            acp_manager.delete_archived(sid)
 
     @socketio.on("acp_rename")
     def acp_rename(data):

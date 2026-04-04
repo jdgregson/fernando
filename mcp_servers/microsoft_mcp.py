@@ -17,6 +17,8 @@ _venv_site = os.path.join(
 )
 if os.path.isdir(_venv_site) and _venv_site not in sys.path:
     sys.path.insert(0, _venv_site)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 import asyncio
 import json

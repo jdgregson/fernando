@@ -29,13 +29,7 @@ def _auth_page(title, message):
 .c{{text-align:center}}h2{{font-weight:400}}</style></head>
 <body><div class="c"><h2>{title}</h2><p>{message}</p></div></body></html>"""
 
-SCOPES = [
-    "User.Read",
-    "Mail.Read",
-    "Mail.ReadWrite",
-    "Mail.Send",
-    "Calendars.ReadWrite",
-]
+from src.microsoft_scopes import SCOPES, REDIRECT_URI
 
 
 @bp.route("/")
@@ -62,8 +56,8 @@ def api_mutating_notify():
 @bp.route("/kasm/", defaults={"path": ""})
 @bp.route("/kasm/<path:path>")
 def kasm_proxy(path):
-    if not docker_service.start_kasm():
-        return "Kasm desktop is starting, please wait...", 503
+    if not docker_service.is_kasm_running():
+        return "Kasm desktop is not running. Use the restart button in the sidebar.", 503
 
     # Read VNC password
     try:
@@ -147,17 +141,18 @@ def chat_page(session_id):
     return render_template("chat.html", acp_session_id=session_id, api_key=api_key)
 
 
-@bp.route("/files/<path:filepath>")
+@bp.route("/api/files/<path:filepath>")
 def serve_file(filepath):
-    """Serve files from the home directory (for displaying screenshots etc.)."""
+    """Serve files from allowed directories under home."""
     if not _check_api_key():
         return "Unauthorized", 401
     import mimetypes
     from flask import send_file
-    full_path = os.path.join(os.path.expanduser("~"), filepath)
-    full_path = os.path.realpath(full_path)
     home = os.path.realpath(os.path.expanduser("~"))
-    if not full_path.startswith(home + "/"):
+    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads")]
+    allowed_files = [os.path.join(home, "fernando", "data", "desktop", "screenshot.png")]
+    full_path = os.path.realpath(os.path.join(home, filepath))
+    if not any(full_path.startswith(d + "/") or full_path == d for d in allowed) and full_path not in allowed_files:
         return "Forbidden", 403
     if not os.path.isfile(full_path):
         return "Not found", 404
@@ -204,7 +199,7 @@ def auth_callback():
     result = msal_app.acquire_token_by_authorization_code(
         code,
         scopes=SCOPES,
-        redirect_uri=config.get("redirect_uri", "http://localhost:8080/auth/callback"),
+        redirect_uri=config.get("redirect_uri", REDIRECT_URI),
     )
 
     if "access_token" in result:

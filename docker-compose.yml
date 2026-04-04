@@ -30,3 +30,10 @@ services:
       - /dev/loop7:/dev/loop7
     entrypoint: ["/sbin/init"]
     user: "0"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.25.0.0/24
+          gateway: 172.25.0.1

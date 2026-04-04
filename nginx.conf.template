@@ -14,9 +14,9 @@ http {
     uwsgi_temp_path /tmp/nginx-fernando-uwsgi;
     scgi_temp_path /tmp/nginx-fernando-scgi;
 
-    # Auth callback accessible from Docker containers (e.g. Kasm desktop)
+    # Auth callback for Docker containers (pinned subnet 172.25.0.0/24)
     server {
-        listen 0.0.0.0:{{NGINX_PORT}} default_server;
+        listen 172.25.0.1:{{NGINX_PORT}} default_server;
         server_name _;
 
         location = /auth/callback {

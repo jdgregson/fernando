@@ -9,7 +9,7 @@ nohup bash -c "
     # Notify frontend that a mutate is happening
     API_KEY=\$(cat /tmp/fernando-api-key 2>/dev/null)
     curl -s -X POST -H \"X-API-Key: \$API_KEY\" http://localhost:5000/api/mutating > /dev/null 2>&1
-    sleep 0.5
+    sleep 5
     ./scripts/stop.sh
     ./scripts/start.sh
 " > /tmp/fernando-mutate.log 2>&1 &

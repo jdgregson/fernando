@@ -50,13 +50,20 @@ def get_chrome_tabs():
 app = Server("kasm-desktop")
 
 
-def exec_in_kasm(cmd):
-    """Execute command inside Kasm container"""
-    result = subprocess.run(
-        ["docker", "exec", "--user", "1000:1000", "fernando-desktop", "bash", "-c", cmd],
-        capture_output=True,
-        text=True,
-    )
+def exec_in_kasm(cmd, env=None, shell=False):
+    """Execute a command inside the Kasm container.
+    cmd: shell string if shell=True, list of args if shell=False.
+    env: dict of environment variables to set."""
+    base = ["docker", "exec", "--user", "1000:1000"]
+    if env:
+        for k, v in env.items():
+            base += ["-e", f"{k}={v}"]
+    base += ["fernando-desktop"]
+    if shell:
+        base += ["bash", "-c", cmd]
+    else:
+        base += cmd
+    result = subprocess.run(base, capture_output=True, text=True)
     return result.stdout + result.stderr
 
 
@@ -334,166 +341,115 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    _e = {"DISPLAY": ":1"}
+
     if name == "type_text":
-        text = arguments["text"].replace("'", "'\\''")
-        result = exec_in_kasm(f"DISPLAY=:1 xdotool type '{text}'")
+        result = exec_in_kasm(["xdotool", "type", "--", arguments["text"]], env=_e)
         return [TextContent(type="text", text=f"Typed: {arguments['text']}\n{result}")]
 
     elif name == "press_key":
-        key = arguments["key"]
-        result = exec_in_kasm(f"DISPLAY=:1 xdotool key {key}")
-        return [TextContent(type="text", text=f"Pressed: {key}\n{result}")]
+        result = exec_in_kasm(["xdotool", "key", "--", arguments["key"]], env=_e)
+        return [TextContent(type="text", text=f"Pressed: {arguments['key']}\n{result}")]
 
     elif name == "click_mouse":
         x = arguments.get("x")
         y = arguments.get("y")
-        button = arguments.get("button", 1)
-
-        cmd = f"DISPLAY=:1 xdotool "
+        button = str(arguments.get("button", 1))
+        argv = ["xdotool"]
         if x is not None and y is not None:
-            cmd += f"mousemove {x} {y} "
-        cmd += f"click {button}"
-
-        result = exec_in_kasm(cmd)
-        return [
-            TextContent(
-                type="text", text=f"Clicked at ({x}, {y}) button {button}\n{result}"
-            )
-        ]
+            argv += ["mousemove", str(x), str(y)]
+        argv += ["click", button]
+        result = exec_in_kasm(argv, env=_e)
+        return [TextContent(type="text", text=f"Clicked at ({x}, {y}) button {button}\n{result}")]
 
     elif name == "open_application":
-        app = arguments["app"]
-        if app in ("chrome", "google-chrome", "chromium"):
-            app = "google-chrome"
-        result = exec_in_kasm(f"DISPLAY=:1 nohup {app} &>/dev/null & sleep 1")
-        return [TextContent(type="text", text=f"Opened: {app}\n{result}")]
+        app_name = arguments["app"]
+        if app_name in ("chrome", "google-chrome", "chromium"):
+            app_name = "google-chrome"
+        result = exec_in_kasm(f"DISPLAY=:1 nohup {app_name} &>/dev/null & sleep 1", shell=True)
+        return [TextContent(type="text", text=f"Opened: {app_name}\n{result}")]
 
     elif name == "run_command":
         cmd = arguments["command"]
-        result = exec_in_kasm(f"DISPLAY=:1 {cmd}")
+        result = exec_in_kasm(f"DISPLAY=:1 {cmd}", shell=True)
         return [TextContent(type="text", text=f"Command output:\n{result}")]
 
     elif name == "screenshot":
         filename = "screenshot.png"
         host_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "desktop", filename)
-        exec_in_kasm(f"DISPLAY=:1 scrot --overwrite /home/kasm-user/{filename}")
+        exec_in_kasm(["scrot", "--overwrite", f"/home/kasm-user/{filename}"], env=_e)
         return [TextContent(type="text", text=f"Screenshot saved to: {host_path}")]
 
     elif name == "scroll":
-        x = arguments["x"]
-        y = arguments["y"]
-        direction = arguments["direction"]
-        amount = arguments.get("amount", 3)
-        button = "4" if direction == "up" else "5"
-
-        cmd = f"DISPLAY=:1 xdotool mousemove {x} {y} click --repeat {amount} {button}"
-
-        result = exec_in_kasm(cmd)
-        return [
-            TextContent(
-                type="text",
-                text=f"Scrolled {direction} {amount} times at ({x}, {y})\n{result}",
-            )
-        ]
+        x, y = str(arguments["x"]), str(arguments["y"])
+        amount = str(arguments.get("amount", 3))
+        button = "4" if arguments["direction"] == "up" else "5"
+        result = exec_in_kasm(["xdotool", "mousemove", x, y, "click", "--repeat", amount, button], env=_e)
+        return [TextContent(type="text", text=f"Scrolled {arguments['direction']} {amount} times at ({x}, {y})\n{result}")]
 
     elif name == "move_mouse":
-        x = arguments["x"]
-        y = arguments["y"]
-        result = exec_in_kasm(f"DISPLAY=:1 xdotool mousemove {x} {y}")
-        return [TextContent(type="text", text=f"Moved mouse to ({x}, {y})\n{result}")]
+        result = exec_in_kasm(["xdotool", "mousemove", str(arguments["x"]), str(arguments["y"])], env=_e)
+        return [TextContent(type="text", text=f"Moved mouse to ({arguments['x']}, {arguments['y']})\n{result}")]
 
     elif name == "drag_mouse":
-        x1 = arguments["x1"]
-        y1 = arguments["y1"]
-        x2 = arguments["x2"]
-        y2 = arguments["y2"]
-        button = arguments.get("button", 1)
-        delay = arguments.get("delay", 0.1)
-
-        result = exec_in_kasm(
-            f"DISPLAY=:1 xdotool mousemove {x1} {y1} mousedown {button} sleep {delay} mousemove {x2} {y2} sleep {delay} mouseup {button}"
-        )
-        return [
-            TextContent(
-                type="text",
-                text=f"Dragged from ({x1}, {y1}) to ({x2}, {y2}) with {delay}s delay\n{result}",
-            )
-        ]
+        x1, y1 = str(arguments["x1"]), str(arguments["y1"])
+        x2, y2 = str(arguments["x2"]), str(arguments["y2"])
+        button = str(arguments.get("button", 1))
+        delay = str(arguments.get("delay", 0.1))
+        result = exec_in_kasm(["xdotool", "mousemove", x1, y1, "mousedown", button, "sleep", delay, "mousemove", x2, y2, "sleep", delay, "mouseup", button], env=_e)
+        return [TextContent(type="text", text=f"Dragged from ({x1}, {y1}) to ({x2}, {y2})\n{result}")]
 
     elif name == "get_mouse_position":
-        result = exec_in_kasm("DISPLAY=:1 xdotool getmouselocation --shell")
+        result = exec_in_kasm(["xdotool", "getmouselocation", "--shell"], env=_e)
         return [TextContent(type="text", text=f"Mouse position:\n{result}")]
 
     elif name == "double_click":
-        x = arguments.get("x")
-        y = arguments.get("y")
-
-        cmd = "DISPLAY=:1 xdotool "
+        x, y = arguments.get("x"), arguments.get("y")
+        argv = ["xdotool"]
         if x is not None and y is not None:
-            cmd += f"mousemove {x} {y} "
-        cmd += "click --repeat 2 1"
-
-        result = exec_in_kasm(cmd)
-        return [
-            TextContent(type="text", text=f"Double-clicked at ({x}, {y})\n{result}")
-        ]
+            argv += ["mousemove", str(x), str(y)]
+        argv += ["click", "--repeat", "2", "1"]
+        result = exec_in_kasm(argv, env=_e)
+        return [TextContent(type="text", text=f"Double-clicked at ({x}, {y})\n{result}")]
 
     elif name == "right_click":
-        x = arguments.get("x")
-        y = arguments.get("y")
-
-        cmd = "DISPLAY=:1 xdotool "
+        x, y = arguments.get("x"), arguments.get("y")
+        argv = ["xdotool"]
         if x is not None and y is not None:
-            cmd += f"mousemove {x} {y} "
-        cmd += "click 3"
-
-        result = exec_in_kasm(cmd)
+            argv += ["mousemove", str(x), str(y)]
+        argv += ["click", "3"]
+        result = exec_in_kasm(argv, env=_e)
         return [TextContent(type="text", text=f"Right-clicked at ({x}, {y})\n{result}")]
 
     elif name == "get_window_info":
-        result = exec_in_kasm("DISPLAY=:1 wmctrl -lG")
+        result = exec_in_kasm(["wmctrl", "-lG"], env=_e)
         return [TextContent(type="text", text=f"Open windows:\n{result}")]
 
     elif name == "focus_window":
         window = arguments["window"]
-        # Try by name first, then by ID if it looks like a hex ID
-        if window.startswith("0x"):
-            result = exec_in_kasm(f"DISPLAY=:1 wmctrl -ia {window}")
-        else:
-            result = exec_in_kasm(f"DISPLAY=:1 wmctrl -a '{window}'")
+        flag = "-ia" if window.startswith("0x") else "-a"
+        result = exec_in_kasm(["wmctrl", flag, window], env=_e)
         return [TextContent(type="text", text=f"Focused window: {window}\n{result}")]
 
     elif name == "get_screen_size":
-        result = exec_in_kasm("DISPLAY=:1 xdpyinfo | grep dimensions")
+        result = exec_in_kasm("DISPLAY=:1 xdpyinfo | grep dimensions", shell=True)
         return [TextContent(type="text", text=f"Screen size:\n{result}")]
 
     elif name == "set_screen_size":
-        width = arguments["width"]
-        height = arguments["height"]
-        # Use xrandr to add and set custom resolution
-        result = exec_in_kasm(f"DISPLAY=:1 xrandr --output VNC-0 --fb {width}x{height}")
-        return [
-            TextContent(
-                type="text", text=f"Set screen size to {width}x{height}\n{result}"
-            )
-        ]
+        w, h = str(arguments["width"]), str(arguments["height"])
+        result = exec_in_kasm(["xrandr", "--output", "VNC-0", "--fb", f"{w}x{h}"], env=_e)
+        return [TextContent(type="text", text=f"Set screen size to {w}x{h}\n{result}")]
 
     elif name == "get_clipboard":
-        result = exec_in_kasm("DISPLAY=:1 xclip -selection clipboard -o")
+        result = exec_in_kasm(["xclip", "-selection", "clipboard", "-o"], env=_e)
         return [TextContent(type="text", text=f"Clipboard content:\n{result}")]
 
     elif name == "set_clipboard":
-        text = arguments["text"].replace("'", "'\\''")
-        result = exec_in_kasm(f"echo '{text}' | DISPLAY=:1 xclip -selection clipboard")
-        return [
-            TextContent(
-                type="text", text=f"Set clipboard to: {arguments['text']}\n{result}"
-            )
-        ]
+        result = exec_in_kasm(f"echo '{arguments['text'].replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}' | DISPLAY=:1 xclip -selection clipboard", shell=True)
+        return [TextContent(type="text", text=f"Set clipboard to: {arguments['text']}\n{result}")]
 
     elif name == "desktop_exec":
-        cmd = arguments["command"]
-        result = exec_in_kasm(cmd)
+        result = exec_in_kasm(arguments["command"], shell=True)
         return [TextContent(type="text", text=f"Command output:\n{result}")]
 
     elif name == "browser_tabs":
