@@ -338,6 +338,25 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="browser_exec_js",
+            description="Execute JavaScript in a Chrome browser tab via CDP. Returns the result of the expression. Use for DOM manipulation, clicking elements, hiding panels, extracting data, etc.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "JavaScript expression to evaluate (e.g., \"document.querySelector('.panel').style.display='none'\")",
+                    },
+                    "tab_index": {
+                        "type": "integer",
+                        "description": "Tab index from browser_tabs (default: 0)",
+                        "default": 0,
+                    },
+                },
+                "required": ["expression"],
+            },
+        ),
     ]
 
 
@@ -489,6 +508,31 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=f"Unexpected result: {json.dumps(result)}")]
         except Exception as e:
             return [TextContent(type="text", text=f"Error getting DOM: {e}")]
+
+    elif name == "browser_exec_js":
+        try:
+            tabs = get_chrome_tabs()
+            pages = [t for t in tabs if t.get("type") == "page"]
+            idx = arguments.get("tab_index", 0)
+            if not pages or idx >= len(pages):
+                return [TextContent(type="text", text="Tab not found. Use browser_tabs to list available tabs.")]
+            ws_url = pages[idx]["webSocketDebuggerUrl"]
+            resp = cdp_send(ws_url, "Runtime.evaluate", {
+                "expression": arguments["expression"],
+                "returnByValue": True,
+                "awaitPromise": True,
+            })
+            r = resp.get("result", {})
+            if "exceptionDetails" in r:
+                exc = r["exceptionDetails"]
+                msg = exc.get("exception", {}).get("description", exc.get("text", str(exc)))
+                return [TextContent(type="text", text=f"JS Error: {msg}")]
+            val = r.get("result", {})
+            if val.get("type") == "undefined":
+                return [TextContent(type="text", text="undefined")]
+            return [TextContent(type="text", text=json.dumps(val.get("value", val), indent=2, default=str))]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error executing JS: {e}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

@@ -7,3 +7,5 @@ websocket-client==1.7.0
 mcp==1.26.0
 msal==1.31.1
 chromadb==1.5.5
+python-docx==1.1.2
+fpdf2==2.8.3

@@ -19,6 +19,16 @@ Your Microsoft 365 account is <fernando-email> — this is your email, calendar,
 - Track your progress and long term goals in Microsoft ToDo.
 - You can use Docker with sysbox-runc as a runtime for full operating systems if needed (the desktop, for example).
 
+## Chrome / Desktop Browser
+
+Always open Chrome inside the Kasm container using `/usr/bin/google-chrome`:
+
+```bash
+DISPLAY=:1 /usr/bin/google-chrome [URL] 2>&1 &
+```
+
+Do NOT use `google-chrome-stable`, `/opt/google/chrome/google-chrome`, or `/usr/bin/chrome` — they bypass the wrapper and will be missing required flags (CDP, sandbox, crash recovery, etc.).
+
 ## Development Details
 
 - You are able to mutate the fernando application as needed, to apply and test changes for the user. You can also reboot the instance if a full reboot is needed.

@@ -201,6 +201,32 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="create_pdf",
+            description="Create a PDF document from markdown-like content. Supports headings (# ## ###), bold (**text**), italic (*text*), bullet lists (- item), numbered lists (1. item), code blocks (```), horizontal rules (---), tables (| col | col |), and images (![alt](/path/to/image.png)). Returns the file path. Use microsoft_mail_send with attachment_path to email it.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Output file path (e.g. '/tmp/report.pdf')"},
+                    "content": {"type": "string", "description": "Document content in markdown-like format"},
+                    "title": {"type": "string", "description": "Document title (optional, shown as header)"},
+                },
+                "required": ["path", "content"],
+            },
+        ),
+        Tool(
+            name="create_docx",
+            description="Create a Word (.docx) document from markdown-like content. Supports headings (# ## ###), bold (**text**), italic (*text*), bullet lists (- item), numbered lists (1. item), code blocks (```), tables (| col | col |), and images (![alt](/path/to/image.png)). Returns the file path. Use microsoft_mail_send with attachment_path to email it.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Output file path (e.g. '/tmp/report.docx')"},
+                    "content": {"type": "string", "description": "Document content in markdown-like format"},
+                    "title": {"type": "string", "description": "Document title (optional, shown as header)"},
+                },
+                "required": ["path", "content"],
+            },
+        ),
+        Tool(
             name="search_conversations",
             description="Search past chat conversations using semantic/vector search (RAG). Returns matching snippets with session IDs. Use get_conversation to fetch full context for a specific session.",
             inputSchema={
@@ -275,6 +301,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             start_new_session=True,
         )
         result = {"status": "rebooting", "message": "Host will reboot in 5 seconds."}
+    elif name == "create_pdf":
+        from docgen import create_pdf
+        out = create_pdf(arguments["path"], arguments["content"], arguments.get("title"))
+        result = {"status": "created", "path": out}
+    elif name == "create_docx":
+        from docgen import create_docx
+        out = create_docx(arguments["path"], arguments["content"], arguments.get("title"))
+        result = {"status": "created", "path": out}
     elif name == "search_conversations":
         result = rag.search(arguments["query"], limit=arguments.get("limit", 5))
     elif name == "get_conversation":

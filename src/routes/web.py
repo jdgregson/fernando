@@ -143,19 +143,53 @@ def chat_page(session_id):
 
 @bp.route("/api/files/<path:filepath>")
 def serve_file(filepath):
-    """Serve files from allowed directories under home."""
+    """Serve files, caching images per-session for persistence."""
     if not _check_api_key():
         return "Unauthorized", 401
+    import hashlib
     import mimetypes
-    from flask import send_file
+    import shutil
+    from flask import request, send_file
+
+    session_id = request.args.get("session")
     home = os.path.realpath(os.path.expanduser("~"))
+    cache_dir = os.path.join(os.path.dirname(__file__), "..", "..", "data", "image_cache")
+
+    # Resolve the requested path
+    if filepath.startswith("tmp/"):
+        full_path = os.path.realpath("/" + filepath)
+    else:
+        full_path = os.path.realpath(os.path.join(home, filepath))
+
+    mime = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
+    is_image = mime.startswith("image/")
+
+    # For images with a session, check cache first then copy on serve
+    if is_image and session_id:
+        ext = os.path.splitext(full_path)[1]
+        file_hash = hashlib.sha256(full_path.encode()).hexdigest()[:16]
+        session_cache = os.path.join(cache_dir, session_id)
+        cached_path = os.path.join(session_cache, file_hash + ext)
+        if os.path.isfile(cached_path):
+            return send_file(cached_path, mimetype=mime)
+        # Validate source path before caching
+        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop")]
+        allowed.append("/tmp")
+        if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
+            return "Forbidden", 403
+        if os.path.isfile(full_path):
+            os.makedirs(session_cache, exist_ok=True)
+            shutil.copy2(full_path, cached_path)
+            return send_file(cached_path, mimetype=mime)
+        return "Not found", 404
+
+    # Non-image or no session: serve directly with path validation
     allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop")]
-    full_path = os.path.realpath(os.path.join(home, filepath))
+    allowed.append("/tmp")
     if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
         return "Forbidden", 403
     if not os.path.isfile(full_path):
         return "Not found", 404
-    mime = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
     response = send_file(full_path, mimetype=mime)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return response

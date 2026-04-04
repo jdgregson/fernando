@@ -174,9 +174,12 @@
         _chunkRenderPending = false;
         if (!currentContentDiv) return;
         let html = marked.parse(currentText);
-        html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/api/files/$1?api_key=' + apiKey + '"');
+        html = html.replace(/src="\/home\/fernando\/(.*?)"/g, 'src="/api/files/$1?api_key=' + apiKey + '&session=' + sessionId + '"');
+        html = html.replace(/src="\/tmp\/(.*?)"/g, 'src="/api/files/tmp/$1?api_key=' + apiKey + '&session=' + sessionId + '"');
         html = html.replace(/!\[([^\]]*)\]\((\/home\/fernando\/[^)]+)\)/g,
-            (m, alt, path) => `<img alt="${alt}" src="/api/files/${path.replace('/home/fernando/', '')}?api_key=${apiKey}">`);
+            (m, alt, path) => `<img alt="${alt}" src="/api/files/${path.replace('/home/fernando/', '')}?api_key=${apiKey}&session=${sessionId}">`);
+        html = html.replace(/!\[([^\]]*)\]\((\/tmp\/[^)]+)\)/g,
+            (m, alt, path) => `<img alt="${alt}" src="/api/files/tmp${path.slice(4)}?api_key=${apiKey}&session=${sessionId}">`);
         currentContentDiv.innerHTML = html;
         scrollToBottom();
     }
@@ -212,7 +215,8 @@
     }
 
     function fileUrl(filePath) {
-        return '/api/files/' + filePath.replace(/^\/home\/fernando\//, '') + '?api_key=' + apiKey;
+        const stripped = filePath.replace(/^\/home\/fernando\//, '').replace(/^\/tmp\//, 'tmp/');
+        return '/api/files/' + stripped + '?api_key=' + apiKey + '&session=' + sessionId;
     }
 
     const TOOL_SERVERS = {
