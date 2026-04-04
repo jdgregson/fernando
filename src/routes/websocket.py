@@ -324,6 +324,10 @@ def register_handlers(socketio):
         seq = acp_event_seq.get(session_id, 0)
         acp_event_seq[session_id] = seq + 1
         sids = acp_subscribers.get(session_id, set())
+        # Log first event and periodically to help debug delivery issues
+        evt_type = event.get("type") or ((event.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
+        if seq == 0 or evt_type in ("session_ready", "session_ended", "session_error"):
+            logger.info(f"acp_on_event: session={session_id} seq={seq} type={evt_type} subscribers={len(sids)}")
         for sid in sids:
             socketio.emit("acp_event", {"session_id": session_id, "seq": seq, "event": event}, room=sid)
 
@@ -370,7 +374,9 @@ def register_handlers(socketio):
                 for evt in collapsed:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
                 # Tell client the actual history length and next live sequence number
-                emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": acp_event_seq.get(acp_sid, 0), "history_length": len(session.history)}})
+                next_seq = acp_event_seq.get(acp_sid, 0)
+                logger.info(f"acp_subscribe: sending sync_seq={next_seq} history_len={len(session.history)} ready={session.ready}")
+                emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": next_seq, "history_length": len(session.history)}})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
             else:

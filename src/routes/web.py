@@ -173,7 +173,7 @@ def serve_file(filepath):
         if os.path.isfile(cached_path):
             return send_file(cached_path, mimetype=mime)
         # Validate source path before caching
-        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop")]
+        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache")]
         allowed.append("/tmp")
         if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
             return "Forbidden", 403
@@ -184,7 +184,7 @@ def serve_file(filepath):
         return "Not found", 404
 
     # Non-image or no session: serve directly with path validation
-    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop")]
+    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache")]
     allowed.append("/tmp")
     if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
         return "Forbidden", 403

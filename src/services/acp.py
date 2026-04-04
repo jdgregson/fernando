@@ -114,6 +114,7 @@ class ACPSession:
         self.history = []
         self.ready = False
         self._recording = True  # gate for _record_event
+        self._broadcasting = True  # gate for on_event dispatch
         self._last_activity = time.time()  # track last stdout data for stall detection
         self._is_prompting = False  # True while waiting for agent response
         self._flushed = 0  # number of history entries already written to disk
@@ -221,6 +222,7 @@ class ACPSession:
         self._patch_incomplete_mutate(acp_session_id)
         self._load_history()
         self._recording = False  # Don't overwrite rich history with kiro's stripped replay
+        self._broadcasting = False  # Don't fire on_event for replay events
         self._spawn_and_init()
         self.acp_session_id = acp_session_id
 
@@ -237,6 +239,7 @@ class ACPSession:
             "mcpServers": [],
         }, timeout=120)
         self._recording = True
+        self._broadcasting = True
 
     def send_prompt(self, text):
         if not self.acp_session_id:
@@ -456,7 +459,7 @@ class ACPSession:
                 logger.info(f"[{self.id}] turn ended: stopReason={stop_reason}")
                 self._is_prompting = False
             self._record_event(msg)
-            if self.on_event:
+            if self.on_event and self._broadcasting:
                 try:
                     self.on_event(self.id, msg)
                 except Exception:
@@ -472,7 +475,7 @@ class ACPSession:
             err = msg.get("error", {})
             logger.warning(f"[{self.id}] ACP error: {err}")
             self._is_prompting = False
-            if self.on_event:
+            if self.on_event and self._broadcasting:
                 try:
                     self.on_event(self.id, {"type": "acp_error", "error": err.get("data") or err.get("message", "Unknown error")})
                 except Exception:
@@ -486,7 +489,7 @@ class ACPSession:
             logger.debug(f"[{self.id}] session/update: {su}")
 
         self._record_event(msg)
-        if self.on_event:
+        if self.on_event and self._broadcasting:
             try:
                 self.on_event(self.id, msg)
             except Exception as e:

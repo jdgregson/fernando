@@ -508,12 +508,25 @@
         if (data.seq !== undefined) {
             if (expectedSeq === -1) {
                 // Not synced yet, buffer it
+                console.warn('[acp] buffering seq', data.seq, '(not synced yet)');
                 seqBuffer[data.seq] = data;
                 return;
             }
             if (data.seq !== expectedSeq) {
                 // Out of order — buffer and wait
+                console.warn('[acp] out of order: got seq', data.seq, 'expected', expectedSeq, '- buffering');
                 seqBuffer[data.seq] = data;
+                // Safety: if buffer grows too large, we likely have a seq mismatch — reset
+                if (Object.keys(seqBuffer).length > 50) {
+                    console.error('[acp] seq buffer overflow — resetting. Expected:', expectedSeq, 'buffered:', Object.keys(seqBuffer).map(Number).sort((a,b)=>a-b).slice(0,5));
+                    const sorted = Object.keys(seqBuffer).map(Number).sort((a, b) => a - b);
+                    expectedSeq = sorted[0];
+                    while (seqBuffer[expectedSeq]) {
+                        processEvent(seqBuffer[expectedSeq]);
+                        delete seqBuffer[expectedSeq];
+                        expectedSeq++;
+                    }
+                }
                 return;
             }
             // In order — process it and drain buffer
@@ -531,6 +544,7 @@
         const evt = data.event;
         if (evt.type === 'sync_seq') {
             // Server tells us the next live seq to expect and actual history length
+            console.log('[acp] sync_seq: expectedSeq=', evt.seq, 'history_length=', evt.history_length, 'buffered=', Object.keys(seqBuffer).length);
             expectedSeq = evt.seq;
             if (evt.history_length !== undefined) historyOffset = evt.history_length;
             while (seqBuffer[expectedSeq]) {
