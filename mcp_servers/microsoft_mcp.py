@@ -217,7 +217,11 @@ async def list_tools() -> list[Tool]:
                     "subject": {"type": "string", "description": "Email subject"},
                     "body": {
                         "type": "string",
-                        "description": "Email body (plain text)",
+                        "description": "Email body (plain text or HTML if html=true)",
+                    },
+                    "html": {
+                        "type": "boolean",
+                        "description": "Send body as HTML (default: false)",
                     },
                     "attachment_path": {
                         "type": "string",
@@ -800,7 +804,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         payload = {
             "message": {
                 "subject": arguments["subject"],
-                "body": {"contentType": "Text", "content": arguments["body"]},
+                "body": {"contentType": "HTML" if arguments.get("html") else "Text", "content": arguments["body"]},
                 "toRecipients": [{"emailAddress": {"address": arguments["to"]}}],
             }
         }

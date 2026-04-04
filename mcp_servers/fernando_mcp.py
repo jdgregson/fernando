@@ -176,7 +176,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="mutate",
-            description="Restart Fernando to apply code changes. Blocks until Fernando is back up and healthy, or reports failure with logs. Runs stop/start in a detached background process so the calling Kiro agent session survives. NOTE: This restarts the Flask backend and nginx but preserves tmux sessions including your own. MCP server changes require the user to manually restart the Kiro CLI session. For ACP chat sessions, provide a continuation message to auto-resume after restart.",
+            description="Restart Fernando to apply code changes. Returns immediately, then the restart triggers in the background within seconds. MCP server changes require the user to manually restart the Kiro CLI session. IMPORTANT: This call will kill the active conversation within seconds. Do NOT write any response after calling this tool. Put ALL follow-up information in the continuation message.",
             inputSchema={
                 "type": "object",
                 "properties": {

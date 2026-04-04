@@ -152,7 +152,7 @@ socket.on('cron_jobs', (data) => {
                 <span class="sa-id">${escapeHtml(job.task_id || 'Unknown')}</span>
                 <span class="sa-status scheduled">${escapeHtml(job.cron_time)}</span>
             </div>
-            <div class="sa-meta" style="word-break:break-all">${escapeHtml(job.command)}</div>
+            <div class="sa-meta" style="overflow-wrap:break-word">${escapeHtml(job.command)}</div>
             ${job.task_id ? `<div class="sa-actions"><button class="sa-btn sa-btn-danger" onclick="removeCronJob('${escapeHtml(job.task_id)}')">Remove</button></div>` : ''}
         </div>`).join('');
 });

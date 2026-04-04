@@ -613,6 +613,7 @@ class ACPManager:
         session.acp_session_id = acp_id
         with self._lock:
             self.sessions[session_id] = session
+        self._save()
         threading.Thread(
             target=self._load_existing,
             args=(session_id, session, acp_id),
