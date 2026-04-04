@@ -50,11 +50,13 @@ def get_chrome_tabs():
 app = Server("kasm-desktop")
 
 
-def exec_in_kasm(cmd, env=None, shell=False):
+def exec_in_kasm(cmd, env=None, shell=False, stdin_data=None):
     """Execute a command inside the Kasm container.
     cmd: shell string if shell=True, list of args if shell=False.
-    env: dict of environment variables to set."""
-    base = ["docker", "exec", "--user", "1000:1000"]
+    env: dict of environment variables to set.
+    stdin_data: optional string to pipe to stdin."""
+    base = ["docker", "exec", "-i" if stdin_data else None, "--user", "1000:1000"]
+    base = [x for x in base if x]
     if env:
         for k, v in env.items():
             base += ["-e", f"{k}={v}"]
@@ -63,7 +65,7 @@ def exec_in_kasm(cmd, env=None, shell=False):
         base += ["bash", "-c", cmd]
     else:
         base += cmd
-    result = subprocess.run(base, capture_output=True, text=True)
+    result = subprocess.run(base, capture_output=True, text=True, input=stdin_data)
     return result.stdout + result.stderr
 
 
@@ -366,7 +368,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         app_name = arguments["app"]
         if app_name in ("chrome", "google-chrome", "chromium"):
             app_name = "google-chrome"
-        result = exec_in_kasm(f"DISPLAY=:1 nohup {app_name} &>/dev/null & sleep 1", shell=True)
+        result = exec_in_kasm(["bash", "-c", 'nohup "$1" &>/dev/null & sleep 1', "_", app_name], env=_e)
         return [TextContent(type="text", text=f"Opened: {app_name}\n{result}")]
 
     elif name == "run_command":
@@ -375,7 +377,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Command output:\n{result}")]
 
     elif name == "screenshot":
-        filename = "screenshot.png"
+        import uuid
+        filename = f"screenshot_{uuid.uuid4().hex[:12]}.png"
         host_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "desktop", filename)
         exec_in_kasm(["scrot", "--overwrite", f"/home/kasm-user/{filename}"], env=_e)
         return [TextContent(type="text", text=f"Screenshot saved to: {host_path}")]
@@ -445,7 +448,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Clipboard content:\n{result}")]
 
     elif name == "set_clipboard":
-        result = exec_in_kasm(f"echo '{arguments['text'].replace(chr(39), chr(39)+chr(92)+chr(39)+chr(39))}' | DISPLAY=:1 xclip -selection clipboard", shell=True)
+        result = exec_in_kasm(["xclip", "-selection", "clipboard"], env=_e, stdin_data=arguments["text"])
         return [TextContent(type="text", text=f"Set clipboard to: {arguments['text']}\n{result}")]
 
     elif name == "desktop_exec":

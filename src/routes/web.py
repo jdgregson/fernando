@@ -149,15 +149,16 @@ def serve_file(filepath):
     import mimetypes
     from flask import send_file
     home = os.path.realpath(os.path.expanduser("~"))
-    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads")]
-    allowed_files = [os.path.join(home, "fernando", "data", "desktop", "screenshot.png")]
+    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop")]
     full_path = os.path.realpath(os.path.join(home, filepath))
-    if not any(full_path.startswith(d + "/") or full_path == d for d in allowed) and full_path not in allowed_files:
+    if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
         return "Forbidden", 403
     if not os.path.isfile(full_path):
         return "Not found", 404
     mime = mimetypes.guess_type(full_path)[0] or "application/octet-stream"
-    return send_file(full_path, mimetype=mime)
+    response = send_file(full_path, mimetype=mime)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @bp.route("/api/upload", methods=["POST"])
