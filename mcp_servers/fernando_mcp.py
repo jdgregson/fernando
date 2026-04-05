@@ -275,8 +275,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         _save_continuation(arguments.get("continuation"))
         subprocess.Popen(
             [os.path.join(_project_root, "scripts", "mutate.sh")],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         result = {
             "status": "restart_initiated",

@@ -285,7 +285,8 @@ def get_cron_jobs():
                     command = " ".join(parts[5:])
                     if "subagents/" in command and "/spawn.sh" in command:
                         task_id = command.split("subagents/")[1].split("/")[0]
-                    jobs.append({"cron_time": " ".join(parts[:5]), "command": command, "task_id": task_id, "type": "cron"})
+                    if task_id:
+                        jobs.append({"cron_time": " ".join(parts[:5]), "command": command, "task_id": task_id, "type": "cron"})
     return jobs
 
 

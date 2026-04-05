@@ -16,6 +16,15 @@ nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null || pkill nginx
 echo "Stopping desktop container..."
 docker compose down
 
+echo "Stopping kiro-cli acp processes..."
+pkill -TERM -f "kiro-cli-chat acp" 2>/dev/null
+sleep 2
+pkill -9 -f "kiro-cli-chat acp" 2>/dev/null
+# Also kill their parent kiro-cli wrappers
+pkill -TERM -f "kiro-cli acp" 2>/dev/null
+sleep 1
+pkill -9 -f "kiro-cli acp" 2>/dev/null
+
 echo "Reaping any remaining zombies owned by us..."
 # Kill any orphaned tmux attach-session processes we spawned
 pkill -TERM -f "tmux attach-session" 2>/dev/null
