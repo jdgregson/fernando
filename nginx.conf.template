@@ -46,33 +46,25 @@ http {
             proxy_set_header X-Forwarded-Proto $scheme;
         }
 
-        # Kasm desktop proxy
+        # Kasm desktop proxy — routed through Flask for API key auth
         location /kasm/ {
-            rewrite ^/kasm/(.*) /$1 break;
-            proxy_pass https://localhost:6901;
+            proxy_pass http://localhost:{{FLASK_PORT}};
             proxy_http_version 1.1;
             proxy_set_header Upgrade $http_upgrade;
             proxy_set_header Connection "upgrade";
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header Authorization "Basic {{VNC_AUTH}}";
-            proxy_ssl_verify off;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
 
-            # WebSocket support
             proxy_read_timeout 3600s;
             proxy_send_timeout 3600s;
         }
 
-        # Kasm WebSocket endpoint
+        # Kasm VNC WebSocket — API key checked via Lua or map
         location /websockify {
-            set $origin_ok 0;
-            if ($http_origin = "{{ALLOWED_ORIGINS}}") {
-                set $origin_ok 1;
-            }
-            if ($http_origin = "") {
-                set $origin_ok 1;
-            }
-            if ($origin_ok = 0) {
+            set $api_key_file '{{API_KEY}}';
+            if ($arg_api_key != $api_key_file) {
                 return 403;
             }
 

@@ -70,6 +70,7 @@ sed -e "s|{{NGINX_HOST}}|$NGINX_HOST|g" \
     -e "s|{{FLASK_PORT}}|$FLASK_PORT|g" \
     -e "s|{{ALLOWED_ORIGINS}}|$ALLOWED_ORIGINS|g" \
     -e "s|{{VNC_AUTH}}|$VNC_AUTH|g" \
+    -e "s|{{API_KEY}}|$(cat /tmp/fernando-api-key 2>/dev/null)|g" \
     nginx.conf.template > nginx.conf
 chmod 600 nginx.conf
 

@@ -32,6 +32,12 @@ Do NOT use `google-chrome-stable`, `/opt/google/chrome/google-chrome`, or `/usr/
 ## Development Details
 
 - You are able to mutate the fernando application as needed, to apply and test changes for the user. You can also reboot the instance if a full reboot is needed.
-- Restarting/Mutating Fernando does not restart the MCP servers. To mutate MCP servers, inform the user to start a new Kiro session, or spawn a subagent to run the new MCP server.
+- Restarting/Mutating Fernando does not restart MCP servers for standalone Kiro CLI sessions. To mutate MCP servers for those, inform me to start a new Kiro session, or spawn a subagent to run the new MCP server. ACP chat sessions are killed and respawned on mutate, so MCP servers reload automatically for those.
 - Always verify that files are syntactically correct before committing them or mutating.
 - Always ask for approval before committing or pushing changes to the fernando repository. An explicit request to commit or push counts as approval. This applies even if you were given permission to push different changes earlier in the same conversation.
+- Always mutate when changes require it without approval, if the files are syntactically correct.
+- 
+
+## Chat Naming
+
+On your first turn of every new conversation, call the `set_chat_name` tool to give the session a descriptive name based on what the user asked. Use 3 to 5 lowercase words separated by dashes (e.g. "debug-lambda-memory-leak", "nginx-reverse-proxy-setup"). Do this silently — don't mention it to the user.

@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, Response, request
+from flask import Blueprint, render_template, Response, request, current_app
 import json
 import os
 import requests
@@ -53,9 +53,32 @@ def api_mutating_notify():
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/auth_check")
+def api_auth_check():
+    """API key validation endpoint."""
+    if _check_api_key():
+        return "", 200
+    return "", 401
+
+
+@bp.route("/api/rename_chat", methods=["POST"])
+def api_rename_chat():
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    sid = data.get("session_id")
+    name = data.get("name", "")
+    if not sid or not name:
+        return json.dumps({"error": "Missing session_id or name"}), 400, {"Content-Type": "application/json"}
+    acp_manager.rename_session(sid, name)
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/kasm/", defaults={"path": ""})
 @bp.route("/kasm/<path:path>")
 def kasm_proxy(path):
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     if not docker_service.is_kasm_running():
         return "Kasm desktop is not running. Use the restart button in the sidebar.", 503
 
@@ -107,23 +130,45 @@ def kasm_proxy(path):
             or "text/css" in content_type
         ):
             content = content.decode("utf-8", errors="ignore")
-            # Fix absolute paths
-            content = content.replace('="/', '="/kasm/')
-            content = content.replace("='/", "='/kasm/")
-            content = content.replace("url(/", "url(/kasm/")
-            # Fix WebSocket paths in JS
-            content = content.replace(
-                'new WebSocket("wss://" + ',
-                'new WebSocket("wss://" + window.location.host + "/kasm" + ',
-            )
-            content = content.replace(
-                'new WebSocket("ws://" + ',
-                'new WebSocket("ws://" + window.location.host + "/kasm" + ',
-            )
-            content = content.replace(
-                'new WebSocket(("https:" === ',
-                'new WebSocket(("https:" === window.location.protocol ? "wss://" : "ws://") + window.location.host + "/kasm" + ',
-            )
+            api_key = request.args.get("api_key", "")
+            ak = f"?api_key={api_key}" if api_key else ""
+            # Fix absolute paths and append API key for static resources
+            content = content.replace('="/kasm/', f'="/kasm/')  # no-op, paths already rewritten below
+            content = content.replace('="/', f'="/kasm/')
+            content = content.replace("='/", f"='/kasm/")
+            content = content.replace("url(/", f"url(/kasm/")
+            # Append api_key to all /kasm/ hrefs and srcs in HTML attributes
+            if api_key:
+                import re
+                content = re.sub(r'(=["\'])/kasm/([^"\']*?)(["\'])', lambda m: f'{m.group(1)}/kasm/{m.group(2)}{"&" if "?" in m.group(2) else "?"}api_key={api_key}{m.group(3)}', content)
+            # Inject a fetch/XHR interceptor to add api_key to all same-origin requests under /kasm/
+            if "text/html" in content_type and api_key:
+                inject = (
+                    f'<script>'
+                    f'(function(){{'
+                    f'const ak="api_key={api_key}";'
+                    f'function addKey(u){{if(typeof u!=="string")return u;if(u.startsWith("/kasm/")||u.startsWith("./")||u.startsWith("assets/")||(u.indexOf("://")===-1&&!u.startsWith("data:"))){{u+=(u.includes("?")?"&":"?")+ak}}return u}}'
+                    f'const _fetch=window.fetch;'
+                    f'window.fetch=function(u,o){{return _fetch.call(this,addKey(u),o)}};'
+                    f'const _open=XMLHttpRequest.prototype.open;'
+                    f'XMLHttpRequest.prototype.open=function(m,u){{return _open.call(this,m,addKey(u))}};'
+                    f'const _WS=window.WebSocket;'
+                    f'window.WebSocket=function(u,p){{if(typeof u==="string"&&u.includes("/websockify")){{u+=(u.includes("?")?"&":"?")+ak}}return p!==undefined?new _WS(u,p):new _WS(u)}};'
+                    f'window.WebSocket.prototype=_WS.prototype;'
+                    f'window.WebSocket.CONNECTING=_WS.CONNECTING;'
+                    f'window.WebSocket.OPEN=_WS.OPEN;'
+                    f'window.WebSocket.CLOSING=_WS.CLOSING;'
+                    f'window.WebSocket.CLOSED=_WS.CLOSED;'
+                    f'}})()'
+                    f'</script>'
+                )
+                content = content.replace('<head>', '<head>' + inject, 1)
+            # Fix WebSocket paths — add API key to websockify path setting
+            if api_key:
+                content = content.replace(
+                    'value="websockify"',
+                    f'value="websockify?api_key={api_key}"',
+                )
             content = content.encode("utf-8")
 
         return Response(content, resp.status_code, response_headers)

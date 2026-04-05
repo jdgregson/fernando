@@ -42,7 +42,13 @@ def _save_continuation(continuation):
     """Save a continuation message for the calling chat session."""
     if not continuation:
         return
-    session_id = None
+    session_id = _find_my_session_id()
+    with open(os.path.join(_project_root, "data", "pending_continuation.json"), "w") as f:
+        json.dump({"message": continuation, "session_id": session_id}, f)
+
+
+def _find_my_session_id():
+    """Walk the PID tree to find which ACP chat session owns this process."""
     try:
         with open(os.path.join(_project_root, "data", "acp_pid_map.json")) as f:
             pid_map = json.load(f)
@@ -53,11 +59,37 @@ def _save_continuation(continuation):
                 break
             session_id = pid_map.get(pid)
             if session_id:
-                break
+                return session_id
     except Exception:
         pass
-    with open(os.path.join(_project_root, "data", "pending_continuation.json"), "w") as f:
-        json.dump({"message": continuation, "session_id": session_id}, f)
+    return None
+
+
+def _set_chat_name(name):
+    """Rename the current chat session (ACP or tmux)."""
+    # Try ACP session first
+    session_id = _find_my_session_id()
+    if session_id:
+        try:
+            api_key = open("/tmp/fernando-api-key").read().strip()
+            req = urllib.request.Request(
+                f"http://localhost:5000/api/rename_chat",
+                data=json.dumps({"session_id": session_id, "name": name}).encode(),
+                headers={"Content-Type": "application/json", "X-API-Key": api_key},
+            )
+            urllib.request.urlopen(req, timeout=5)
+            return {"status": "renamed", "type": "acp", "session_id": session_id, "name": name}
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+    # Fall back to tmux session rename
+    try:
+        current = subprocess.check_output(["tmux", "display-message", "-p", "#S"], text=True).strip()
+        if current:
+            subprocess.check_call(["tmux", "rename-session", "-t", current, name])
+            return {"status": "renamed", "type": "tmux", "old_name": current, "name": name}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+    return {"status": "error", "error": "Could not determine session"}
 
 
 app = Server("fernando")
@@ -227,6 +259,28 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="set_chat_name",
+            description="Set the display name of the current chat session in the sidebar. Use on your first turn to name the conversation based on what the user asked. Use lowercase words separated by dashes (e.g. 'debug-lambda-function').",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The new display name for this chat session"},
+                },
+                "required": ["name"],
+            },
+        ),
+        Tool(
+            name="save_memory",
+            description="Save a persistent memory/preference that will be automatically injected into your context on every future conversation. Use this when you learn something about the user's preferences, workflows, or conventions that should persist across sessions. Memories are stored in ~/.kiro/steering/memory.md.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "memory": {"type": "string", "description": "The memory to save (e.g. 'Jonathan prefers camelCase for JS variables', 'The production database is in us-west-2')"},
+                },
+                "required": ["memory"],
+            },
+        ),
+        Tool(
             name="search_conversations",
             description="Search past chat conversations using semantic/vector search (RAG). Returns matching snippets with session IDs. Use get_conversation to fetch full context for a specific session.",
             inputSchema={
@@ -310,6 +364,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         from docgen import create_docx
         out = create_docx(arguments["path"], arguments["content"], arguments.get("title"))
         result = {"status": "created", "path": out}
+    elif name == "set_chat_name":
+        result = _set_chat_name(arguments["name"])
+    elif name == "save_memory":
+        memory_path = os.path.expanduser("~/.kiro/steering/memory.md")
+        memory_text = arguments["memory"].strip()
+        if not os.path.exists(memory_path):
+            with open(memory_path, "w") as f:
+                f.write("# Memories\n\nPersistent memories saved by Fernando across conversations.\n\n")
+        with open(memory_path, "a") as f:
+            f.write(f"- {memory_text}\n")
+        result = {"status": "saved", "path": memory_path, "memory": memory_text}
     elif name == "search_conversations":
         result = rag.search(arguments["query"], limit=arguments.get("limit", 5))
     elif name == "get_conversation":
