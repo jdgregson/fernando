@@ -17,7 +17,7 @@
         <span class="uploading-indicator" id="uploadingIndicator" style="display:none">Uploading...</span>
         <div class="input-row">
             <div class="textarea-wrap">
-                <textarea id="input" placeholder="Message Kiro..." rows="1" spellcheck="true" disabled></textarea>
+                <textarea id="input" placeholder="Message Fernando..." rows="1" spellcheck="true" disabled></textarea>
                 <label class="attach-btn" id="attachBtn" for="fileInput"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg></label>
                 <input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">
             </div>
@@ -214,7 +214,12 @@
         if (typeof input.path === 'string') return [input.path];
         // Try nested in operations array
         if (Array.isArray(input.operations)) {
-            return input.operations.map(o => o.path).filter(Boolean);
+            const paths = [];
+            for (const o of input.operations) {
+                if (o.path) paths.push(o.path);
+                if (Array.isArray(o.image_paths)) paths.push(...o.image_paths);
+            }
+            return paths;
         }
         return [];
     }
@@ -353,6 +358,38 @@
                 tc.bodyContent.textContent = truncated;
             }
         }
+        // Render attach_file output as a downloadable chip
+        if (status === 'completed' && tc.title.includes('attach_file')) {
+            try {
+                let jsonStr = tc.tcState.outputText || '';
+                try { const parsed = JSON.parse(jsonStr); jsonStr = parsed; } catch(e) {}
+                // Handle nested MCP structure or direct object
+                let out = jsonStr;
+                if (typeof out === 'object' && out.items) {
+                    const first = (out.items[0] || {}).Json || {};
+                    out = JSON.parse(((first.content || [])[0] || {}).text || '{}');
+                } else if (typeof out === 'string') {
+                    out = JSON.parse(out);
+                }
+                if (out.url_path) {
+                    const url = '/api/files/' + out.url_path + '?api_key=' + apiKey;
+                    const chipWrap = document.createElement('div');
+                    chipWrap.className = 'file-chips';
+                    chipWrap.style.margin = '6px 0';
+                    const a = document.createElement('a');
+                    a.className = 'file-chip';
+                    a.href = '#';
+                    a.innerHTML = CLIP_SVG + '<span>' + escapeHtml(out.name || 'file') + '</span>';
+                    a.onclick = (e) => { e.preventDefault(); downloadFile(url, out.name || 'file', a); };
+                    chipWrap.appendChild(a);
+                    ensureAssistantMsg();
+                    if (_chunkRenderPending) _renderCurrentChunk();
+                    currentContentDiv = null;
+                    currentText = '';
+                    currentAssistantMsg.appendChild(chipWrap);
+                }
+            } catch(e) {}
+        }
         scrollToBottom();
     }
 
@@ -434,6 +471,60 @@
         });
     }
 
+    function parseAttachedFiles(text) {
+        const m = text.match(/^\[Attached files - saved to disk, use tools to read them\]\n([\s\S]*?)\n\n([\s\S]*)$/);
+        if (!m) return null;
+        const paths = m[1].split('\n').filter(p => p.trim());
+        return { paths, body: m[2] };
+    }
+
+    const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && window.navigator.standalone;
+
+    const CLIP_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
+
+    function renderFileChips(paths, container) {
+        const wrap = document.createElement('div');
+        wrap.className = 'file-chips';
+        for (const p of paths) {
+            const name = p.split('/').pop().replace(/^[a-f0-9]{8}_/, '');
+            const a = document.createElement('a');
+            a.className = 'file-chip';
+            a.href = '#';
+            a.innerHTML = CLIP_SVG + '<span>' + escapeHtml(name) + '</span>';
+            a.onclick = (e) => { e.preventDefault(); downloadFile(fileUrl(p), name, a); };
+            wrap.appendChild(a);
+        }
+        container.appendChild(wrap);
+    }
+
+    async function downloadFile(url, name, chip) {
+        const orig = chip ? chip.textContent : '';
+        try {
+            if (chip) chip.textContent = 'Loading...';
+            const r = await fetch(url);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const blob = await r.blob();
+            if (chip) chip.textContent = orig;
+            if (isIOSPWA) {
+                const file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({ files: [file] });
+                    return;
+                }
+            }
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = name;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        } catch(e) {
+            if (chip) chip.textContent = e.name === 'AbortError' ? orig : 'Error: ' + e.message;
+            if (e.name !== 'AbortError') setTimeout(() => { if (chip) chip.textContent = orig; }, 3000);
+        }
+    }
+
     function addUserMessage(text, collapsed) {
         const el = document.createElement('div');
         el.className = 'msg user';
@@ -461,12 +552,25 @@
             el.appendChild(preview);
             el.appendChild(full);
         } else {
-            const content = document.createElement('div');
-            content.className = 'msg-content';
-            content.style.whiteSpace = 'pre-wrap';
-            content.innerHTML = renderUserText(text);
-            collapseCodeBlocks(content, 30);
-            el.appendChild(content);
+            const parsed = parseAttachedFiles(text);
+            if (parsed) {
+                renderFileChips(parsed.paths, el);
+                if (parsed.body.trim()) {
+                    const content = document.createElement('div');
+                    content.className = 'msg-content';
+                    content.style.whiteSpace = 'pre-wrap';
+                    content.innerHTML = renderUserText(parsed.body);
+                    collapseCodeBlocks(content, 30);
+                    el.appendChild(content);
+                }
+            } else {
+                const content = document.createElement('div');
+                content.className = 'msg-content';
+                content.style.whiteSpace = 'pre-wrap';
+                content.innerHTML = renderUserText(text);
+                collapseCodeBlocks(content, 30);
+                el.appendChild(content);
+            }
         }
         document.getElementById('messages').appendChild(el);
         scrollToBottom();
@@ -659,15 +763,36 @@
 
     let attachedFiles = []; // [{name, path}]
 
+    function downsampleImage(file, maxDim = 1920, quality = 0.8) {
+        return new Promise((resolve) => {
+            if (!file.type.startsWith('image/')) return resolve(file);
+            const img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(img.src);
+                if (img.width <= maxDim && img.height <= maxDim && file.size <= 2 * 1024 * 1024) return resolve(file);
+                const scale = Math.min(maxDim / img.width, maxDim / img.height, 1);
+                const c = document.createElement('canvas');
+                c.width = Math.round(img.width * scale);
+                c.height = Math.round(img.height * scale);
+                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                c.toBlob(b => resolve(new File([b], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' })), 'image/jpeg', quality);
+            };
+            img.onerror = () => resolve(file);
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
     async function handleFiles(fileList) {
         const indicator = document.getElementById('uploadingIndicator');
         indicator.style.display = '';
         for (const file of fileList) {
             indicator.textContent = 'Uploading ' + file.name + '...';
+            const processed = await downsampleImage(file);
             const form = new FormData();
-            form.append('file', file);
+            form.append('file', processed);
             try {
                 const resp = await fetch('/api/upload', { method: 'POST', body: form, headers: { 'X-API-Key': apiKey } });
+                if (!resp.ok) throw new Error('Server returned ' + resp.status);
                 const data = await resp.json();
                 if (data.path) {
                     attachedFiles.push({ name: data.name, path: data.path });
@@ -675,6 +800,10 @@
                 }
             } catch(e) {
                 console.error('Upload failed:', e);
+                indicator.textContent = 'Upload failed: ' + (e.message || 'unknown error');
+                indicator.style.color = '#f44747';
+                setTimeout(() => { indicator.style.display = 'none'; indicator.style.color = ''; }, 3000);
+                return;
             }
         }
         indicator.style.display = 'none';
@@ -696,11 +825,7 @@
         renderAttached();
     }
 
-    window.addEventListener('beforeunload', () => {
-        if (window.parent !== window) {
-            window.parent.postMessage({ type: 'acp-chat-closing', sessionId: sessionId }, '*');
-        }
-    });
+
 
     // iOS: throttle scroll speed when dragging text selection to prevent overshoot
     (function() {

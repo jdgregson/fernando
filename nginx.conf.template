@@ -13,6 +13,7 @@ http {
     fastcgi_temp_path /tmp/nginx-fernando-fastcgi;
     uwsgi_temp_path /tmp/nginx-fernando-uwsgi;
     scgi_temp_path /tmp/nginx-fernando-scgi;
+    client_max_body_size 50m;
 
     # Auth callback for Docker containers (pinned subnet 172.25.0.0/24)
     server {

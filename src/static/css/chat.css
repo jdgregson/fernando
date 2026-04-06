@@ -216,3 +216,24 @@ body { display: flex; flex-direction: column; }
 @media (hover: hover) { #sendBtn:hover { background: #143151; } }
 @media (max-width: 600px) { .msg { padding: 12px 10px; } }
 #sendBtn.disabled { background: #555; cursor: not-allowed; pointer-events: none; }
+
+.file-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.file-chip {
+    background: #091d35;
+    border: 1px solid #143151;
+    border-radius: 4px;
+    padding: 3px 8px;
+    font-size: 12px;
+    color: #569cd6;
+    text-decoration: none;
+    cursor: pointer;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.file-chip svg { flex-shrink: 0; }
+.file-chip:hover { background: #143151; color: #9cdcfe; }

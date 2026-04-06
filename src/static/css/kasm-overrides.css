@@ -1,0 +1,74 @@
+/* Fernando theme overrides for KasmVNC control panel */
+
+/* Main panel */
+#noVNC_control_bar {
+    background: #0d2848 !important;
+    border: 1px solid #143151 !important;
+    border-style: solid !important;
+    border-radius: 0 5px 5px 0 !important;
+    padding: 0 !important;
+}
+.noVNC_right #noVNC_control_bar {
+    border-radius: 5px 0 0 5px !important;
+}
+#noVNC_control_bar:before { display: none !important; }
+#noVNC_control_bar .noVNC_scroll { padding: 0 !important; }
+
+/* Menu items */
+.noVNC_button_div { padding: 0 10px !important; }
+.noVNC_button_div:hover, .noVNC_button_div:focus { background: #0b233f !important; }
+.noVNC_button.noVNC_selected { background: transparent !important; border-color: transparent !important; }
+.noVNC_button_div:has(.noVNC_selected) { background: #3465a3 !important; }
+
+/* Subpanels */
+.noVNC_panel { background: #091d35 !important; color: #d4d4d4 !important; border-radius: 5px !important; }
+.noVNC_panel hr { border-top: 1px solid #143151 !important; }
+.noVNC_panel .noVNC_heading { color: #fff !important; }
+.noVNC_panel input, .noVNC_panel select, .noVNC_panel textarea {
+    background: #0d2848 !important;
+    color: #d4d4d4 !important;
+    border: 1px solid #143151 !important;
+    border-radius: 3px !important;
+}
+.noVNC_panel input[type="button"], .noVNC_panel .noVNC_submit {
+    background: #143151 !important;
+    color: #fff !important;
+    border-radius: 5px !important;
+}
+.noVNC_panel input[type="button"]:hover, .noVNC_panel .noVNC_submit:hover {
+    background: #3465a3 !important;
+}
+.noVNC_panel a { color: #1a77ec !important; }
+
+/* Hide KasmVNC logo */
+.noVNC_logo { display: none !important; }
+
+/* Handle — no flip, no background image */
+#noVNC_control_bar_handle { background-image: none !important; }
+#noVNC_control_bar_handle:after {
+    background: #0d2848 !important;
+    border: 1px solid #143151 !important;
+    border-style: solid !important;
+    border-left: none !important;
+    border-radius: 0 5px 5px 0 !important;
+    transition: none !important;
+    transform: none !important;
+}
+#noVNC_control_bar.noVNC_open #noVNC_control_bar_handle:after { transform: none !important; }
+.noVNC_right #noVNC_control_bar_handle:after {
+    transform: none !important;
+    left: 0 !important;
+    right: auto !important;
+    border-radius: 5px 0 0 5px !important;
+    border-left: 1px solid #143151 !important;
+    border-right: none !important;
+}
+.noVNC_right #noVNC_control_bar.noVNC_open #noVNC_control_bar_handle:after { transform: none !important; }
+
+/* Toggle sliders */
+.slider.round { background: #143151 !important; }
+input:checked + .slider.round { background: #1a77ec !important; }
+
+/* Text colors */
+.noVNC_expander { color: #d4d4d4 !important; }
+.slider-label { color: #d4d4d4 !important; }

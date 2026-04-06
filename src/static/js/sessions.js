@@ -71,7 +71,7 @@ function ensureDesktopIframe(browser) {
     let iframe = browser.querySelector('iframe');
     if (!iframe) {
         iframe = document.createElement('iframe');
-        iframe.src = '/kasm/?resize=remote&api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
+        iframe.src = '/kasm/?resize=remote&api_key=' + encodeURIComponent(window.FERNANDO_API_KEY) + '#show_control_bar=1';
         iframe.allow = 'autoplay; clipboard-read; clipboard-write';
         iframe.setAttribute('allowfullscreen', '');
         iframe.setAttribute('webkitallowfullscreen', '');

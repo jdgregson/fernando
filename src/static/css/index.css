@@ -126,7 +126,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 .session-item:hover {
-    background: #2a2d2e;
+    background: #0b233f;
 }
 
 .session-item.active {

@@ -281,6 +281,18 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="attach_file",
+            description="Attach a file to the current ACP chat conversation. The file is copied to a persistent cache so it remains downloadable even if the original is deleted. Only files from allowed paths (~/Documents, ~/Downloads, ~/Desktop, ~/uploads, /tmp, and fernando data dirs) can be attached.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Absolute path to the file to attach"},
+                    "name": {"type": "string", "description": "Display name for the file (optional, defaults to filename)"},
+                },
+                "required": ["path"],
+            },
+        ),
+        Tool(
             name="search_conversations",
             description="Search past chat conversations using semantic/vector search (RAG). Returns matching snippets with session IDs. Use get_conversation to fetch full context for a specific session.",
             inputSchema={
@@ -375,6 +387,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         with open(memory_path, "a") as f:
             f.write(f"- {memory_text}\n")
         result = {"status": "saved", "path": memory_path, "memory": memory_text}
+    elif name == "attach_file":
+        import hashlib, shutil, mimetypes
+        file_path = os.path.realpath(arguments["path"])
+        display_name = arguments.get("name") or os.path.basename(file_path)
+        home = os.path.realpath(os.path.expanduser("~"))
+        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache", "fernando/data/file_cache")]
+        allowed.append("/tmp")
+        if not any(file_path.startswith(d + "/") or file_path == d for d in allowed):
+            result = {"error": f"Path not allowed: {file_path}"}
+        elif not os.path.isfile(file_path):
+            result = {"error": f"File not found: {file_path}"}
+        else:
+            session_id = _find_my_session_id() or "unknown"
+            cache_dir = os.path.join(_project_root, "data", "file_cache", session_id)
+            os.makedirs(cache_dir, exist_ok=True)
+            ext = os.path.splitext(file_path)[1]
+            file_hash = hashlib.sha256(file_path.encode()).hexdigest()[:16]
+            cached_name = file_hash + ext
+            cached_path = os.path.join(cache_dir, cached_name)
+            shutil.copy2(file_path, cached_path)
+            # Return path relative to home for the /api/files/ route
+            rel_path = os.path.relpath(cached_path, home)
+            result = {"status": "attached", "name": display_name, "path": cached_path, "url_path": rel_path}
     elif name == "search_conversations":
         result = rag.search(arguments["query"], limit=arguments.get("limit", 5))
     elif name == "get_conversation":

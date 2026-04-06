@@ -633,10 +633,12 @@ class ACPManager:
             os.remove(os.path.join(HISTORY_DIR, f"{session_id}.jsonl"))
         except OSError:
             pass
-        # Delete cached images for this session
+        # Delete cached images and files for this session
         import shutil
         cache_dir = os.path.join(DATA_DIR, "image_cache", session_id)
         shutil.rmtree(cache_dir, ignore_errors=True)
+        file_cache_dir = os.path.join(DATA_DIR, "file_cache", session_id)
+        shutil.rmtree(file_cache_dir, ignore_errors=True)
         try:
             rag.delete_session(session_id)
         except Exception as e:

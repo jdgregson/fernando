@@ -94,7 +94,7 @@ socket.on('acp_restored', (data) => {
 
 // --- iframe messages ---
 window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'acp-chat-closing') { closeChatSession(e.data.sessionId); return; }
+
     if (e.data && (e.data.type === 'acp-chat-focus' || e.data.action === 'enable_audio')) {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {

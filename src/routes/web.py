@@ -77,7 +77,18 @@ def api_rename_chat():
 @bp.route("/kasm/", defaults={"path": ""})
 @bp.route("/kasm/<path:path>")
 def kasm_proxy(path):
-    if not _check_api_key():
+    # Auth: API key in URL (initial load) OR kasm_auth cookie (sub-resources)
+    api_key_valid = _check_api_key()
+    cookie_valid = False
+    if not api_key_valid:
+        cookie = request.cookies.get("kasm_auth")
+        if cookie:
+            try:
+                with open("/tmp/fernando-api-key") as f:
+                    cookie_valid = cookie == f.read().strip()
+            except Exception:
+                pass
+    if not api_key_valid and not cookie_valid:
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     if not docker_service.is_kasm_running():
         return "Kasm desktop is not running. Use the restart button in the sidebar.", 503
@@ -131,29 +142,20 @@ def kasm_proxy(path):
         ):
             content = content.decode("utf-8", errors="ignore")
             api_key = request.args.get("api_key", "")
-            ak = f"?api_key={api_key}" if api_key else ""
-            # Fix absolute paths and append API key for static resources
-            content = content.replace('="/kasm/', f'="/kasm/')  # no-op, paths already rewritten below
-            content = content.replace('="/', f'="/kasm/')
-            content = content.replace("='/", f"='/kasm/")
-            content = content.replace("url(/", f"url(/kasm/")
-            # Append api_key to all /kasm/ hrefs and srcs in HTML attributes
-            if api_key:
-                import re
-                content = re.sub(r'(=["\'])/kasm/([^"\']*?)(["\'])', lambda m: f'{m.group(1)}/kasm/{m.group(2)}{"&" if "?" in m.group(2) else "?"}api_key={api_key}{m.group(3)}', content)
-            # Inject a fetch/XHR interceptor to add api_key to all same-origin requests under /kasm/
+            # Fix absolute paths to go through /kasm/ proxy
+            content = content.replace('="/', '="/kasm/')
+            content = content.replace("='/", "='/kasm/")
+            content = content.replace("url(/", "url(/kasm/")
+            # Inject WebSocket interceptor
             if "text/html" in content_type and api_key:
+                # CSS overrides: link to external stylesheet
+                style = '<link rel="stylesheet" href="/static/css/kasm-overrides.css">'
                 inject = (
                     f'<script>'
                     f'(function(){{'
                     f'const ak="api_key={api_key}";'
-                    f'function addKey(u){{if(typeof u!=="string")return u;if(u.startsWith("/kasm/")||u.startsWith("./")||u.startsWith("assets/")||(u.indexOf("://")===-1&&!u.startsWith("data:"))){{u+=(u.includes("?")?"&":"?")+ak}}return u}}'
-                    f'const _fetch=window.fetch;'
-                    f'window.fetch=function(u,o){{return _fetch.call(this,addKey(u),o)}};'
-                    f'const _open=XMLHttpRequest.prototype.open;'
-                    f'XMLHttpRequest.prototype.open=function(m,u){{return _open.call(this,m,addKey(u))}};'
                     f'const _WS=window.WebSocket;'
-                    f'window.WebSocket=function(u,p){{if(typeof u==="string"&&u.includes("/websockify")){{u+=(u.includes("?")?"&":"?")+ak}}return p!==undefined?new _WS(u,p):new _WS(u)}};'
+                    f'window.WebSocket=function(u,p){{if(typeof u==="string"&&u.includes("websockify")){{u=u.replace("/kasm/websockify","/websockify");u+=(u.includes("?")?"&":"?")+ak}}return p!==undefined?new _WS(u,p):new _WS(u)}};'
                     f'window.WebSocket.prototype=_WS.prototype;'
                     f'window.WebSocket.CONNECTING=_WS.CONNECTING;'
                     f'window.WebSocket.OPEN=_WS.OPEN;'
@@ -162,16 +164,14 @@ def kasm_proxy(path):
                     f'}})()'
                     f'</script>'
                 )
-                content = content.replace('<head>', '<head>' + inject, 1)
-            # Fix WebSocket paths — add API key to websockify path setting
-            if api_key:
-                content = content.replace(
-                    'value="websockify"',
-                    f'value="websockify?api_key={api_key}"',
-                )
+                content = content.replace('<head>', '<head>' + style + inject, 1)
             content = content.encode("utf-8")
 
-        return Response(content, resp.status_code, response_headers)
+        response = Response(content, resp.status_code, response_headers)
+        # Set auth cookie on first authenticated request (API key in URL)
+        if api_key_valid and request.args.get("api_key"):
+            response.set_cookie("kasm_auth", request.args["api_key"], httponly=True, samesite="Strict", path="/kasm/")
+        return response
     except Exception as e:
         return f"Kasm desktop error: {str(e)}", 503
 
@@ -220,7 +220,7 @@ def serve_file(filepath):
         if os.path.isfile(cached_path):
             return send_file(cached_path, mimetype=mime)
         # Validate source path before caching
-        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache")]
+        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache", "fernando/data/file_cache")]
         allowed.append("/tmp")
         if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
             return "Forbidden", 403
@@ -231,7 +231,7 @@ def serve_file(filepath):
         return "Not found", 404
 
     # Non-image or no session: serve directly with path validation
-    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache")]
+    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache", "fernando/data/file_cache")]
     allowed.append("/tmp")
     if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
         return "Forbidden", 403
@@ -239,6 +239,7 @@ def serve_file(filepath):
         return "Not found", 404
     response = send_file(full_path, mimetype=mime)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Content-Disposition"] = f"attachment; filename=\"{os.path.basename(full_path)}\""
     return response
 
 

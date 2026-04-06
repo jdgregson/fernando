@@ -357,6 +357,22 @@ async def list_tools() -> list[Tool]:
                 "required": ["expression"],
             },
         ),
+        Tool(
+            name="desktop_copy_file",
+            description="Copy a file between the host and the Kasm desktop container. Provide the source path and direction. The destination is chosen automatically and returned.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "src": {"type": "string", "description": "Source file path (host path for to_desktop, container path for from_desktop)"},
+                    "direction": {
+                        "type": "string",
+                        "enum": ["to_desktop", "from_desktop"],
+                        "description": "to_desktop: host→container, from_desktop: container→host",
+                    },
+                },
+                "required": ["src", "direction"],
+            },
+        ),
     ]
 
 
@@ -533,6 +549,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps(val.get("value", val), indent=2, default=str))]
         except Exception as e:
             return [TextContent(type="text", text=f"Error executing JS: {e}")]
+
+    elif name == "desktop_copy_file":
+        src = arguments["src"]
+        direction = arguments["direction"]
+        filename = os.path.basename(src)
+        try:
+            if direction == "to_desktop":
+                dst = f"/home/kasm-user/{filename}"
+                subprocess.run(["docker", "cp", src, f"fernando-desktop:{dst}"], check=True, capture_output=True, text=True)
+                return [TextContent(type="text", text=f"Copied to container: {dst}")]
+            else:
+                dst = f"/tmp/{filename}"
+                subprocess.run(["docker", "cp", f"fernando-desktop:{src}", dst], check=True, capture_output=True, text=True)
+                return [TextContent(type="text", text=f"Copied to host: {dst}")]
+        except subprocess.CalledProcessError as e:
+            return [TextContent(type="text", text=f"Copy failed: {e.stderr}")]
 
     return [TextContent(type="text", text=f"Unknown tool: {name}")]
 

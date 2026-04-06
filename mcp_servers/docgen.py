@@ -194,18 +194,37 @@ def create_pdf(path, content, title=None):
                 continue
             n_cols = len(rows[0])
             col_w = (pdf.w - pdf.l_margin - pdf.r_margin) / n_cols
-            # Header
-            pdf.set_font(FONT, "B", 10)
-            pdf.set_fill_color(230, 230, 230)
-            for cell in rows[0]:
-                pdf.cell(col_w, 7, cell, border=1, fill=True)
-            pdf.ln()
-            # Data rows
-            pdf.set_font(FONT, "", 10)
-            for row in rows[1:]:
+            line_h = 6
+
+            def _row_height(row, font_style):
+                """Calculate the max height needed for a row."""
+                max_lines = 1
+                for cell in row:
+                    pdf.set_font(FONT, font_style, 10)
+                    lines = pdf.multi_cell(col_w, line_h, cell, border=0, dry_run=True, output="LINES")
+                    if len(lines) > max_lines:
+                        max_lines = len(lines)
+                return max_lines * line_h
+
+            def _render_row(row, font_style, fill=False):
+                """Render a row with equal-height cells using multi_cell."""
+                if fill:
+                    pdf.set_fill_color(230, 230, 230)
+                row_h = _row_height(row, font_style)
+                x_start = pdf.get_x()
+                y_start = pdf.get_y()
                 for j, cell in enumerate(row):
-                    pdf.cell(col_w, 7, cell if j < len(row) else "", border=1)
-                pdf.ln()
+                    pdf.set_font(FONT, font_style, 10)
+                    pdf.set_xy(x_start + j * col_w, y_start)
+                    # Draw cell border/fill background
+                    pdf.rect(x_start + j * col_w, y_start, col_w, row_h, "DF" if fill else "D")
+                    # Render wrapped text inside
+                    pdf.multi_cell(col_w, line_h, cell, border=0)
+                pdf.set_xy(x_start, y_start + row_h)
+
+            _render_row(rows[0], "B", fill=True)
+            for row in rows[1:]:
+                _render_row(row, "")
             pdf.ln(4)
 
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
