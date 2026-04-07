@@ -65,6 +65,10 @@
         const btn = document.getElementById('sendBtn');
         if (state === 'ready') {
             input.disabled = false;
+            // Force Chrome to reinitialize spellcheck after enabling
+            input.spellcheck = false;
+            void input.offsetHeight;
+            input.spellcheck = true;
             btn.classList.remove('disabled');
             btn.textContent = 'Send';
             btn.onclick = sendMessage;
@@ -457,9 +461,11 @@
         return div.innerHTML;
     }
 
-    function scrollToBottom() {
+    function scrollToBottom(force) {
         const m = document.getElementById('messages');
-        m.scrollTop = m.scrollHeight;
+        if (force || m.scrollHeight - m.scrollTop - m.clientHeight < 80) {
+            m.scrollTop = m.scrollHeight;
+        }
     }
 
     function collapseCodeBlocks(container, maxLines) {
@@ -585,7 +591,7 @@
             }
         }
         document.getElementById('messages').appendChild(el);
-        scrollToBottom();
+        scrollToBottom(true);
     }
 
     function addSystemMessage(text) {
@@ -593,7 +599,7 @@
         el.className = 'msg system';
         el.textContent = '⟳ ' + text;
         document.getElementById('messages').appendChild(el);
-        scrollToBottom();
+        scrollToBottom(true);
     }
 
     function sendMessage() {
@@ -624,7 +630,7 @@
             session_id: sessionId,
             text: text,
         });
-        scrollToBottom();
+        scrollToBottom(true);
     }
 
     socket.on('acp_event', (data) => {
@@ -752,9 +758,15 @@
         if (v) localStorage.setItem(draftKey, v);
         else localStorage.removeItem(draftKey);
     }
+    let resizeRaf = null;
     input.addEventListener('input', () => {
-        input.style.height = 'auto';
-        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        if (!resizeRaf) {
+            resizeRaf = requestAnimationFrame(() => {
+                input.style.height = 'auto';
+                input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+                resizeRaf = null;
+            });
+        }
         clearTimeout(draftTimer);
         draftTimer = setTimeout(saveDraft, 2000);
     });

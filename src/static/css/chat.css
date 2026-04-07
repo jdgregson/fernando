@@ -53,7 +53,7 @@ body { display: flex; flex-direction: column; }
 .msg.user code { background: #0d2441; padding: 1px 5px; border-radius: 3px; font-size: 13px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
 .msg.user pre { background: #0e2441; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
 .msg.user pre code { background: none; padding: 0; }
-.msg.user blockquote { border-left: 3px solid #143151; padding-left: 10px; color: #999; margin: 0; display: block; }
+.msg.user blockquote { border-left: 2px solid #3970a1; padding-left: 10px; color: #999; margin: 0; display: block; }
 .msg.assistant {
     background: #0d2748;
 }
@@ -70,7 +70,7 @@ body { display: flex; flex-direction: column; }
 .msg.assistant h2 { font-size: 1.15em; }
 .msg.assistant h3 { font-size: 1.05em; }
 .msg.assistant a { color: #569cd6; }
-.msg.assistant blockquote { border-left: 3px solid #143151; padding-left: 10px; color: #999; margin: 0.4em 0; }
+.msg.assistant blockquote { border-left: 2px solid #3970a1; padding-left: 10px; color: #999; margin: 0.4em 0; }
 .msg.assistant table { border-collapse: collapse; margin: 0.4em 0; max-width: 100%; word-break: break-word; }
 .msg.assistant th, .msg.assistant td { border: 1px solid #143151; padding: 4px 8px; }
 .msg.assistant img { width: 100%; border-radius: 4px; margin: 6px 0; }
