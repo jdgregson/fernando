@@ -189,6 +189,15 @@
         html = html.replace(/!\[([^\]]*)\]\((\/tmp\/[^)]+)\)/g,
             (m, alt, path) => `<img alt="${alt}" src="/api/files/tmp${path.slice(4)}?api_key=${apiKey}&session=${sessionId}">`);
         currentContentDiv.innerHTML = html;
+        // Live canvas: replace html-canvas code blocks with sandboxed iframes
+        currentContentDiv.querySelectorAll('code.language-html-canvas').forEach(code => {
+            const pre = code.parentElement;
+            const iframe = document.createElement('iframe');
+            iframe.sandbox = '';
+            iframe.style.cssText = 'width:100%;border:1px solid rgb(20 49 81);border-radius:6px;background:#0c213c;height:200px;';
+            iframe.srcdoc = code.textContent;
+            pre.replaceWith(iframe);
+        });
         scrollToBottom();
     }
     function appendChunk(text) {

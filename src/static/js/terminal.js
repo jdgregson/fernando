@@ -26,7 +26,7 @@ function doFit() {
         term1.resize(term1.cols + 1, term1.rows);
         emitWithCsrf('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
     }
-    if (isSplit && paneTypes[2] === 'terminal') {
+    if (paneTypes[2] === 'terminal' && !document.getElementById('terminal2-container').classList.contains('hidden')) {
         fitAddon2.fit();
         term2.resize(term2.cols + 1, term2.rows);
         emitWithCsrf('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });

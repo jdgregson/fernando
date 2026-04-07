@@ -427,14 +427,14 @@ function toggleSplit() {
     isSplit = !isSplit;
     const container2 = document.getElementById('terminal2-container');
     if (isSplit) {
-        container2.classList.remove('hidden');
+        document.getElementById('terminal1-container').classList.remove('hidden');
+        document.getElementById('terminal2-container').classList.remove('hidden');
         setActiveTerminal(2);
     } else {
-        const promoteSession2 = activeTerminal === 2;
-        const session2Name = paneTypes[2] === 'browser' ? 'desktop' : currentSession2;
-        container2.classList.add('hidden');
-        setActiveTerminal(1);
-        if (promoteSession2 && session2Name) attachSession(session2Name);
+        const keep = activeTerminal;
+        const discard = keep === 1 ? 2 : 1;
+        document.getElementById(`terminal${discard}-container`).classList.add('hidden');
+        setActiveTerminal(keep);
     }
     setTimeout(doFit, 100);
     syncUrlParams();
