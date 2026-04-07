@@ -17,7 +17,7 @@ function openChatPane(chatId) {
     if (!existing || !existing.src.includes('/chat/' + chatId)) {
         browser.innerHTML = '';
         const iframe = document.createElement('iframe');
-        iframe.src = '/chat/' + chatId;
+        iframe.src = '/chat/' + chatId + '?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
         iframe.style.cssText = 'width:100%;height:100%;border:none';
         browser.appendChild(iframe);
     }
@@ -48,9 +48,20 @@ function closeChatSession(chatId) {
 let showArchived = false;
 function toggleArchivedInline() {
     showArchived = !showArchived;
-    document.getElementById('eyeStrike').style.display = showArchived ? 'none' : '';
+    document.getElementById('switchLabelActive').classList.toggle('active', !showArchived);
+    document.getElementById('switchLabelArchived').classList.toggle('active', showArchived);
+    const search = document.getElementById('archiveSearch');
+    search.style.display = showArchived ? '' : 'none';
+    if (!showArchived) search.value = '';
+    document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = showArchived ? 'none' : '');
     if (showArchived) emitWithCsrf('acp_list_archived');
     else document.querySelectorAll('.archived-item').forEach(el => el.remove());
+}
+function filterArchived() {
+    const q = document.getElementById('archiveSearch').value.toLowerCase();
+    document.querySelectorAll('.archived-item').forEach(el => {
+        el.style.display = el.querySelector('.session-name').textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
 }
 
 socket.on('acp_archived_list', (data) => {
@@ -60,7 +71,6 @@ socket.on('acp_archived_list', (data) => {
     (data.sessions || []).forEach(s => {
         const item = document.createElement('div');
         item.className = 'session-item archived-item';
-        item.style.opacity = '0.45';
         const name = document.createElement('span');
         name.className = 'session-name';
         name.textContent = s.name;
@@ -95,11 +105,19 @@ socket.on('acp_restored', (data) => {
 // --- iframe messages ---
 window.addEventListener('message', (e) => {
 
-    if (e.data && (e.data.type === 'acp-chat-focus' || e.data.action === 'enable_audio')) {
+    if (e.data && e.data.type === 'acp-chat-focus') {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); highlightSidebarItem('chat:' + e.data.sessionId); return; }
+            }
+        }
+    }
+    if (e.data && e.data.action === 'enable_audio') {
+        for (const paneNum of [1, 2]) {
+            if (paneTypes[paneNum] === 'browser') {
+                const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); highlightSidebarItem('desktop'); return; }
             }
         }
     }

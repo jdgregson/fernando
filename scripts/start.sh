@@ -106,6 +106,8 @@ pkill -0 -f "run_fernando.py" 2>/dev/null && pkill -9 -f "run_fernando.py" 2>/de
 pkill -TERM -f "tmux attach-session" 2>/dev/null
 sleep 1
 pkill -9 -f "tmux attach-session" 2>/dev/null
+# Ensure tmux server always uses bash as default shell
+tmux set-option -s default-shell /bin/bash 2>/dev/null || true
 # Graceful nginx stop
 nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null
 pkill nginx 2>/dev/null

@@ -79,23 +79,13 @@ class TmuxSession:
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
 
+        shell_cmd = ["tmux", "new-session", "-d", "-s", name]
         if cmd:
-            subprocess.run(
-                ["tmux", "new-session", "-d", "-s", name],
-                env=env,
-                timeout=5,
-                check=True,
-            )
-            subprocess.run(
-                ["tmux", "send-keys", "-t", name, f" {cmd}", "Enter"], timeout=5, check=True
-            )
+            shell_cmd += ["bash", "-lc", f"exec {cmd}"]
         else:
-            subprocess.run(
-                ["tmux", "new-session", "-d", "-s", name],
-                env=env,
-                timeout=5,
-                check=True,
-            )
+            shell_cmd += ["bash", "-l"]
+
+        subprocess.run(shell_cmd, env=env, timeout=5, check=True)
 
         subprocess.run(
             ["tmux", "set-option", "-t", name, "mouse", "on"], timeout=5, check=True

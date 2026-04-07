@@ -2,12 +2,12 @@
 const term1 = new Terminal({
     cursorBlink: true, fontSize: 14,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: { background: '#1e1e1e' }, scrollback: 10000, allowTransparency: false
+    theme: { background: '#102d50', brightBlack: '#999999' }, scrollback: 10000, allowTransparency: false
 });
 const term2 = new Terminal({
     cursorBlink: true, fontSize: 14,
     fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: { background: '#1e1e1e' }, scrollback: 10000, allowTransparency: false
+    theme: { background: '#102d50', brightBlack: '#999999' }, scrollback: 10000, allowTransparency: false
 });
 
 term1.open(document.getElementById('terminal1'));
@@ -23,10 +23,12 @@ term2.loadAddon(new WebLinksAddon.WebLinksAddon());
 function doFit() {
     if (paneTypes[1] === 'terminal') {
         fitAddon1.fit();
+        term1.resize(term1.cols + 1, term1.rows);
         emitWithCsrf('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
     }
     if (isSplit && paneTypes[2] === 'terminal') {
         fitAddon2.fit();
+        term2.resize(term2.cols + 1, term2.rows);
         emitWithCsrf('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
     }
 }

@@ -178,6 +178,8 @@ def kasm_proxy(path):
 
 @bp.route("/chat/<session_id>")
 def chat_page(session_id):
+    if not _check_api_key():
+        return "Unauthorized", 401
     try:
         with open("/tmp/fernando-api-key", "r") as f:
             api_key = f.read().strip()

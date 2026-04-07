@@ -33,21 +33,18 @@ function handleForeground() {
 
 // Called from core.js on socket 'connected'
 function onSocketConnected() {
+    if (window._urlParamsProcessed) return;
     const params = new URLSearchParams(window.location.search);
     const urlSession = params.get('session');
     const urlSession2 = params.get('session2');
     const urlSplit = params.get('split') === '1';
     if (!currentSession1 && paneTypes[1] !== 'browser') {
-        const allItems = document.querySelectorAll('.session-item[data-session]:not([data-session="desktop"])');
-        const names = Array.from(allItems).map(el => el.dataset.session);
         if (urlSession && urlSession.startsWith('chat:')) {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
-        } else if (urlSession && names.includes(urlSession)) {
+        } else if (urlSession) {
             attachSession(urlSession);
-        } else if (names.length > 0) {
-            attachSession(names[0]);
         } else {
             openNewSessionModal();
         }
@@ -57,10 +54,15 @@ function onSocketConnected() {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
-            } else if (urlSession2 && names.includes(urlSession2)) {
+            } else if (urlSession2) {
                 attachSession(urlSession2);
             }
+            const urlActive = parseInt(params.get('active'));
+            if (urlActive === 1) setActiveTerminal(1);
+            const activeSession = urlActive === 1 ? urlSession : urlSession2;
+            if (activeSession) highlightSidebarItem(activeSession);
         }
+        window._urlParamsProcessed = true;
     } else if (currentSession1) {
         handleForeground();
     }
@@ -177,9 +179,11 @@ let lastSessionsKey = '';
 function updateSessionList(sessions, chatSessions) {
     const sessionList = document.getElementById('sessionList');
 
-    if (!currentSession1 && paneTypes[1] !== 'browser') {
+    if (!currentSession1 && paneTypes[1] !== 'browser' && !window._urlParamsProcessed) {
         const params = new URLSearchParams(window.location.search);
         const urlSession = params.get('session');
+        const urlSession2 = params.get('session2');
+        const urlSplit = params.get('split') === '1';
         if (urlSession && urlSession.startsWith('chat:')) {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
@@ -190,6 +194,21 @@ function updateSessionList(sessions, chatSessions) {
             const saved = sessionStorage.getItem('fernando_session1');
             attachSession(saved && sessions.includes(saved) ? saved : sessions[0]);
         }
+        if (urlSplit) {
+            if (!isSplit) toggleSplit();
+            if (urlSession2 && urlSession2.startsWith('chat:')) {
+                openChatPane(urlSession2.slice(5));
+            } else if (urlSession2 === 'desktop') {
+                toggleDesktop();
+            } else if (urlSession2 && sessions.includes(urlSession2)) {
+                attachSession(urlSession2);
+            }
+            const urlActive = parseInt(params.get('active'));
+            if (urlActive === 1) setActiveTerminal(1);
+            const activeSession = urlActive === 1 ? urlSession : urlSession2;
+            if (activeSession) highlightSidebarItem(activeSession);
+        }
+        window._urlParamsProcessed = true;
     }
 
     const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name);
@@ -338,10 +357,11 @@ function updateSessionList(sessions, chatSessions) {
     });
 
     // Re-highlight
-    if (paneTypes[1] === 'browser') {
-        highlightSidebarItem(getBrowserPaneSession(1));
-    } else if (currentSession1) {
-        highlightSidebarItem(currentSession1);
+    const hp = isSplit ? activeTerminal : 1;
+    if (paneTypes[hp] === 'browser') {
+        highlightSidebarItem(getBrowserPaneSession(hp));
+    } else if (hp === 1 ? currentSession1 : currentSession2) {
+        highlightSidebarItem(hp === 1 ? currentSession1 : currentSession2);
     }
     if (showArchived) emitWithCsrf('acp_list_archived');
 }
@@ -397,7 +417,7 @@ function syncUrlParams() {
     const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
     const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
     if (s1) params.set('session', s1);
-    if (isSplit && s2) { params.set('session2', s2); params.set('split', '1'); }
+    if (isSplit && s2) { params.set('session2', s2); params.set('split', '1'); params.set('active', String(activeTerminal)); }
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     try { history.replaceState(null, '', newUrl); } catch(e) {}
 }
@@ -429,18 +449,25 @@ function setActiveTerminal(termNum) {
     if (isSplit) { c1.classList.add('split-mode'); c2.classList.add('split-mode'); }
     else { c1.classList.remove('split-mode'); c2.classList.remove('split-mode'); }
     updateMobileControls();
+    syncUrlParams();
 }
 
 // Click handlers
-document.getElementById('terminal1-container').addEventListener('click', (e) => {
+function syncPaneSidebar(paneNum) {
+    const s = paneTypes[paneNum] === 'browser' ? getBrowserPaneSession(paneNum) : (paneNum === 1 ? currentSession1 : currentSession2);
+    if (s) highlightSidebarItem(s);
+}
+document.getElementById('terminal1-container').addEventListener('mousedown', (e) => {
     setActiveTerminal(1);
+    syncPaneSidebar(1);
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-    e.stopPropagation();
 });
-document.getElementById('terminal2-container').addEventListener('click', (e) => {
-    if (isSplit) setActiveTerminal(2);
+document.getElementById('terminal2-container').addEventListener('mousedown', (e) => {
+    if (isSplit) {
+        setActiveTerminal(2);
+        syncPaneSidebar(2);
+    }
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-    e.stopPropagation();
 });
 
 // --- New Session Modal ---

@@ -44,12 +44,10 @@
                 {% endfor %}
             </div>
             <div class="sidebar-fade"></div>
-            <div class="archived-toggle" id="archivedToggleBtn" onclick="toggleArchivedInline()" title="Show archived chats">
-                <svg id="eyeIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                    <line id="eyeStrike" x1="1" y1="1" x2="23" y2="23"/>
-                </svg>
+            <input type="text" id="archiveSearch" class="archive-search" placeholder="Search archived…" oninput="filterArchived()" style="display:none">
+            <div class="archive-switch" id="archivedToggleBtn" onclick="toggleArchivedInline()">
+                <span class="archive-switch-label active" id="switchLabelActive">Active</span>
+                <span class="archive-switch-label" id="switchLabelArchived">Archived</span>
             </div>
             <div class="new-session">
                 <button onclick="openNewSessionModal()">New Session</button>
