@@ -36,7 +36,7 @@ Do NOT use `google-chrome-stable`, `/opt/google/chrome/google-chrome`, or `/usr/
 - Always verify that files are syntactically correct before committing them or mutating.
 - Always ask for approval before committing or pushing changes to the fernando repository. An explicit request to commit or push counts as approval. This applies even if you were given permission to push different changes earlier in the same conversation.
 - Always mutate when changes require it without approval, if the files are syntactically correct.
-- 
+- Every `window.addEventListener('message', ...)` handler MUST validate `e.source` against a known iframe/window before acting. Never trust postMessage data without confirming the source.
 
 ## Chat Naming
 

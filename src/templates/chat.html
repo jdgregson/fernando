@@ -3,7 +3,8 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/css/chat.css">
 </head>
 <body>
@@ -39,6 +40,9 @@
     renderer.link = ({ href, title, text }) =>
         `<a href="${href}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${text}</a>`;
     marked.setOptions({ breaks: true, gfm: true, renderer });
+    DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
+        if (data.attrName === 'sandbox') data.attrValue = 'allow-scripts';
+    });
 
     const socket = io({
         path: window.location.pathname.replace(/\/chat\/.*$/, '') + '/socket.io',
@@ -65,10 +69,13 @@
         const btn = document.getElementById('sendBtn');
         if (state === 'ready') {
             input.disabled = false;
-            // Force Chrome to reinitialize spellcheck after enabling
-            input.spellcheck = false;
-            void input.offsetHeight;
-            input.spellcheck = true;
+            // Chrome won't spellcheck a textarea that was disabled at page load
+            // until it goes through a real blur/focus cycle with time in between.
+            // This simulates what happens when the user switches tabs and back.
+            setTimeout(() => {
+                input.blur();
+                setTimeout(() => { input.focus(); }, 50);
+            }, 50);
             btn.classList.remove('disabled');
             btn.textContent = 'Send';
             btn.onclick = sendMessage;
@@ -192,16 +199,8 @@
         html = html.replace(mdHomePat, (m, alt, path) => `<img alt="${alt}" src="/api/files/${path.slice(homeDir.length + 1)}?api_key=${apiKey}&session=${sessionId}">`);
         html = html.replace(/!\[([^\]]*)\]\((\/tmp\/[^)]+)\)/g,
             (m, alt, path) => `<img alt="${alt}" src="/api/files/tmp${path.slice(4)}?api_key=${apiKey}&session=${sessionId}">`);
+        html = DOMPurify.sanitize(html);
         currentContentDiv.innerHTML = html;
-        // Live canvas: replace html-canvas code blocks with sandboxed iframes
-        currentContentDiv.querySelectorAll('code.language-html-canvas').forEach(code => {
-            const pre = code.parentElement;
-            const iframe = document.createElement('iframe');
-            iframe.sandbox = '';
-            iframe.style.cssText = 'width:100%;border:1px solid rgb(20 49 81);border-radius:6px;background:#0c213c;height:200px;';
-            iframe.srcdoc = code.textContent;
-            pre.replaceWith(iframe);
-        });
         scrollToBottom();
     }
     function appendChunk(text) {
@@ -211,6 +210,7 @@
             _chunkRenderPending = true;
             requestAnimationFrame(_renderCurrentChunk);
         }
+        _scheduleCanvasActivation();
     }
 
     function appendImage(data, mimeType) {
@@ -409,8 +409,27 @@
         scrollToBottom();
     }
 
+    let _canvasTimer = null;
+    function _activateCanvases() {
+        if (!currentContentDiv) return;
+        currentContentDiv.querySelectorAll('code.language-html-canvas').forEach(code => {
+            const pre = code.parentElement;
+            const iframe = document.createElement('iframe');
+            iframe.sandbox = 'allow-scripts';
+            iframe.style.cssText = 'width:100%;border:1px solid rgb(20 49 81);border-radius:6px;background:#0c213c;height:200px;';
+            iframe.srcdoc = code.textContent;
+            pre.replaceWith(iframe);
+        });
+    }
+    function _scheduleCanvasActivation() {
+        if (_canvasTimer) clearTimeout(_canvasTimer);
+        _canvasTimer = setTimeout(_activateCanvases, 1500);
+    }
+
     function finishTurn() {
         if (_chunkRenderPending) _renderCurrentChunk();
+        if (_canvasTimer) { clearTimeout(_canvasTimer); _canvasTimer = null; }
+        _activateCanvases();
         for (const tc of Object.values(toolCalls)) {
             if (tc.statusSpan && tc.statusSpan.textContent !== 'completed') {
                 tc.statusSpan.className = 'tool-status completed';
@@ -461,11 +480,16 @@
         return div.innerHTML;
     }
 
+    let _userScrolledUp = false;
+    const _messagesEl = document.getElementById('messages');
+    _messagesEl.addEventListener('scroll', () => {
+        _userScrolledUp = _messagesEl.scrollHeight - _messagesEl.scrollTop - _messagesEl.clientHeight > 150;
+    });
+
     function scrollToBottom(force) {
-        const m = document.getElementById('messages');
-        if (force || m.scrollHeight - m.scrollTop - m.clientHeight < 80) {
-            m.scrollTop = m.scrollHeight;
-        }
+        if (force) _userScrolledUp = false;
+        if (_userScrolledUp) return;
+        _messagesEl.scrollTop = _messagesEl.scrollHeight;
     }
 
     function collapseCodeBlocks(container, maxLines) {
@@ -617,6 +641,7 @@
         }
 
         addUserMessage(text);
+        _userScrolledUp = false;
 
         input.value = '';
         input.style.height = 'auto';
