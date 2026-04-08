@@ -59,7 +59,7 @@ socket.on('subagents_list', (data) => {
                 <span class="sa-id">${escapeHtml(s.task_id)}</span>
                 <span class="sa-badge ${statusClass}">${escapeHtml(s.status)}${s.progress > 0 ? ' ' + s.progress + '%' : ''}</span>
             </div>
-            <div class="sa-task">${marked.parse(s.task || '')}</div>
+            <div class="sa-task">${DOMPurify.sanitize(marked.parse(s.task || ''))}</div>
             ${s.schedule ? `<div class="sa-schedule">⏱ ${escapeHtml(s.schedule)}</div>` : ''}
             ${s.current_step ? `<div class="sa-meta">${escapeHtml(s.current_step)}</div>` : ''}
             <div class="sa-actions">
@@ -108,7 +108,7 @@ socket.on('subagent_status', (data) => {
     const sections = [
         `<div class="sa-detail-section"><div class="sa-detail-label">Task ID</div><div class="sa-detail-value"><code>${escapeHtml(s.task_id || '')}</code></div></div>`,
         `<div class="sa-detail-section"><div class="sa-detail-label">Status</div><div class="sa-detail-value"><span class="sa-badge ${statusClass}">${escapeHtml(s.status || '')}</span></div></div>`,
-        `<div class="sa-detail-section"><div class="sa-detail-label">Task</div><div class="sa-detail-value">${marked.parse(s.task || '')}</div></div>`,
+        `<div class="sa-detail-section"><div class="sa-detail-label">Task</div><div class="sa-detail-value">${DOMPurify.sanitize(marked.parse(s.task || ''))}</div></div>`,
         s.current_step ? `<div class="sa-detail-section"><div class="sa-detail-label">Current Step</div><div class="sa-detail-value">${escapeHtml(s.current_step)}</div></div>` : '',
         s.schedule ? `<div class="sa-detail-section"><div class="sa-detail-label">Schedule</div><div class="sa-detail-value">${escapeHtml(s.schedule)}</div></div>` : '',
         s.context_path ? `<div class="sa-detail-section"><div class="sa-detail-label">Context File</div><div class="sa-detail-value"><code>${escapeHtml(s.context_path)}</code></div></div>` : '',

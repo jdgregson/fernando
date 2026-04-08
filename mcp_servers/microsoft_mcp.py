@@ -127,7 +127,7 @@ def graph_request(method, path, **kwargs):
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     url = f"{GRAPH_BASE}{path}" if path.startswith("/") else path
-    resp = requests.request(method, url, headers=headers, **kwargs)
+    resp = requests.request(method, url, headers=headers, timeout=30, **kwargs)
 
     if resp.status_code in (202, 204):
         return {"status": "success"}
@@ -1273,7 +1273,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"error": err}
         else:
             headers = {"Authorization": f"Bearer {token}"}
-            resp = requests.get(f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content", headers=headers)
+            resp = requests.get(f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content", headers=headers, timeout=30)
             if resp.status_code == 200:
                 result = {"content": resp.text[:10000]}
             else:
@@ -1287,7 +1287,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"error": err}
         else:
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "text/html"}
-            resp = requests.post(f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages", headers=headers, data=html)
+            resp = requests.post(f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages", headers=headers, data=html, timeout=30)
             if resp.status_code in (200, 201):
                 data = resp.json()
                 result = {"status": "created", "id": data.get("id"), "title": data.get("title")}
@@ -1371,7 +1371,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             download_url = data.get("@microsoft.graph.downloadUrl")
             mime = data.get("file", {}).get("mimeType", "")
             if download_url and ("text" in mime or mime in ("application/json", "application/xml", "application/javascript")):
-                resp = requests.get(download_url)
+                resp = requests.get(download_url, timeout=30)
                 result = {"name": data.get("name"), "content": resp.text[:20000]}
             elif download_url:
                 result = {"name": data.get("name"), "mimeType": mime, "size": data.get("size"), "downloadUrl": download_url}
@@ -1386,7 +1386,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"error": err}
         else:
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "text/plain"}
-            resp = requests.put(f"{GRAPH_BASE}/me/drive/root:/{path}:/content", headers=headers, data=content.encode("utf-8"))
+            resp = requests.put(f"{GRAPH_BASE}/me/drive/root:/{path}:/content", headers=headers, data=content.encode("utf-8"), timeout=30)
             if resp.status_code in (200, 201):
                 data = resp.json()
                 result = {"status": "uploaded", "name": data.get("name"), "size": data.get("size")}
