@@ -367,11 +367,11 @@
                 tc.bodyContent.textContent = text;
             }
         }
-        if (status === 'completed' && tc.bodyContent.textContent.trim()) {
-            const lines = tc.bodyContent.textContent.trim().split('\n');
-            if (lines.length > 20) {
-                const truncated = lines.slice(0, 20).join('\n') + '\n... (' + lines.length + ' lines total)';
-                tc.bodyContent.textContent = truncated;
+        if (status === 'completed' && rawOutput) {
+            const hasImage = Array.isArray((rawOutput || {}).items) && rawOutput.items.some(i => i.Image);
+            if (hasImage) {
+                tc.bodyContent.textContent = '(image data)';
+                tc.tcState.outputText = '(image data)';
             }
         }
         // Render attach_file output as a downloadable chip
