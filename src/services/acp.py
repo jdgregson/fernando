@@ -562,21 +562,22 @@ class ACPManager:
             logger.error(f"ACP session load failed for {session_id}: {e}", exc_info=True)
             if session.on_event:
                 session.on_event(session_id, {"type": "session_error", "error": str(e)})
-            self.destroy_session(session_id)
+            self.destroy_session(session_id, delete_history=False)
 
     def get_session(self, session_id):
         with self._lock:
             return self.sessions.get(session_id)
 
-    def destroy_session(self, session_id):
+    def destroy_session(self, session_id, delete_history=True):
         with self._lock:
             session = self.sessions.pop(session_id, None)
         if session:
             session.stop()
-            try:
-                os.remove(session._history_path())
-            except OSError:
-                pass
+            if delete_history:
+                try:
+                    os.remove(session._history_path())
+                except OSError:
+                    pass
         self._save()
 
     def archive_session(self, session_id):

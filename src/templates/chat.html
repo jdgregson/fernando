@@ -763,7 +763,11 @@
             return;
         }
 
-        if (evt.type === 'session_ready') { finishTurn(); setStatus('ready', 'Ready'); return; }
+        if (evt.type === 'session_ready') {
+            const hasActiveTool = Object.values(toolCalls).some(tc => tc.statusSpan && tc.statusSpan.textContent !== 'completed');
+            if (!hasActiveTool) { finishTurn(); setStatus('ready', 'Ready'); }
+            return;
+        }
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
         if (evt.type === 'archived_preview') { finishTurn(); setStatus('ready', 'Archived — read-only preview'); document.getElementById('chatInput').disabled = true; document.querySelector('.send-btn').disabled = true; return; }
@@ -800,7 +804,11 @@
         }
 
         if (evt.result && evt.result.stopReason) {
-            finishTurn();
+            if (evt.result.stopReason === 'tool_use') {
+                setStatus('working', 'Running tool...');
+            } else {
+                finishTurn();
+            }
         }
     }
 

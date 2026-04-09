@@ -317,6 +317,17 @@ async def list_tools() -> list[Tool]:
                 "required": ["session_id"],
             },
         ),
+        Tool(
+            name="live_canvas",
+            description="Render HTML/CSS/JS in the chat as a live interactive canvas. Use for visualizations, formatted code display, diagrams, or anything that benefits from rendered HTML. The content is displayed inline in the chat via a sandboxed iframe.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "html": {"type": "string", "description": "Complete HTML document to render (include <!DOCTYPE html>, <style>, <script> as needed)"},
+                },
+                "required": ["html"],
+            },
+        ),
     ]
 
 
@@ -415,6 +426,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "get_conversation":
         conv = rag.get_conversation(arguments["session_id"], offset=arguments.get("offset", 0), limit=arguments.get("limit"))
         result = conv if conv is not None else {"error": "Session history not found"}
+    elif name == "live_canvas":
+        html = arguments["html"]
+        return [TextContent(type="text", text=f"IMPORTANT: To render this canvas, you MUST include the following code block verbatim in your response message (not in a tool call). Copy it exactly:\n\n```html-canvas\n{html}\n```")]
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
