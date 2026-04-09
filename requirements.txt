@@ -4,8 +4,9 @@ python-socketio==5.10.0
 requests==2.31.0
 ruff==0.8.4
 websocket-client==1.7.0
-mcp==1.26.0
+mcp>=1.23.3
 msal==1.31.1
 chromadb==1.5.5
 python-docx==1.1.2
 fpdf2==2.8.3
+semgrep==1.157.0

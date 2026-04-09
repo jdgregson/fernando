@@ -414,11 +414,40 @@
         if (!currentContentDiv) return;
         currentContentDiv.querySelectorAll('code.language-html-canvas').forEach(code => {
             const pre = code.parentElement;
+            const src = code.textContent;
+
+            const wrap = document.createElement('div');
+            wrap.className = 'canvas-wrap';
+
+            const bar = document.createElement('div');
+            bar.className = 'canvas-bar';
+            const tabR = document.createElement('span');
+            tabR.className = 'canvas-tab active';
+            tabR.textContent = 'Rendered';
+            const tabC = document.createElement('span');
+            tabC.className = 'canvas-tab';
+            tabC.textContent = 'Code';
+            const copyBtn = document.createElement('span');
+            copyBtn.className = 'canvas-copy';
+            copyBtn.textContent = 'Copy';
+            copyBtn.onclick = () => { navigator.clipboard.writeText(src); copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy', 1500); };
+            bar.append(tabR, tabC, copyBtn);
+
             const iframe = document.createElement('iframe');
             iframe.sandbox = 'allow-scripts';
-            iframe.style.cssText = 'width:100%;border:1px solid rgb(20 49 81);border-radius:6px;background:#0c213c;height:200px;';
-            iframe.srcdoc = code.textContent;
-            pre.replaceWith(iframe);
+            iframe.className = 'canvas-iframe';
+            iframe.srcdoc = src;
+
+            const codeView = document.createElement('pre');
+            codeView.className = 'canvas-code';
+            codeView.textContent = src;
+            codeView.style.display = 'none';
+
+            tabR.onclick = () => { tabR.classList.add('active'); tabC.classList.remove('active'); iframe.style.display = ''; codeView.style.display = 'none'; };
+            tabC.onclick = () => { tabC.classList.add('active'); tabR.classList.remove('active'); iframe.style.display = 'none'; codeView.style.display = ''; };
+
+            wrap.append(bar, iframe, codeView);
+            pre.replaceWith(wrap);
         });
     }
     function _scheduleCanvasActivation() {

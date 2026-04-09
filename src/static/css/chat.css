@@ -237,3 +237,13 @@ body { display: flex; flex-direction: column; }
 }
 .file-chip svg { flex-shrink: 0; }
 .file-chip:hover { background: #143151; color: #9cdcfe; }
+
+.canvas-wrap { border: 1px solid #143151; border-radius: 6px; overflow: hidden; margin: 8px 0; background: #0c213c; }
+.canvas-bar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; background: #091d35; border-bottom: 1px solid #143151; font-size: 12px; user-select: none; }
+.canvas-tab { padding: 2px 10px; border-radius: 3px; cursor: pointer; color: #888; }
+.canvas-tab:hover { color: #ccc; }
+.canvas-tab.active { background: #143151; color: #d4d4d4; }
+.canvas-copy { margin-left: auto; padding: 2px 8px; border-radius: 3px; cursor: pointer; color: #569cd6; font-size: 11px; }
+.canvas-copy:hover { background: #143151; }
+.canvas-iframe { width: 100%; border: none; background: #0c213c; height: 200px; display: block; }
+.canvas-code { margin: 0; padding: 10px; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; color: #d4d4d4; white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto; }
