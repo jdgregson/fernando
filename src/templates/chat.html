@@ -144,6 +144,22 @@
         }
     });
 
+    socket.on('acp_current_model', (data) => {
+        if (data.session_id !== sessionId) return;
+        addSystemMessage('Current model: ' + (data.model || 'unknown'));
+    });
+
+    socket.on('acp_model_changed', (data) => {
+        if (data.session_id !== sessionId) return;
+        if (data.ok) {
+            addSystemMessage('Model changed to ' + data.model + '. Reloading session...');
+        } else {
+            addSystemMessage('Failed to change model.');
+            isWorking = false;
+            setStatus('ready', 'Ready');
+        }
+    });
+
     function forceUnstick() {
         if (!confirm("Kill the stuck kiro-cli process and reload the session? The agent's last partial response will be lost.")) return;
         setStatus('working', 'Restarting agent...');
@@ -158,6 +174,7 @@
     let historyOffset = 0;
     let expectedSeq = -1;  // -1 = not yet synced, accept everything
     let seqBuffer = {};    // seq -> data, for out-of-order events
+    let _modelListPending = false;  // true when we're collecting a model list response
 
     function ensureAssistantMsg() {
         if (!currentAssistantMsg) {
@@ -206,6 +223,7 @@
     function appendChunk(text) {
         ensureContentDiv();
         currentText += text;
+        if (_modelListPending) return;
         if (!_chunkRenderPending) {
             _chunkRenderPending = true;
             requestAnimationFrame(_renderCurrentChunk);
@@ -455,10 +473,60 @@
         _canvasTimer = setTimeout(_activateCanvases, 1500);
     }
 
+    function showModelModal(models, currentModel) {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center';
+        const modal = document.createElement('div');
+        modal.style.cssText = 'background:#1e2030;border:1px solid #3b4261;border-radius:8px;padding:16px;min-width:260px;max-width:90vw;max-height:80vh;overflow-y:auto';
+        const title = document.createElement('div');
+        title.style.cssText = 'color:#c0caf5;font-size:14px;font-weight:600;margin-bottom:12px';
+        title.textContent = 'Switch Model';
+        modal.appendChild(title);
+        for (const m of models) {
+            const btn = document.createElement('div');
+            const isCurrent = m === currentModel;
+            btn.style.cssText = 'padding:10px 12px;margin:4px 0;border-radius:6px;cursor:pointer;font-size:13px;color:' + (isCurrent ? '#7aa2f7' : '#a9b1d6') + ';background:' + (isCurrent ? '#283457' : 'transparent');
+            btn.textContent = (isCurrent ? '→ ' : '  ') + m;
+            btn.onmouseenter = () => { if (!isCurrent) btn.style.background = '#24283b'; };
+            btn.onmouseleave = () => { if (!isCurrent) btn.style.background = 'transparent'; };
+            btn.onclick = () => {
+                overlay.remove();
+                if (!isCurrent) {
+                    addSystemMessage('Switching to ' + m + '...');
+                    isWorking = true;
+                    setStatus('working', 'Switching model...');
+                    socket.emit('acp_change_model', { csrf_token: csrfToken, session_id: sessionId, model: m });
+                }
+            };
+            modal.appendChild(btn);
+        }
+        overlay.appendChild(modal);
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        document.body.appendChild(overlay);
+    }
+
     function finishTurn() {
         if (_chunkRenderPending) _renderCurrentChunk();
         if (_canvasTimer) { clearTimeout(_canvasTimer); _canvasTimer = null; }
         _activateCanvases();
+        // Detect model list response and render as modal (live only)
+        if (_modelListPending && currentText) {
+            const lines = currentText.trim().split('\n').filter(l => l.trim());
+            const models = [];
+            let currentModel = null;
+            for (const line of lines) {
+                const m = line.match(/^(→)?\s*(\S+)\s+\(\S+\)/);
+                if (m) {
+                    models.push(m[2]);
+                    if (m[1]) currentModel = m[2];
+                }
+            }
+            if (models.length > 1 && currentAssistantMsg) {
+                currentAssistantMsg.remove();
+                showModelModal(models, currentModel);
+            }
+            _modelListPending = false;
+        }
         for (const tc of Object.values(toolCalls)) {
             if (tc.statusSpan && tc.statusSpan.textContent !== 'completed') {
                 tc.statusSpan.className = 'tool-status completed';
@@ -660,6 +728,25 @@
         const input = document.getElementById('input');
         let text = input.value.trim();
         if ((!text && attachedFiles.length === 0) || isWorking) return;
+
+        // Intercept /model <name> to switch model directly
+        const modelMatch = text.match(/^\/model\s+(.+)$/);
+        if (modelMatch) {
+            const newModel = modelMatch[1].trim();
+            input.value = '';
+            input.style.height = 'auto';
+            localStorage.removeItem(draftKey);
+            addSystemMessage('Switching to ' + newModel + '...');
+            isWorking = true;
+            setStatus('working', 'Switching model...');
+            socket.emit('acp_change_model', { csrf_token: csrfToken, session_id: sessionId, model: newModel });
+            return;
+        }
+
+        // Flag bare /model so the response gets rendered as a model picker
+        if (text === '/model') {
+            _modelListPending = true;
+        }
 
         if (attachedFiles.length > 0) {
             const filePaths = attachedFiles.map(f => f.path).join('\n');

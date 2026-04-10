@@ -99,12 +99,15 @@ def _pop_continuation():
 class ACPSession:
     """Manages a single kiro-cli acp subprocess and its ACP session."""
 
+    DEFAULT_MODEL = "claude-opus-4.6"
+
     def __init__(self, session_id, on_event=None):
         self.id = session_id
         self.on_event = on_event
         self.proc = None
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
+        self.model = self.DEFAULT_MODEL
         self._reader_thread = None
         self._stderr_thread = None
         self._next_id = 0
@@ -123,7 +126,7 @@ class ACPSession:
         """Spawn kiro-cli acp and run initialize handshake."""
         logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
         self.proc = subprocess.Popen(
-            [KIRO_CLI, "acp", "-a", "--model", "claude-opus-4.6"],
+            [KIRO_CLI, "acp", "-a", "--model", self.model],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -538,6 +541,7 @@ class ACPManager:
                 continue
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id))
             session.display_name = name
+            session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
             session.acp_session_id = acp_id  # Set before thread so _save() won't drop it
             with self._lock:
                 self.sessions[fernando_id] = session
@@ -567,6 +571,23 @@ class ACPManager:
     def get_session(self, session_id):
         with self._lock:
             return self.sessions.get(session_id)
+
+    def change_model(self, session_id, new_model):
+        """Change the model for a session by restarting the kiro-cli process."""
+        session = self.get_session(session_id)
+        if not session or not session.acp_session_id:
+            return False
+        acp_id = session.acp_session_id
+        session.model = new_model
+        session.ready = False
+        session.stop()
+        self._save()
+        threading.Thread(
+            target=self._load_existing,
+            args=(session_id, session, acp_id),
+            daemon=True,
+        ).start()
+        return True
 
     def destroy_session(self, session_id, delete_history=True):
         with self._lock:
@@ -659,7 +680,7 @@ class ACPManager:
     def _save(self):
         with self._lock:
             mapping = {
-                sid: {"acp_id": s.acp_session_id, "name": s.display_name}
+                sid: {"acp_id": s.acp_session_id, "name": s.display_name, "model": s.model}
                 for sid, s in self.sessions.items()
                 if s.acp_session_id
             }

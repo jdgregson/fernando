@@ -12,9 +12,14 @@ if os.path.isdir(_venv_site) and _venv_site not in sys.path:
 sys.path.insert(0, _project_root)
 
 import asyncio
+import base64
+import html as _html
+import http.cookiejar
 import json
+import re
 import subprocess
 import time
+import urllib.parse
 import urllib.request
 
 from src.services.subagent_core import (
@@ -90,6 +95,78 @@ def _set_chat_name(name):
     except Exception as e:
         return {"status": "error", "error": str(e)}
     return {"status": "error", "error": "Could not determine session"}
+
+
+_BING_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def _bing_opener():
+    cj = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+    opener.open(urllib.request.Request("https://www.bing.com/", headers=_BING_HEADERS), timeout=10)
+    return opener
+
+
+def _bing_search(query, max_results=10):
+    opener = _bing_opener()
+    url = "https://www.bing.com/search?" + urllib.parse.urlencode({"q": query})
+    raw = opener.open(urllib.request.Request(url, headers=_BING_HEADERS), timeout=10).read().decode()
+    clean = re.sub(r"<script[^>]*>.*?</script>", "", raw, flags=re.DOTALL)
+    parts = re.split(r'<li class="b_algo"', clean)
+    results = []
+    for part in parts[1:max_results + 1]:
+        # Extract URL from the h2 heading link
+        href = ""
+        h2_match = re.search(r'<h2[^>]*>.*?<a[^>]+href="([^"]+)"', part, re.DOTALL)
+        if h2_match:
+            raw_href = _html.unescape(h2_match.group(1))
+            # Decode Bing redirect URLs
+            u_match = re.search(r'[&?]u=a1(.+?)(?:&|$)', raw_href)
+            if u_match:
+                try:
+                    b64 = u_match.group(1)
+                    b64 += "=" * (-len(b64) % 4)  # pad
+                    href = base64.b64decode(b64).decode()
+                except Exception:
+                    href = raw_href
+            else:
+                href = raw_href
+        # Clean snippet text
+        text = re.sub(r"<[^>]+>", " ", part)
+        text = _html.unescape(text)
+        text = re.sub(r'^.*?(?:›\s*)+', '', text, count=1)
+        text = " ".join(text.split())[:300]
+        results.append({"url": href, "snippet": text})
+    return results
+
+
+def _web_fetch(url, mode="truncated", search_terms=None, max_chars=8000):
+    req = urllib.request.Request(url, headers=_BING_HEADERS)
+    raw = urllib.request.urlopen(req, timeout=15).read().decode(errors="replace")
+    # Strip scripts/styles
+    text = re.sub(r"<script[^>]*>.*?</script>", "", raw, flags=re.DOTALL)
+    text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if mode == "selective" and search_terms:
+        terms = [t.strip().lower() for t in search_terms.split(",") if t.strip()]
+        lines = text.split(". ")
+        selected = []
+        for i, line in enumerate(lines):
+            if any(t in line.lower() for t in terms):
+                start = max(0, i - 3)
+                end = min(len(lines), i + 4)
+                selected.extend(lines[start:end])
+        text = ". ".join(dict.fromkeys(selected)) if selected else text[:max_chars]
+    elif mode == "full":
+        pass
+    else:
+        text = text[:max_chars]
+    return text
 
 
 app = Server("fernando")
@@ -328,6 +405,30 @@ async def list_tools() -> list[Tool]:
                 "required": ["html"],
             },
         ),
+        Tool(
+            name="bing_search",
+            description="WebSearch looks up information that is outside the model's training data or cannot be reliably inferred from the current codebase/context.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search query (max 200 chars) - use concise keywords, not full sentences", "maxLength": 200},
+                },
+                "required": ["query"],
+            },
+        ),
+        Tool(
+            name="bing_fetch",
+            description="Fetch and extract content from a specific URL. Supports three modes: 'selective' (extracts relevant sections around search terms), 'truncated' (first 8000 chars, default), 'full' (complete content).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "URL to fetch content from"},
+                    "mode": {"type": "string", "enum": ["selective", "truncated", "full"], "description": "Extraction mode (default: truncated)"},
+                    "search_terms": {"type": "string", "description": "Optional: comma-separated keywords for selective mode"},
+                },
+                "required": ["url"],
+            },
+        ),
     ]
 
 
@@ -429,6 +530,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "live_canvas":
         html = arguments["html"]
         return [TextContent(type="text", text=f"IMPORTANT: To render this canvas, you MUST include the following code block verbatim in your response message (not in a tool call). Copy it exactly:\n\n```html-canvas\n{html}\n```")]
+    elif name == "bing_search":
+        try:
+            results = _bing_search(arguments["query"])
+            result = {"query": arguments["query"], "results": results}
+        except Exception as e:
+            result = {"error": str(e)}
+    elif name == "bing_fetch":
+        try:
+            text = _web_fetch(arguments["url"], arguments.get("mode", "truncated"), arguments.get("search_terms"))
+            result = {"url": arguments["url"], "content": text}
+        except Exception as e:
+            result = {"error": str(e)}
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

@@ -135,6 +135,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 
 .session-name {
     flex: 1;
+    font-size: 14px;
 }
 
 .close-btn {

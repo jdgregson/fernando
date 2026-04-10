@@ -447,6 +447,25 @@ def register_handlers(socketio):
             daemon=True,
         ).start()
 
+    @socketio.on("acp_change_model")
+    def acp_change_model(data):
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        model = data.get("model")
+        if not sid or not model:
+            return
+        ok = acp_manager.change_model(sid, model)
+        emit("acp_model_changed", {"session_id": sid, "model": model, "ok": ok})
+
+    @socketio.on("acp_get_model")
+    def acp_get_model(data):
+        if not validate_csrf(data):
+            return
+        session = acp_manager.get_session(data.get("session_id"))
+        model = session.model if session else None
+        emit("acp_current_model", {"session_id": data.get("session_id"), "model": model})
+
     @socketio.on("acp_close")
     def acp_close(data):
         if not validate_csrf(data):
