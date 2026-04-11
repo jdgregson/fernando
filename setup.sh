@@ -221,10 +221,12 @@ gecho "Installing Kiro steering file..."
 sudo -u "$FERNANDO_USER" mkdir -p "$FERNANDO_HOME/.kiro/steering"
 instructions_src="$INSTALL_DIR/instructions.md"
 instructions_dst="$FERNANDO_HOME/.kiro/steering/instructions.md"
-if [ ! -f "$instructions_dst" ]; then
-    sudo -u "$FERNANDO_USER" cp "$instructions_src" "$instructions_dst"
-    gecho "Copied instructions template to $instructions_dst — edit it to fill in your details."
+if [ -L "$instructions_dst" ]; then
+    gecho "Instructions symlink already exists at $instructions_dst, skipping."
+elif [ -f "$instructions_dst" ]; then
+    gecho "WARNING: $instructions_dst is a regular file, not a symlink. Remove it and re-run setup to use the repo copy."
 else
-    gecho "Instructions already exist at $instructions_dst, skipping."
+    sudo -u "$FERNANDO_USER" ln -s "$instructions_src" "$instructions_dst"
+    gecho "Symlinked $instructions_dst -> $instructions_src"
 fi
 
