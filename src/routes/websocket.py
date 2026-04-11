@@ -7,13 +7,18 @@ import subprocess
 import websocket as ws_client
 from src.services.tmux import tmux_service
 from src.services.docker import docker_service
-from src.services.subagent import subagent_service
 from src.services.acp import acp_manager
+from src.services.automation import (
+    automation_manager, create_rule, update_rule, delete_rule, list_rules,
+    get_history as get_automation_history, load_meta_policy, save_meta_policy,
+    record_history, _execute_rule,
+)
 import json
 import threading
 import base64
 import secrets
 import logging
+import uuid
 
 logger = logging.getLogger("fernando.websocket")
 
@@ -233,36 +238,22 @@ def register_handlers(socketio):
         except Exception as e:
             emit("desktop_restart_error", {"error": str(e)})
 
+    # --- Automation handlers (unified subagents + workflows) ---
+
     @socketio.on("list_subagents")
     def list_subagents(data={}):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.list_subagents()
+        result = automation_manager.list_subagents()
         emit("subagents_list", {"subagents": result})
-
-    @socketio.on("create_subagent")
-    def create_subagent(data):
-        if not validate_csrf(data):
-            emit("error", {"message": "Invalid CSRF token"})
-            return
-        try:
-            result = subagent_service.create_subagent(
-                data["task_id"],
-                data["task"],
-                data.get("context_path"),
-                data.get("schedule"),
-            )
-            emit("subagent_created", result)
-        except Exception as e:
-            emit("subagent_error", {"error": str(e)})
 
     @socketio.on("get_subagent_status")
     def get_subagent_status(data):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.get_subagent_status(data["task_id"])
+        result = automation_manager.get_subagent_status(data["task_id"])
         emit("subagent_status", result)
 
     @socketio.on("terminate_subagent")
@@ -270,7 +261,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.terminate_subagent(data["task_id"])
+        result = automation_manager.terminate_subagent(data["task_id"])
         emit("subagent_terminated", result)
 
     @socketio.on("delete_subagent")
@@ -278,7 +269,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.delete_subagent(data["task_id"])
+        result = automation_manager.delete_subagent(data["task_id"])
         emit("subagent_deleted", result)
 
     @socketio.on("get_at_jobs")
@@ -286,7 +277,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.get_at_jobs()
+        result = automation_manager.get_at_jobs()
         emit("at_jobs", {"jobs": result})
 
     @socketio.on("get_cron_jobs")
@@ -294,7 +285,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.get_cron_jobs()
+        result = automation_manager.get_cron_jobs()
         emit("cron_jobs", {"jobs": result})
 
     @socketio.on("remove_at_job")
@@ -302,7 +293,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.remove_at_job(data["job_id"])
+        result = automation_manager.remove_at_job(data["job_id"])
         emit("at_job_removed", result)
 
     @socketio.on("remove_cron_job")
@@ -310,8 +301,84 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        result = subagent_service.remove_cron_job(data["task_id"])
+        result = automation_manager.remove_cron_job(data["task_id"])
         emit("cron_job_removed", result)
+
+    @socketio.on("automation_create_rule")
+    def automation_create_rule(data):
+        if not validate_csrf(data):
+            return
+        rule_data = data.get("rule")
+        if not rule_data:
+            emit("automation_error", {"error": "No rule provided"})
+            return
+        rule, err = create_rule(rule_data)
+        if err:
+            emit("automation_error", {"error": err})
+        else:
+            emit("automation_rule_created", {"rule": rule})
+
+    @socketio.on("automation_list_rules")
+    def automation_list_rules(data={}):
+        if not validate_csrf(data):
+            return
+        emit("automation_rules", {"rules": list_rules()})
+
+    @socketio.on("automation_update_rule")
+    def automation_update_rule(data):
+        if not validate_csrf(data):
+            return
+        rule_id = data.get("rule_id")
+        updates = data.get("updates", {})
+        if not rule_id:
+            return
+        rule, err = update_rule(rule_id, updates)
+        if err:
+            emit("automation_error", {"error": err})
+        else:
+            emit("automation_rule_updated", {"rule": rule})
+
+    @socketio.on("automation_delete_rule")
+    def automation_delete_rule(data):
+        if not validate_csrf(data):
+            return
+        rule_id = data.get("rule_id")
+        if rule_id:
+            delete_rule(rule_id)
+            emit("automation_rule_deleted", {"rule_id": rule_id})
+
+    @socketio.on("automation_toggle_rule")
+    def automation_toggle_rule(data):
+        if not validate_csrf(data):
+            return
+        rule_id = data.get("rule_id")
+        enabled = data.get("enabled", True)
+        if rule_id:
+            rule, err = update_rule(rule_id, {"enabled": enabled})
+            if not err:
+                emit("automation_rule_updated", {"rule": rule})
+
+    @socketio.on("automation_get_history")
+    def automation_get_history(data={}):
+        if not validate_csrf(data):
+            return
+        limit = min(data.get("limit", 50), 200)
+        emit("automation_history", {"history": get_automation_history(limit)})
+
+    @socketio.on("automation_get_meta_policy")
+    def automation_get_meta_policy(data={}):
+        if not validate_csrf(data):
+            return
+        emit("automation_meta_policy", {"policy": load_meta_policy()})
+
+    @socketio.on("automation_update_meta_policy")
+    def automation_update_meta_policy(data):
+        if not validate_csrf(data):
+            return
+        policy = data.get("policy")
+        if policy:
+            save_meta_policy(policy)
+            emit("automation_meta_policy_saved", {"policy": policy})
 
     # --- ACP Chat handlers ---
 
@@ -503,3 +570,14 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         acp_manager.rename_session(data.get("session_id"), data.get("name", ""))
+
+    # --- Workflow handlers ---
+
+    def _automation_dispatch(action, rule, message):
+        """Called by the email poller when an inbound message matches a rule."""
+        logger.info(f"Automation dispatch: action={action} rule={rule.get('id') if rule else 'default'} from={message.get('from')} subject={message.get('subject','')[:60]}")
+        if action in ("dispatch", "summary"):
+            result = _execute_rule(rule, inbound_message=message)
+            record_history(rule, message, action, result)
+
+    automation_manager.start(on_dispatch=_automation_dispatch)

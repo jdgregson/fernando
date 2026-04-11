@@ -55,6 +55,15 @@
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId, history_offset: historyOffset });
     });
 
+    socket.on('disconnect', () => {
+        setStatus('connecting', 'Reconnecting...');
+    });
+
+    socket.io.on('reconnect', () => {
+        // Server will emit 'connected' which triggers re-subscribe above
+        setStatus('connecting', 'Reconnecting...');
+    });
+
     // Notify parent on any click so it can focus this pane
     document.addEventListener('mousedown', () => {
         if (window.parent !== window) {

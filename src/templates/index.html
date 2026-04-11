@@ -52,7 +52,7 @@
             </div>
             <div class="new-session">
                 <button onclick="openNewSessionModal()">New Session</button>
-                <button onclick="openSubagentsModal()">Subagents</button>
+                <button onclick="openAutomationPanel()">Automation</button>
             </div>
         </div>
         <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
@@ -98,43 +98,54 @@
         </div>
     </div>
 
-    <div class="panel-overlay" id="subagentsOverlay" onclick="closeSubagentsPanel()"></div>
-    <div class="sa-panel" id="subagentsPanel">
+    <div class="panel-overlay" id="automationOverlay" onclick="closeAutomationPanel()"></div>
+    <div class="sa-panel" id="automationPanel">
         <div class="sa-panel-header">
-            <span>Subagents</span>
-            <button class="sa-panel-close" onclick="closeSubagentsPanel()">✕</button>
+            <span>Automation</span>
+            <button class="sa-panel-close" onclick="closeAutomationPanel()">✕</button>
         </div>
         <div class="sa-panel-tabs">
-            <button class="sa-tab active" onclick="switchSaTab('list',this)">All</button>
-            <button class="sa-tab" onclick="switchSaTab('schedules',this)">Schedules</button>
-            <button class="sa-tab" onclick="switchSaTab('create',this)">+ New</button>
+            <button class="auto-tab active" onclick="switchAutoTab('rules',this)">Rules</button>
+            <button class="auto-tab" onclick="switchAutoTab('subagents',this)">Subagents</button>
+            <button class="auto-tab" onclick="switchAutoTab('schedules',this)">Schedules</button>
+            <button class="auto-tab" onclick="switchAutoTab('history',this)">History</button>
+            <button class="auto-tab" onclick="switchAutoTab('create',this)">+ New</button>
+            <button class="auto-tab" onclick="switchAutoTab('policy',this)">Policy</button>
         </div>
         <div class="sa-panel-body">
-            <div class="sa-tab-content active" id="saTabList">
-                <div id="subagentsList"></div>
+            <div class="auto-tab-content active" id="autoTabRules">
+                <div id="automationRulesList"></div>
             </div>
-            <div class="sa-tab-content" id="saTabSchedules">
+            <div class="auto-tab-content" id="autoTabSubagents">
+                <div id="automationSubagentsList"></div>
+            </div>
+            <div class="auto-tab-content" id="autoTabSchedules">
                 <div class="sa-section-label">One-time (at)</div>
-                <div id="atJobsList"></div>
+                <div id="autoAtJobsList"></div>
                 <div class="sa-section-label" style="margin-top:16px">Recurring (cron)</div>
-                <div id="cronJobsList"></div>
+                <div id="autoCronJobsList"></div>
             </div>
-            <div class="sa-tab-content" id="saTabCreate">
-                <label class="sa-form-label">Task ID</label>
-                <input type="text" id="subagentTaskId" class="sa-input" placeholder="e.g., research-aws-pricing">
-                <label class="sa-form-label">Task Description</label>
-                <textarea id="subagentTask" class="sa-input sa-textarea" placeholder="Describe the task..."></textarea>
-                <label class="sa-form-label">Context File (optional)</label>
-                <input type="text" id="subagentContextPath" class="sa-input" placeholder="/path/to/context.txt">
-                <div class="sa-hint">File will be created if it doesn't exist.</div>
-                <label class="sa-form-label">Schedule</label>
-                <select id="subagentScheduleType" class="sa-input" onchange="updateScheduleInput()">
-                    <option value="">Run immediately</option>
-                    <option value="at">At specific time</option>
-                    <option value="every">Recurring</option>
-                </select>
-                <div id="scheduleInputContainer"></div>
-                <button class="sa-btn sa-btn-primary" onclick="createSubagent()">Create Subagent</button>
+            <div class="auto-tab-content" id="autoTabHistory">
+                <div id="automationHistoryList"></div>
+            </div>
+            <div class="auto-tab-content" id="autoTabCreate">
+                <div style="margin-bottom:14px">
+                    <label class="sa-form-label">Name (optional)</label>
+                    <input type="text" id="autoRuleName" class="sa-input">
+                </div>
+                <div style="margin-bottom:14px">
+                    <label class="sa-form-label">Trigger type</label>
+                    <select id="autoTriggerType" class="sa-input" onchange="updateTriggerFields()">
+                        <option value="immediate">Immediate (run now)</option>
+                        <option value="schedule">Schedule (cron/at)</option>
+                        <option value="inbound">Inbound (email match)</option>
+                    </select>
+                </div>
+                <div id="autoTriggerFields"></div>
+                <button class="sa-btn sa-btn-primary" onclick="createAutomationRule()">Create</button>
+            </div>
+            <div class="auto-tab-content" id="autoTabPolicy">
+                <div id="automationPolicyEditor"></div>
             </div>
         </div>
     </div>
@@ -167,7 +178,7 @@
     <script src="/static/js/core.js"></script>
     <script src="/static/js/terminal.js"></script>
     <script src="/static/js/sessions.js"></script>
-    <script src="/static/js/subagents.js"></script>
+    <script src="/static/js/automation.js"></script>
     <script src="/static/js/chat.js"></script>
     <script src="/static/js/mobile.js"></script>
 </body>
