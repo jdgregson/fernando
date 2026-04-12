@@ -50,7 +50,23 @@
         reconnection: true,
     });
 
+    let connectErrors = 0;
+    let isMutating = false;
+
+    socket.on('mutating', () => { isMutating = true; });
+
+    socket.io.on('error', () => {
+        if (!isMutating && ++connectErrors >= 3) window.location.reload();
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && !socket.connected && !isMutating) {
+            setTimeout(() => { if (!socket.connected) window.location.reload(); }, 2000);
+        }
+    });
+
     socket.on('connected', (data) => {
+        connectErrors = 0;
         csrfToken = data.csrf_token;
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId, history_offset: historyOffset });
     });

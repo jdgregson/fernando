@@ -44,6 +44,8 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 #kbdBtn { display: none; }
+#resizeBtn { display: none; }
+#resizeBtn.resizeBtnVisible { display: inline-block; }
 @media (max-width: 500px) {
     #kbdBtn.kbdVisible { display: inline-block; }
 }

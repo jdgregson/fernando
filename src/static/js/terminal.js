@@ -21,6 +21,7 @@ term2.loadAddon(fitAddon2);
 term2.loadAddon(new WebLinksAddon.WebLinksAddon());
 
 function doFit() {
+    if (document.hidden) return;
     if (paneTypes[1] === 'terminal') {
         fitAddon1.fit();
         term1.resize(term1.cols + 1, term1.rows);
@@ -32,6 +33,10 @@ function doFit() {
         emitWithCsrf('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
     }
 }
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) setTimeout(doFit, 100);
+});
 
 // --- Input ---
 term1.onData(data => { emitWithCsrf('input', { terminal: 1, data: data }); });
@@ -98,16 +103,9 @@ setTimeout(() => {
                         const scrollHeight = viewport.scrollHeight;
                         const clientHeight = viewport.clientHeight;
                         if (isSplit) {
-                            if (termNum === 1) {
-                                const container = document.getElementById('terminal1-container');
-                                const rect = container.getBoundingClientRect();
-                                window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
-                            } else {
-                                const scrollRatio = scrollTop / (scrollHeight - clientHeight);
-                                const container = document.getElementById('terminal2-container');
-                                const scrollAmount = scrollRatio * container.offsetHeight + 20;
-                                window.scrollBy({ top: scrollAmount, behavior: 'smooth' });
-                            }
+                            const container = document.getElementById(`terminal${termNum}-container`);
+                            const rect = container.getBoundingClientRect();
+                            window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
                         } else {
                             if (scrollTop + clientHeight >= scrollHeight - 50) {
                                 window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });

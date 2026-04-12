@@ -26,6 +26,7 @@
         </div>
         <div>
             <button id="kbdBtn" onclick="toggleKasmKeyboard(); this.blur()">⌨</button>
+            <button id="resizeBtn" onclick="doFit(); this.blur()">⤢</button>
             <button onclick="toggleSplit()">Split</button>
         </div>
     </div>
@@ -107,7 +108,6 @@
         <div class="sa-panel-tabs">
             <button class="auto-tab active" onclick="switchAutoTab('rules',this)">Rules</button>
             <button class="auto-tab" onclick="switchAutoTab('subagents',this)">Subagents</button>
-            <button class="auto-tab" onclick="switchAutoTab('schedules',this)">Schedules</button>
             <button class="auto-tab" onclick="switchAutoTab('history',this)">History</button>
             <button class="auto-tab" onclick="switchAutoTab('create',this)">+ New</button>
             <button class="auto-tab" onclick="switchAutoTab('policy',this)">Policy</button>
@@ -118,12 +118,6 @@
             </div>
             <div class="auto-tab-content" id="autoTabSubagents">
                 <div id="automationSubagentsList"></div>
-            </div>
-            <div class="auto-tab-content" id="autoTabSchedules">
-                <div class="sa-section-label">One-time (at)</div>
-                <div id="autoAtJobsList"></div>
-                <div class="sa-section-label" style="margin-top:16px">Recurring (cron)</div>
-                <div id="autoCronJobsList"></div>
             </div>
             <div class="auto-tab-content" id="autoTabHistory">
                 <div id="automationHistoryList"></div>

@@ -13,27 +13,37 @@ window.addEventListener('pageshow', (event) => {
     if (event.persisted) handleForeground();
 });
 
+let _fgDebounce = null;
 function handleForeground() {
-    if (!socket.connected) socket.connect();
+    clearTimeout(_fgDebounce);
+    _fgDebounce = setTimeout(_doForeground, 50);
+}
+function _doForeground() {
+    if (!socket.connected) { socket.connect(); return; }
     if (currentSession1 && paneTypes[1] === 'terminal') {
         setTimeout(() => {
             term1.clear();
             emitWithCsrf('attach_session', { terminal: 1, session: currentSession1 });
-            setTimeout(doFit, 100);
+            setTimeout(() => { doFit(); term1.scrollToBottom(); }, 100);
         }, 200);
     }
     if (currentSession2 && paneTypes[2] === 'terminal' && isSplit) {
         setTimeout(() => {
             term2.clear();
             emitWithCsrf('attach_session', { terminal: 2, session: currentSession2 });
-            setTimeout(doFit, 100);
+            setTimeout(() => { doFit(); term2.scrollToBottom(); }, 100);
         }, 200);
     }
+    // Re-focus the active terminal after reconnect so iOS touch events register correctly
+    setTimeout(() => {
+        const activeTerm = activeTerminal === 1 ? term1 : term2;
+        if (paneTypes[activeTerminal] === 'terminal') activeTerm.focus();
+    }, 400);
 }
 
 // Called from core.js on socket 'connected'
 function onSocketConnected() {
-    if (window._urlParamsProcessed) return;
+    if (window._urlParamsProcessed) { handleForeground(); return; }
     const params = new URLSearchParams(window.location.search);
     const urlSession = params.get('session');
     const urlSession2 = params.get('session2');
@@ -102,6 +112,8 @@ function updateKbdBtn() {
         return iframe && iframe.src.includes('/kasm/');
     });
     document.getElementById('kbdBtn').classList.toggle('kbdVisible', hasDesktop);
+    const hasTerminal = paneTypes[activeTerminal] === 'terminal';
+    document.getElementById('resizeBtn').classList.toggle('resizeBtnVisible', hasTerminal);
     updateMobileControls();
 }
 
@@ -448,6 +460,7 @@ function setActiveTerminal(termNum) {
     c2.classList.toggle('active', termNum === 2);
     if (isSplit) { c1.classList.add('split-mode'); c2.classList.add('split-mode'); }
     else { c1.classList.remove('split-mode'); c2.classList.remove('split-mode'); }
+    updateKbdBtn();
     updateMobileControls();
     syncUrlParams();
 }
@@ -457,18 +470,22 @@ function syncPaneSidebar(paneNum) {
     const s = paneTypes[paneNum] === 'browser' ? getBrowserPaneSession(paneNum) : (paneNum === 1 ? currentSession1 : currentSession2);
     if (s) highlightSidebarItem(s);
 }
-document.getElementById('terminal1-container').addEventListener('mousedown', (e) => {
+function activatePane1() {
     setActiveTerminal(1);
     syncPaneSidebar(1);
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-});
-document.getElementById('terminal2-container').addEventListener('mousedown', (e) => {
+}
+function activatePane2() {
     if (isSplit) {
         setActiveTerminal(2);
         syncPaneSidebar(2);
     }
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-});
+}
+document.getElementById('terminal1-container').addEventListener('mousedown', activatePane1);
+document.getElementById('terminal1-container').addEventListener('touchstart', activatePane1, { passive: true });
+document.getElementById('terminal2-container').addEventListener('mousedown', activatePane2);
+document.getElementById('terminal2-container').addEventListener('touchstart', activatePane2, { passive: true });
 
 // --- New Session Modal ---
 function openNewSessionModal() {

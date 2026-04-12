@@ -47,6 +47,17 @@ const socket = io({
 
 let csrfToken = null;
 let isMutating = false;
+let connectErrors = 0;
+
+socket.io.on('error', () => {
+    if (!isMutating && ++connectErrors >= 3) window.location.reload();
+});
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && !socket.connected && !isMutating) {
+        setTimeout(() => { if (!socket.connected) window.location.reload(); }, 2000);
+    }
+});
 
 function emitWithCsrf(event, data = {}) {
     socket.emit(event, { ...data, csrf_token: csrfToken });
@@ -57,6 +68,7 @@ socket.on('mutating', () => {
 });
 
 socket.on('connected', (data) => {
+    connectErrors = 0;
     csrfToken = data.csrf_token;
     console.log('Connected with CSRF token');
     onSocketConnected();

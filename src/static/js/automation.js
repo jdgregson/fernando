@@ -19,7 +19,6 @@ function switchAutoTab(tab, btn) {
     btn.classList.add('active');
     document.getElementById('autoTab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
     if (tab === 'subagents') loadSubagents();
-    if (tab === 'schedules') { emitWithCsrf('get_at_jobs'); emitWithCsrf('get_cron_jobs'); }
     if (tab === 'history') emitWithCsrf('automation_get_history');
     if (tab === 'policy') loadMetaPolicy();
 }
@@ -239,43 +238,6 @@ async function deleteSubagent(taskId) {
     if (await showConfirm(`Delete subagent ${taskId}? This will remove all data.`)) emitWithCsrf('delete_subagent', { task_id: taskId });
 }
 socket.on('subagent_deleted', () => { showAlert('Subagent deleted'); loadSubagents(); });
-
-// --- Schedules ---
-socket.on('at_jobs', (data) => {
-    const list = document.getElementById('autoAtJobsList');
-    if (data.jobs.length === 0) { list.innerHTML = '<p>No scheduled one-time jobs</p>'; return; }
-    list.innerHTML = data.jobs.map(job => `
-        <div class="subagent-card">
-            <div class="sa-header">
-                <span class="sa-id">Job ${escapeHtml(String(job.job_id))}</span>
-                <span class="sa-status scheduled">${escapeHtml(job.scheduled_time)}</span>
-            </div>
-            <div class="sa-actions"><button class="sa-btn sa-btn-danger" onclick="removeAtJob('${escapeHtml(String(job.job_id))}')">Remove</button></div>
-        </div>`).join('');
-});
-
-socket.on('cron_jobs', (data) => {
-    const list = document.getElementById('autoCronJobsList');
-    if (data.jobs.length === 0) { list.innerHTML = '<p>No recurring jobs</p>'; return; }
-    list.innerHTML = data.jobs.map(job => `
-        <div class="subagent-card">
-            <div class="sa-header">
-                <span class="sa-id">${escapeHtml(job.task_id || 'Unknown')}</span>
-                <span class="sa-status scheduled">${escapeHtml(job.cron_time)}</span>
-            </div>
-            ${job.task_id ? `<div class="sa-actions"><button class="sa-btn sa-btn-danger" onclick="removeCronJob('${escapeHtml(job.task_id)}')">Remove</button></div>` : ''}
-        </div>`).join('');
-});
-
-async function removeAtJob(jobId) {
-    if (await showConfirm(`Remove scheduled job ${jobId}?`)) emitWithCsrf('remove_at_job', { job_id: jobId });
-}
-socket.on('at_job_removed', () => { showAlert('Job removed'); });
-
-async function removeCronJob(taskId) {
-    if (await showConfirm(`Remove recurring job for ${taskId}?`)) emitWithCsrf('remove_cron_job', { task_id: taskId });
-}
-socket.on('cron_job_removed', () => { showAlert('Job removed'); });
 
 // --- History ---
 socket.on('automation_history', (data) => {
