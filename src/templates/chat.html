@@ -740,10 +740,12 @@
         scrollToBottom(true);
     }
 
-    function addSystemMessage(text) {
+    function addSystemMessage(text, extraClass) {
         const el = document.createElement('div');
-        el.className = 'msg system';
-        el.textContent = '⟳ ' + text;
+        el.className = 'msg system' + (extraClass ? ' ' + extraClass : '');
+        const prefix = extraClass === 'continuation' ? '⟳ Continuation: ' : '⟳ ';
+        const display = text.length > 75 && extraClass === 'continuation' ? text.slice(0, 75) + '…' : text;
+        el.textContent = prefix + display;
         document.getElementById('messages').appendChild(el);
         scrollToBottom(true);
     }
@@ -868,7 +870,7 @@
         if (evt.type === 'user_prompt' || evt.type === 'continuation') {
             if (currentAssistantMsg) finishTurn();
             if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
-                addSystemMessage(evt.text.slice(15));
+                addSystemMessage(evt.text.slice(15), 'continuation');
             } else {
                 addUserMessage(evt.text);
             }
@@ -895,7 +897,7 @@
             const c = update.content;
             if (c && c.type === 'text') {
                 if (c.text.startsWith('[CONTINUATION] ')) {
-                    addSystemMessage(c.text.slice(15));
+                    addSystemMessage(c.text.slice(15), 'continuation');
                 } else {
                     userMsgCount++;
                     addUserMessage(c.text, userMsgCount === 1);
@@ -1011,7 +1013,7 @@
     function renderAttached() {
         const container = document.getElementById('attachedFiles');
         container.innerHTML = attachedFiles.map((f, i) =>
-            `<span class="attached-file"><span class="name">${escapeHtml(f.name)}</span><span class="remove" data-idx="${i}">✕</span></span>`
+            `<span class="attached-file"><span class="name">${escapeHtml(f.name)}</span><span class="remove" data-idx="${i}"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span></span>`
         ).join('');
         container.querySelectorAll('.remove').forEach(el => {
             el.onclick = () => removeAttached(parseInt(el.dataset.idx));

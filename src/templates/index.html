@@ -41,7 +41,7 @@
                 {% for session in sessions %}
                 <div class="session-item" data-session="{{ session }}">
                     <span class="session-name">{{ session }}</span>
-                    <button class="close-btn" onclick="closeSession(event, '{{ session }}')">✕</button>
+                    <button class="close-btn" onclick="closeSession(event, '{{ session }}')"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
                 </div>
                 {% endfor %}
             </div>
@@ -103,7 +103,7 @@
     <div class="sa-panel" id="automationPanel">
         <div class="sa-panel-header">
             <span>Automation</span>
-            <button class="sa-panel-close" onclick="closeAutomationPanel()">✕</button>
+            <button class="sa-panel-close" onclick="closeAutomationPanel()"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
         </div>
         <div class="sa-panel-tabs">
             <button class="auto-tab active" onclick="switchAutoTab('rules',this)">Rules</button>

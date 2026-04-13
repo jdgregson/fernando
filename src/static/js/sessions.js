@@ -260,7 +260,7 @@ function updateSessionList(sessions, chatSessions) {
         nameSpan.textContent = session;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
-        closeBtn.textContent = '✕';
+        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         closeBtn.onclick = (e) => closeSession(e, session);
         item.appendChild(nameSpan);
         item.appendChild(closeBtn);
@@ -318,7 +318,7 @@ function updateSessionList(sessions, chatSessions) {
         nameSpan.textContent = chat.name;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
-        closeBtn.textContent = '✕';
+        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         closeBtn.onclick = (e) => { e.stopPropagation(); closeChatSession(chatId); };
         item.appendChild(nameSpan);
         item.appendChild(closeBtn);

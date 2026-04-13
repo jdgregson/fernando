@@ -77,13 +77,12 @@ socket.on('acp_archived_list', (data) => {
         const btns = document.createElement('span');
         btns.style.cssText = 'display:flex;gap:4px;flex-shrink:0';
         const restoreBtn = document.createElement('button');
-        restoreBtn.className = 'close-btn';
-        restoreBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 7 5 3 9 7"/><path d="M5 3v6a4 4 0 0 0 4 4h2"/></svg>';
-        restoreBtn.style.background = '#3465a3';
+        restoreBtn.className = 'close-btn restore-btn';
+        restoreBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 7 5 3 9 7"/><path d="M5 3v6a4 4 0 0 0 4 4h2"/></svg>';
         restoreBtn.onclick = (e) => { e.stopPropagation(); emitWithCsrf('acp_restore', { session_id: s.id }); };
         const delBtn = document.createElement('button');
         delBtn.className = 'close-btn';
-        delBtn.textContent = '✕';
+        delBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         delBtn.title = 'Delete';
         delBtn.onclick = (e) => { e.stopPropagation(); emitWithCsrf('acp_delete_archived', { session_id: s.id }); emitWithCsrf('acp_list_archived'); };
         btns.appendChild(restoreBtn);

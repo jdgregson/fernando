@@ -35,6 +35,11 @@ COPY src/static/icons/fernando-wallpaper.png /usr/share/backgrounds/fernando-wal
 RUN echo '#!/bin/bash\nsleep 3\nfor monitor in VNC-0 VNC-1 VNC-2 VNC-3; do\n  for workspace in 0 1 2 3; do\n    xfconf-query -c xfce4-desktop -p /backdrop/screen0/monitor$monitor/workspace$workspace/last-image -s /usr/share/backgrounds/fernando-wallpaper.png 2>/dev/null\n  done\ndone\nkillall xfdesktop 2>/dev/null\nxfdesktop 2>/dev/null &\n' > /dockerstartup/set-fernando-wallpaper.sh && \
     chmod +x /dockerstartup/set-fernando-wallpaper.sh
 
+# Pre-kasm cleanup: move old VNC logs so tail -f only picks up the current session,
+# and prune archived logs older than 7 days
+RUN printf '[Unit]\nDescription=Clean up old VNC logs before Kasm starts\nBefore=kasm.service\nAfter=kasm-setup.service\n\n[Service]\nType=oneshot\nUser=kasm-user\nExecStart=/bin/bash -c '\''VNCDIR=/home/kasm-user/.vnc; ARCHIVE=$VNCDIR/old-logs; mkdir -p $ARCHIVE; mv $VNCDIR/*.log $ARCHIVE/ 2>/dev/null; find $ARCHIVE -name "*.log" -mtime +7 -delete 2>/dev/null; true'\''\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/kasm-vnc-log-cleanup.service && \
+    systemctl enable kasm-vnc-log-cleanup.service
+
 # Create or append to custom startup
 RUN if [ ! -f /dockerstartup/custom_startup.sh ]; then \
       echo '#!/bin/bash' > /dockerstartup/custom_startup.sh; \

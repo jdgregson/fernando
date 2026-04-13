@@ -39,6 +39,7 @@ socket.on('automation_rules', (data) => {
         const details = [];
         if (trigger.from) details.push('from: ' + escapeHtml(trigger.from));
         if (trigger.subject_contains) details.push('subj: ' + escapeHtml(trigger.subject_contains));
+        if (trigger.body_contains) details.push('body: ' + escapeHtml(trigger.body_contains));
         if (trigger.cron) details.push('cron: ' + escapeHtml(trigger.cron));
         if (trigger.at) details.push('at: ' + escapeHtml(trigger.at));
         return `
@@ -48,6 +49,7 @@ socket.on('automation_rules', (data) => {
                 <span>${badges.join(' ')}</span>
             </div>
             <div class="sa-meta">${details.join(' · ') || 'any'}</div>
+            ${r.purpose ? `<div class="sa-meta" style="color:#9d7cd8">purpose: ${escapeHtml(r.purpose)}</div>` : ''}
             ${r.task ? `<div class="sa-task">${DOMPurify.sanitize(marked.parse(r.task.substring(0, 200)))}</div>` : ''}
             ${r.expires_at ? `<div class="sa-meta">expires: ${new Date(r.expires_at).toLocaleString()}</div>` : ''}
             <div class="sa-actions">
@@ -84,6 +86,14 @@ function updateTriggerFields() {
             <div style="margin-bottom:14px">
                 <label class="sa-form-label">Subject contains (optional)</label>
                 <input type="text" id="autoSubject" class="sa-input">
+            </div>
+            <div style="margin-bottom:14px">
+                <label class="sa-form-label">Body contains (optional)</label>
+                <input type="text" id="autoBody" class="sa-input">
+            </div>
+            <div style="margin-bottom:14px">
+                <label class="sa-form-label">Purpose</label>
+                <input type="text" id="autoPurpose" class="sa-input" placeholder="e.g. Summarize GitHub PR notifications">
             </div>
             <div style="margin-bottom:14px">
                 <label class="sa-form-label">Action</label>
@@ -152,8 +162,13 @@ function createAutomationRule() {
         const from = document.getElementById('autoFrom').value.trim();
         if (!from) { showAlert('From is required for inbound rules'); return; }
         rule.trigger.from = from;
+        const purpose = document.getElementById('autoPurpose').value.trim();
+        if (!purpose) { showAlert('Purpose is required for inbound rules'); return; }
+        rule.purpose = purpose;
         const subj = document.getElementById('autoSubject').value.trim();
         if (subj) rule.trigger.subject_contains = subj;
+        const body = document.getElementById('autoBody').value.trim();
+        if (body) rule.trigger.body_contains = body;
         rule.trigger.channel = 'email';
         rule.action = document.getElementById('autoAction').value;
         rule.fire_once = document.getElementById('autoFireOnce').checked;
@@ -264,14 +279,22 @@ function loadMetaPolicy() { emitWithCsrf('automation_get_meta_policy'); }
 
 socket.on('automation_meta_policy', (data) => {
     const p = data.policy;
+    const actions = p.allowed_actions || [];
     document.getElementById('automationPolicyEditor').innerHTML = `
         <div style="margin-bottom:14px">
             <label class="sa-form-label">Allowed actions for agent rules</label>
-            <input type="text" id="mpActions" class="sa-input" value="${(p.allowed_actions || []).join(', ')}">
+            <div style="display:flex;gap:16px;margin-top:6px">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#888;cursor:pointer">
+                    <input type="checkbox" id="mpActionDispatch" ${actions.includes('dispatch') ? 'checked' : ''}> dispatch
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#888;cursor:pointer">
+                    <input type="checkbox" id="mpActionSummary" ${actions.includes('summary') ? 'checked' : ''}> summary
+                </label>
+            </div>
         </div>
         <div style="margin-bottom:14px">
             <label class="sa-form-label">Allowed domains for agent rules</label>
-            <input type="text" id="mpDomains" class="sa-input" value="${(p.allowed_domains || []).join(', ')}">
+            <div id="mpDomainsContainer" style="margin-top:6px"></div>
         </div>
         <div style="margin-bottom:14px">
             <label class="sa-form-label">Max TTL (hours) for agent rules</label>
@@ -287,12 +310,51 @@ socket.on('automation_meta_policy', (data) => {
         </div>
         <button class="sa-btn sa-btn-primary" onclick="saveMetaPolicy()">Save Policy</button>
     `;
+    _renderDomainInputs(p.allowed_domains || []);
 });
 
+function _renderDomainInputs(domains) {
+    const c = document.getElementById('mpDomainsContainer');
+    c.innerHTML = '';
+    function _addRow(val) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:4px';
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'sa-input mp-domain-input';
+        inp.value = val;
+        inp.placeholder = 'e.g. github.com';
+        row.appendChild(inp);
+        if (val) {
+            const btn = document.createElement('button');
+            btn.className = 'close-btn';
+            btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+            btn.onclick = () => { row.remove(); };
+            row.appendChild(btn);
+        }
+        inp.addEventListener('blur', () => {
+            const inputs = c.querySelectorAll('.mp-domain-input');
+            const last = inputs[inputs.length - 1];
+            if (last.value.trim()) _addRow('');
+        });
+        c.appendChild(row);
+        return inp;
+    }
+    domains.forEach(d => _addRow(d));
+    _addRow('');
+}
+
+function _getMpDomains() {
+    return Array.from(document.querySelectorAll('.mp-domain-input')).map(i => i.value.trim()).filter(Boolean);
+}
+
 function saveMetaPolicy() {
+    const actions = [];
+    if (document.getElementById('mpActionDispatch').checked) actions.push('dispatch');
+    if (document.getElementById('mpActionSummary').checked) actions.push('summary');
     emitWithCsrf('automation_update_meta_policy', { policy: {
-        allowed_actions: document.getElementById('mpActions').value.split(',').map(s => s.trim()).filter(Boolean),
-        allowed_domains: document.getElementById('mpDomains').value.split(',').map(s => s.trim()).filter(Boolean),
+        allowed_actions: actions,
+        allowed_domains: _getMpDomains(),
         max_ttl_hours: parseInt(document.getElementById('mpTtl').value) || 72,
         max_active_agent_rules: parseInt(document.getElementById('mpMaxRules').value) || 10,
         require_fire_once_for_agent: document.getElementById('mpFireOnce').checked,

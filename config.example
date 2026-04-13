@@ -22,3 +22,9 @@ TMUX_HISTORY_LINES=32768
 # Brave Search API (https://api.search.brave.com/register)
 # BRAVE_SEARCH_API_KEY=your-search-api-key
 # BRAVE_ANSWERS_API_KEY=your-answers-api-key
+
+# GitHub Personal Access Token (https://github.com/settings/tokens)
+# GITHUB_PAT=your-github-pat
+
+# Cloudflare API Token (https://dash.cloudflare.com/profile/api-tokens)
+# CLOUDFLARE_API_TOKEN=your-cloudflare-api-token

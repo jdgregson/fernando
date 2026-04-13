@@ -68,7 +68,7 @@ Update {workspace}/status.json frequently:
 Write {workspace}/results/final.json ONLY after verification passes:
 {{
   "task_id": "{task_id}",
-  "task": "{task}",
+  "task": "(your task description)",
   "status": "completed|failed",
   "result": {{
     "success": true|false,
