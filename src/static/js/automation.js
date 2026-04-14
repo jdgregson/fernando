@@ -50,7 +50,7 @@ socket.on('automation_rules', (data) => {
             </div>
             <div class="sa-meta">${details.join(' · ') || 'any'}</div>
             ${r.purpose ? `<div class="sa-meta" style="color:#9d7cd8">purpose: ${escapeHtml(r.purpose)}</div>` : ''}
-            ${r.task ? `<div class="sa-task">${DOMPurify.sanitize(marked.parse(r.task.substring(0, 200)))}</div>` : ''}
+            ${r.task ? `<div class="sa-task">${escapeHtml(r.task.substring(0, 200))}</div>` : ''}
             ${r.expires_at ? `<div class="sa-meta">expires: ${new Date(r.expires_at).toLocaleString()}</div>` : ''}
             <div class="sa-actions">
                 <button class="sa-btn" onclick="toggleAutomationRule('${escapeHtml(r.id)}', ${!r.enabled})">${r.enabled ? 'Disable' : 'Enable'}</button>
@@ -214,7 +214,7 @@ socket.on('subagents_list', (data) => {
                 <span class="sa-id">${escapeHtml(s.task_id)}</span>
                 <span class="sa-badge ${statusClass}">${escapeHtml(s.status)}${s.progress > 0 ? ' ' + s.progress + '%' : ''}</span>
             </div>
-            <div class="sa-task">${DOMPurify.sanitize(marked.parse(s.task || ''))}</div>
+            <div class="sa-task">${escapeHtml(s.task || '')}</div>
             ${s.schedule ? `<div class="sa-schedule">⏱ ${escapeHtml(s.schedule)}</div>` : ''}
             ${s.current_step ? `<div class="sa-meta">${escapeHtml(s.current_step)}</div>` : ''}
             <div class="sa-actions">
@@ -234,7 +234,7 @@ socket.on('subagent_status', (data) => {
     const sections = [
         `<div class="sa-detail-section"><div class="sa-detail-label">Task ID</div><div class="sa-detail-value"><code>${escapeHtml(s.task_id || '')}</code></div></div>`,
         `<div class="sa-detail-section"><div class="sa-detail-label">Status</div><div class="sa-detail-value"><span class="sa-badge ${statusClass}">${escapeHtml(s.status || '')}</span></div></div>`,
-        `<div class="sa-detail-section"><div class="sa-detail-label">Task</div><div class="sa-detail-value">${DOMPurify.sanitize(marked.parse(s.task || ''))}</div></div>`,
+        `<div class="sa-detail-section"><div class="sa-detail-label">Task</div><div class="sa-detail-value">${escapeHtml(s.task || '')}</div></div>`,
         s.current_step ? `<div class="sa-detail-section"><div class="sa-detail-label">Current Step</div><div class="sa-detail-value">${escapeHtml(s.current_step)}</div></div>` : '',
         s.schedule ? `<div class="sa-detail-section"><div class="sa-detail-label">Schedule</div><div class="sa-detail-value">${escapeHtml(s.schedule)}</div></div>` : '',
         typeof s.progress !== 'undefined' ? `<div class="sa-detail-section"><div class="sa-detail-label">Progress</div><div class="sa-detail-value">${s.progress}%</div></div>` : '',

@@ -237,6 +237,13 @@ def _execute_rule(rule, inbound_message=None):
     session_name = f"subagent-{task_id}"
     additional = rule.get("additional_context", "")
     write_task_json(workspace, task_id, task, context_file, additional)
+    if inbound_message:
+        task_file = f"{workspace}/task.json"
+        with open(task_file) as f:
+            td = json.load(f)
+        td["source"] = "inbound"
+        with open(task_file, "w") as f:
+            json.dump(td, f, indent=2)
     write_status_json(workspace)
     instructions_file = write_instructions(workspace, task_id, task, context_file, additional)
     write_spawn_script(workspace, session_name, instructions_file)
@@ -515,6 +522,17 @@ class AutomationManager:
         tasks = list_subagents()
         result = []
         for t in tasks:
+            status = t["status"]
+            if status.get("source") == "inbound":
+                continue
+            # Check task.json directly for source field
+            task_file = os.path.join(os.path.dirname(__file__), "..", "..", "subagents", t["task_id"], "task.json")
+            try:
+                with open(task_file) as f:
+                    if json.load(f).get("source") == "inbound":
+                        continue
+            except Exception:
+                pass
             status = t["status"]
             result.append({
                 "task_id": t["task_id"],

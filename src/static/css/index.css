@@ -437,6 +437,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     color: #bbb;
     overflow-wrap: anywhere;
     word-break: normal;
+    white-space: pre-wrap;
 }
 .subagent-card .sa-task, .subagent-card .sa-task * { color: #bbb !important; }
     line-height: 1.6;
@@ -847,3 +848,6 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     background: rgba(255, 255, 255, 0.2);
 }
 .mobile-controls.chat-active { display: none !important; }
+.session-item:last-of-type {
+    margin-bottom: 30px;
+}

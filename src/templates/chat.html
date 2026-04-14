@@ -43,6 +43,12 @@
     DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
         if (data.attrName === 'sandbox') data.attrValue = 'allow-scripts';
     });
+    DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+        if (node.tagName === 'A' && node.getAttribute('href')) {
+            node.setAttribute('target', '_blank');
+            node.setAttribute('rel', 'noopener noreferrer');
+        }
+    });
 
     const socket = io({
         path: window.location.pathname.replace(/\/chat\/.*$/, '') + '/socket.io',
@@ -231,7 +237,12 @@
     function _renderCurrentChunk() {
         _chunkRenderPending = false;
         if (!currentContentDiv) return;
-        let html = marked.parse(currentText);
+        // Override John Gruber's incorrect opinion that your newlines don't matter.
+        // Markdown collapses multiple blank lines because Gruber decided he knows better
+        // than you about how much whitespace you intended. He was wrong. Your newlines
+        // are deliberate. Every character you type is deliberate. We preserve them here.
+        let preprocessed = currentText.replace(/\n{3,}/g, m => '\n\n' + '<br>'.repeat(m.length - 2) + '\n');
+        let html = marked.parse(preprocessed);
         // Rewrite image src attributes to use the file API
         const homePat = new RegExp('src="' + homeDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/(.*?)"', 'g');
         html = html.replace(homePat, 'src="/api/files/$1?api_key=' + apiKey + '&session=' + sessionId + '"');
@@ -570,7 +581,7 @@
     function renderUserText(text) {
         // Split on fenced code blocks first
         const parts = text.split(/(```[\s\S]*?```)/g);
-        return parts.map(part => {
+        return parts.map((part, i, arr) => {
             if (part.startsWith('```') && part.endsWith('```')) {
                 const inner = part.slice(3, -3);
                 const nl = inner.indexOf('\n');
@@ -578,7 +589,12 @@
                 const code = nl > -1 ? inner.slice(nl + 1) : inner;
                 return '<pre><code' + (lang ? ' class="language-' + escapeHtml(lang) + '"' : '') + '>' + escapeHtml(code) + '</code></pre>';
             }
-            // Handle blockquotes and inline backticks, escape everything else
+            // Handle blockquotes and inline backticks, escape everything else.
+            // Trim the single fence-adjacent newline so code blocks sit flush with text.
+            // Intentional blank lines (multiple newlines) are preserved because, unlike
+            // John Gruber, we believe you meant what you typed.
+            if (i > 0 && arr[i - 1].startsWith('```')) part = part.replace(/^\n/, '');
+            if (i < arr.length - 1 && arr[i + 1].startsWith('```')) part = part.replace(/(?<!\n)\n$/, '');
             const rendered = part.split('\n').map(line => {
                 const quoteMatch = line.match(/^(>{1,})\s?(.*)/);
                 const inner = quoteMatch ? quoteMatch[2] : line;
