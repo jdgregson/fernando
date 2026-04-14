@@ -47,15 +47,12 @@ const socket = io({
 
 let csrfToken = null;
 let isMutating = false;
-let connectErrors = 0;
-
-socket.io.on('error', () => {
-    if (!isMutating && ++connectErrors >= 3) window.location.reload();
-});
 
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && !socket.connected && !isMutating) {
-        setTimeout(() => { if (!socket.connected) window.location.reload(); }, 2000);
+        fetch('/api/auth_check', { headers: { 'X-API-Key': apiKey } })
+            .then(r => { if (r.status === 401) window.location.reload(); })
+            .catch(() => {});
     }
 });
 
@@ -68,10 +65,9 @@ socket.on('mutating', () => {
 });
 
 socket.on('connected', (data) => {
-    connectErrors = 0;
     csrfToken = data.csrf_token;
     console.log('Connected with CSRF token');
-    onSocketConnected();
+    setTimeout(() => onSocketConnected(), 0);
 });
 
 socket.on('disconnect', () => {

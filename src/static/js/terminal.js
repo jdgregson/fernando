@@ -21,7 +21,7 @@ term2.loadAddon(fitAddon2);
 term2.loadAddon(new WebLinksAddon.WebLinksAddon());
 
 function doFit() {
-    if (document.hidden) return;
+    if (document.hidden || typeof paneTypes === 'undefined') return;
     if (paneTypes[1] === 'terminal') {
         fitAddon1.fit();
         term1.resize(term1.cols + 1, term1.rows);
