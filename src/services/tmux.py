@@ -60,10 +60,10 @@ class TmuxSession:
             cmd = None
         elif session_type == "kiro":
             name = "Kiro"
-            cmd = f"kiro-cli chat --model {kiro_model}"
+            cmd = f"kiro-cli chat --legacy-ui --model {kiro_model}"
         elif session_type == "kiro-unchained":
             name = "Kiro-Unchained"
-            cmd = f"kiro-cli chat -a --model {kiro_model}"
+            cmd = f"kiro-cli chat --legacy-ui -a --model {kiro_model}"
         else:
             name = "Shell"
             cmd = None

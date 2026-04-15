@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 
 TMUX_CMD = ["tmux", "new-session", "-d", "-s"]
-KIRO_CMD = ["kiro-cli", "chat", "--trust-all-tools", "--model claude-opus-4.6"]
+KIRO_CMD = ["kiro-cli", "chat", "--legacy-ui", "--trust-all-tools", "--model claude-opus-4.6"]
 
 SUBAGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "subagents")
 
