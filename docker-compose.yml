@@ -31,6 +31,15 @@ services:
     entrypoint: ["/sbin/init"]
     user: "0"
 
+  fernando-notes:
+    container_name: fernando-notes
+    image: zefhemel/silverbullet
+    ports:
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - ./data/notes:/space
+    restart: unless-stopped
+
 networks:
   default:
     ipam:

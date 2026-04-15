@@ -62,6 +62,21 @@ http {
             proxy_send_timeout 3600s;
         }
 
+        # SilverBullet notes — routed through Flask for API key auth
+        location /notes/ {
+            proxy_pass http://localhost:{{FLASK_PORT}};
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
         # Kasm VNC WebSocket — API key checked via Lua or map
         location /websockify {
             set $api_key_file '{{API_KEY}}';

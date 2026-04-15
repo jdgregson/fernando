@@ -112,6 +112,14 @@ window.addEventListener('message', (e) => {
             }
         }
     }
+    if (e.data && e.data.type === 'notes-focus') {
+        for (const paneNum of [1, 2]) {
+            if (paneTypes[paneNum] === 'browser') {
+                const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); highlightSidebarItem('notes'); return; }
+            }
+        }
+    }
     if (e.data && e.data.action === 'enable_audio') {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {

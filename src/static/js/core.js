@@ -62,6 +62,14 @@ function emitWithCsrf(event, data = {}) {
 
 socket.on('mutating', () => {
     isMutating = true;
+    // Clear notes iframe to prevent stale auth alerts during restart
+    [1, 2].forEach(n => {
+        const b = document.getElementById('browser' + n);
+        if (b) {
+            const iframe = b.querySelector('iframe');
+            if (iframe && iframe.src && iframe.src.includes('/notes/')) iframe.src = 'about:blank';
+        }
+    });
 });
 
 socket.on('connected', (data) => {

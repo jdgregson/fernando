@@ -38,6 +38,9 @@
                     <span class="session-name">Desktop</span>
                     <button class="close-btn" onclick="event.stopPropagation(); restartDesktop()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg></button>
                 </div>
+                <div class="session-item" data-session="notes" onclick="toggleNotes(); if(window.innerWidth<=500) document.getElementById('sidebar').classList.remove('open')">
+                    <span class="session-name">Notes</span>
+                </div>
                 {% for session in sessions %}
                 <div class="session-item" data-session="{{ session }}">
                     <span class="session-name">{{ session }}</span>

@@ -53,6 +53,8 @@ function onSocketConnected() {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
+        } else if (urlSession === 'notes') {
+            toggleNotes();
         } else if (urlSession) {
             attachSession(urlSession);
         } else {
@@ -64,6 +66,8 @@ function onSocketConnected() {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
+            } else if (urlSession2 === 'notes') {
+                toggleNotes();
             } else if (urlSession2) {
                 attachSession(urlSession2);
             }
@@ -142,6 +146,44 @@ function toggleDesktop() {
     updateKbdBtn();
 }
 
+// --- Notes ---
+function ensureNotesIframe(browser) {
+    let iframe = browser.querySelector('iframe');
+    if (!iframe || !iframe.src.includes('/notes/')) {
+        browser.innerHTML = '';
+        iframe = document.createElement('iframe');
+        iframe.src = '/notes/?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
+        iframe.style.cssText = 'width:100%;height:100%;border:none';
+        browser.appendChild(iframe);
+    }
+    return iframe;
+}
+
+function toggleNotes() {
+    const activePane = activeTerminal;
+    const browser = document.getElementById(`browser${activePane}`);
+    const terminal = document.getElementById(`terminal${activePane}`);
+    const currentIframe = browser.querySelector('iframe');
+    const isNotes = paneTypes[activePane] === 'browser' && currentIframe && currentIframe.src.includes('/notes/');
+    if (isNotes) {
+        paneTypes[activePane] = 'terminal';
+        terminal.classList.remove('hidden');
+        browser.classList.add('hidden');
+        setTimeout(doFit, 100);
+    } else {
+        paneTypes[activePane] = 'browser';
+        terminal.classList.add('hidden');
+        browser.classList.remove('hidden');
+        if (activePane === 1) currentSession1 = null;
+        else currentSession2 = null;
+        browser.innerHTML = '';
+        ensureNotesIframe(browser);
+    }
+    highlightSidebarItem('notes');
+    syncUrlParams();
+    updateKbdBtn();
+}
+
 function restartDesktop() {
     showConfirm('Restart the desktop container? This will kill all running desktop applications.').then(confirmed => {
         if (!confirmed) return;
@@ -200,6 +242,8 @@ function updateSessionList(sessions, chatSessions) {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
+        } else if (urlSession === 'notes') {
+            toggleNotes();
         } else if (urlSession && sessions.includes(urlSession)) {
             attachSession(urlSession);
         } else if (sessions.length > 0) {
@@ -212,6 +256,8 @@ function updateSessionList(sessions, chatSessions) {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
+            } else if (urlSession2 === 'notes') {
+                toggleNotes();
             } else if (urlSession2 && sessions.includes(urlSession2)) {
                 attachSession(urlSession2);
             }
@@ -249,6 +295,20 @@ function updateSessionList(sessions, chatSessions) {
         if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
     });
     sessionList.appendChild(desktopItem);
+
+    // Notes item
+    const notesItem = document.createElement('div');
+    notesItem.className = 'session-item';
+    notesItem.dataset.session = 'notes';
+    const notesName = document.createElement('span');
+    notesName.className = 'session-name';
+    notesName.textContent = 'Notes';
+    notesItem.appendChild(notesName);
+    notesItem.addEventListener('click', function() {
+        toggleNotes();
+        if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+    });
+    sessionList.appendChild(notesItem);
 
     // Terminal sessions
     sessions.forEach(session => {
@@ -396,6 +456,7 @@ socket.on('session_closed', () => { emitWithCsrf('get_sessions'); });
 // --- Attach / Detach ---
 function attachSession(sessionName) {
     if (sessionName === 'desktop') { toggleDesktop(); return; }
+    if (sessionName === 'notes') { toggleNotes(); return; }
     if (paneTypes[activeTerminal] === 'browser') {
         const browser = document.getElementById(`browser${activeTerminal}`);
         const terminal = document.getElementById(`terminal${activeTerminal}`);
@@ -420,6 +481,7 @@ function getBrowserPaneSession(pane) {
     if (iframe && iframe.src) {
         const m = iframe.src.match(/\/chat\/([^/?#]+)/);
         if (m) return 'chat:' + m[1];
+        if (iframe.src.includes('/notes/')) return 'notes';
     }
     return 'desktop';
 }

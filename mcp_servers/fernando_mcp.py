@@ -252,6 +252,72 @@ def _web_fetch(url, mode="truncated", search_terms=None, max_chars=8000):
     return text
 
 
+_NOTES_DIR = os.path.join(_project_root, "data", "notes")
+_NOTES_API = "http://localhost:3001/.fs"
+
+
+def _notes_list():
+    if not os.path.isdir(_NOTES_DIR):
+        return {"pages": []}
+    pages = []
+    for root, dirs, files in os.walk(_NOTES_DIR):
+        for f in sorted(files):
+            if f.endswith(".md"):
+                rel = os.path.relpath(os.path.join(root, f), _NOTES_DIR)
+                pages.append(rel[:-3])  # strip .md
+    return {"pages": pages}
+
+
+def _notes_read(page):
+    try:
+        encoded = urllib.parse.quote(page + ".md", safe="/")
+        resp = urllib.request.urlopen(f"{_NOTES_API}/{encoded}", timeout=5)
+        return {"page": page, "content": resp.read().decode("utf-8")}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"error": f"Page not found: {page}"}
+        return {"error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _notes_write(page, content):
+    try:
+        encoded = urllib.parse.quote(page + ".md", safe="/")
+        data = content.encode("utf-8")
+        req = urllib.request.Request(
+            f"{_NOTES_API}/{encoded}",
+            data=data,
+            method="PUT",
+            headers={"Content-Type": "text/markdown"},
+        )
+        urllib.request.urlopen(req, timeout=5)
+        return {"status": "written", "page": page}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _notes_search(query):
+    if not os.path.isdir(_NOTES_DIR):
+        return {"results": []}
+    results = []
+    q_lower = query.lower()
+    for root, dirs, files in os.walk(_NOTES_DIR):
+        for f in sorted(files):
+            if not f.endswith(".md"):
+                continue
+            fpath = os.path.join(root, f)
+            page = os.path.relpath(fpath, _NOTES_DIR)[:-3]
+            try:
+                with open(fpath, "r") as fh:
+                    for i, line in enumerate(fh, 1):
+                        if q_lower in line.lower():
+                            results.append({"page": page, "line": i, "text": line.rstrip()})
+            except Exception:
+                continue
+    return {"query": query, "results": results}
+
+
 app = Server("fernando")
 
 
@@ -582,6 +648,45 @@ async def list_tools() -> list[Tool]:
                 "required": ["url"],
             },
         ),
+        Tool(
+            name="notes_list",
+            description="List all pages in the SilverBullet notes space. Returns page names (without .md extension).",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="notes_read",
+            description="Read a note page by name. Returns the full markdown content.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page": {"type": "string", "description": "Page name (e.g. 'index', 'Fernando Theme')"},
+                },
+                "required": ["page"],
+            },
+        ),
+        Tool(
+            name="notes_write",
+            description="Create or overwrite a note page. Content is markdown.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page": {"type": "string", "description": "Page name (e.g. 'Research/AWS Bedrock')"},
+                    "content": {"type": "string", "description": "Markdown content"},
+                },
+                "required": ["page", "content"],
+            },
+        ),
+        Tool(
+            name="notes_search",
+            description="Search notes by keyword (grep). Returns matching lines with page names.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Search term"},
+                },
+                "required": ["query"],
+            },
+        ),
     ]
 
 
@@ -738,6 +843,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"url": arguments["url"], "content": text}
         except Exception as e:
             result = {"error": str(e)}
+    elif name == "notes_list":
+        result = _notes_list()
+    elif name == "notes_read":
+        result = _notes_read(arguments["page"])
+    elif name == "notes_write":
+        result = _notes_write(arguments["page"], arguments["content"])
+    elif name == "notes_search":
+        result = _notes_search(arguments["query"])
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

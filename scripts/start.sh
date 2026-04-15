@@ -76,10 +76,15 @@ chmod 600 nginx.conf
 
 # Ensure desktop data dir exists before Docker creates it as root
 mkdir -p "$REPO_DIR/data/desktop"
+mkdir -p "$REPO_DIR/data/notes"
 
 # Start Kasm desktop container with VNC_PW
 echo "Starting Kasm desktop container..."
 docker compose up -d fernando-desktop
+
+# Start SilverBullet notes container
+echo "Starting SilverBullet notes container..."
+docker compose up -d fernando-notes
 
 # Wait for Kasm to be ready
 echo "Waiting for Kasm to be ready..."

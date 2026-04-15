@@ -194,6 +194,10 @@ chown -R "$FERNANDO_USER:$FERNANDO_USER" "$FERNANDO_HOME"
 gecho "Building Kasm desktop container..."
 sudo -u "$FERNANDO_USER" bash -c "cd $INSTALL_DIR && docker compose build"
 
+# Pull SilverBullet image
+gecho "Pulling SilverBullet image..."
+sudo -u "$FERNANDO_USER" docker pull zefhemel/silverbullet
+
 gecho ""
 gecho "========================================="
 gecho "  Fernando installation complete!"

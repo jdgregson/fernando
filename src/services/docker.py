@@ -9,6 +9,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 class DockerService:
     def __init__(self):
         self.kasm_url = "https://localhost:6901"
+        self.notes_url = "http://localhost:3001"
 
     def is_kasm_running(self):
         try:
@@ -17,6 +18,16 @@ class DockerService:
                 capture_output=True, text=True,
             )
             return "fernando-desktop" in result.stdout
+        except:
+            return False
+
+    def is_notes_running(self):
+        try:
+            result = subprocess.run(
+                ["docker", "ps", "--filter", "name=fernando-notes", "--format", "{{.Names}}"],
+                capture_output=True, text=True,
+            )
+            return "fernando-notes" in result.stdout
         except:
             return False
 
