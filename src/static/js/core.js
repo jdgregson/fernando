@@ -67,7 +67,10 @@ socket.on('mutating', () => {
         const b = document.getElementById('browser' + n);
         if (b) {
             const iframe = b.querySelector('iframe');
-            if (iframe && iframe.src && iframe.src.includes('/notes/')) iframe.src = 'about:blank';
+            if (iframe && iframe.src && iframe.src.includes('/notes/')) {
+                iframe.removeAttribute('src');
+                iframe.srcdoc = '<html style="background:#0d2848"></html>';
+            }
         }
     });
 });

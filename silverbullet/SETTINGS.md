@@ -17,6 +17,7 @@ html[data-theme="dark"] {
     --editor-code-color: #d4d4d4;
     --editor-code-border-color: #143151;
     --editor-highlight-background-color: #143151;
+    --editor-widget-background-color: rgb(17 45 80);
     --ui-border-color: #143151;
     --panel-border-color: rgb(20 49 81);
     --rhs-border-color: rgb(20 49 81);

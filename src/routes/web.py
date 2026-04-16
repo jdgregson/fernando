@@ -284,7 +284,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
   function ensureStyles(){
     if(document.getElementById('f-styles'))return;
     var s=document.createElement('style');s.id='f-styles';
-    s.textContent='#sb-main .sb-panel{flex:1 1 50%!important;min-width:0!important}#sb-main #sb-editor{flex:1 1 50%!important;min-width:0!important}#sb-main .cm-editor .sb-header-inside{text-indent:0!important}.cm-editor .cm-content{font-size:14px!important}.sb-top{font-size:13px!important}.sb-top .sb-mini-editor .cm-content{font-size:13px!important}#f-bc{font-size:13px!important}#sb-root #sb-top .main .inner{max-width:100%}@media (max-width:600px){#sb-root #sb-main .sb-panel{flex:0 0 100%!important;min-width:100%!important}#sb-root #sb-top .main .inner .wrapper{padding:0 10px}#sb-root #sb-main .cm-editor .cm-content{padding:5px 10px}}.panel[style="flex: 1 1 0%;"]{display:none}';
+    s.textContent='#sb-main .sb-panel{flex:1 1 50%!important;min-width:0!important}#sb-main #sb-editor{flex:1 1 50%!important;min-width:0!important}#sb-main .cm-editor .sb-header-inside{text-indent:0!important}.cm-editor .cm-content{font-size:14px!important}.sb-top{font-size:13px!important}.sb-top .sb-mini-editor .cm-content{font-size:13px!important}#f-bc{font-size:13px!important}#sb-root #sb-top .main .inner{max-width:100%}#sb-root #sb-main .cm-editor .cm-content{padding:20px 20px}@media (max-width:600px){#sb-root #sb-main .sb-panel{flex:0 0 100%!important;min-width:100%!important}#sb-root #sb-top .main .inner .wrapper{padding:0 10px}#sb-root #sb-main .cm-editor .cm-content{padding:10px 10px!important}}.panel[style="flex: 1 1 0%;"]{display:none}';
     document.head.appendChild(s);
     // Inject CSS into panel iframes (for Atlas graph SVG fix)
     var panelCSS='text[fill="#0d2848"]{fill:#5a9fd4!important}';
@@ -392,7 +392,8 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 }
 .panel[style="flex: 1 1 0%;"] { display: none; }
 </style>"""
-            content = content.replace("<head>", "<head>" + idb_fix + sw_kill + focus_script + breadcrumb_script + toc_refresh_script + graph_btn_script, 1)
+            content = content.replace('<html ', '<html style="background:#0d2848" ', 1)
+            content = content.replace("<head>", "<head><style>html,body{background:#0d2848!important}</style>" + idb_fix + sw_kill + focus_script + breadcrumb_script + toc_refresh_script + graph_btn_script, 1)
             content = content.encode("utf-8")
 
         response = Response(content, resp.status_code, response_headers)

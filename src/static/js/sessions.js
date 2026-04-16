@@ -151,9 +151,10 @@ function ensureNotesIframe(browser) {
     let iframe = browser.querySelector('iframe');
     if (!iframe || !iframe.src.includes('/notes/')) {
         browser.innerHTML = '';
+        browser.style.background = '#0d2848';
         iframe = document.createElement('iframe');
         iframe.src = '/notes/?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
-        iframe.style.cssText = 'width:100%;height:100%;border:none';
+        iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848;color-scheme:dark';
         iframe.allow = 'storage-access';
         browser.appendChild(iframe);
     }
