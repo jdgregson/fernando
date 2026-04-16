@@ -198,6 +198,10 @@ sudo -u "$FERNANDO_USER" bash -c "cd $INSTALL_DIR && docker compose build"
 gecho "Pulling SilverBullet image..."
 sudo -u "$FERNANDO_USER" docker pull zefhemel/silverbullet
 
+# Symlink SilverBullet defaults into notes data directory
+mkdir -p "$INSTALL_DIR/data/notes"
+cp -n "$INSTALL_DIR/silverbullet/SETTINGS.md" "$INSTALL_DIR/data/notes/SETTINGS.md"
+
 gecho ""
 gecho "========================================="
 gecho "  Fernando installation complete!"
