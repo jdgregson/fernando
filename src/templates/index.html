@@ -38,9 +38,6 @@
                     <span class="session-name">Desktop</span>
                     <button class="close-btn" onclick="event.stopPropagation(); restartDesktop()"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg></button>
                 </div>
-                <div class="session-item" data-session="notes" onclick="toggleNotes(); if(window.innerWidth<=500) document.getElementById('sidebar').classList.remove('open')">
-                    <span class="session-name">Notes</span>
-                </div>
                 {% for session in sessions %}
                 <div class="session-item" data-session="{{ session }}">
                     <span class="session-name">{{ session }}</span>
@@ -81,23 +78,39 @@
             <div class="modal-body">
                 <div class="session-cards">
                     <div class="session-card" onclick="createSessionType('shell')">
-                        <div class="session-card-title">Shell</div>
+                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-4px;margin-right:6px"><polyline points="2 4 6 8 2 12"/><line x1="8" y1="12" x2="14" y2="12"/></svg>Shell</div>
                         <div class="session-card-desc">Standard bash shell</div>
                     </div>
-                    <div class="session-card" onclick="createSessionType('kiro')">
-                        <div class="session-card-title">Kiro</div>
-                        <div class="session-card-desc">Kiro CLI interactive mode</div>
-                    </div>
                     <div class="session-card" onclick="createSessionType('kiro-unchained')">
-                        <div class="session-card-title">Kiro Unchained</div>
+                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-4px;margin-right:6px"><circle cx="8" cy="5" r="3"/><path d="M3 14c0-3 2-5 5-5s5 2 5 5"/></svg>Kiro CLI</div>
                         <div class="session-card-desc">Kiro CLI chat agent mode</div>
                     </div>
                     <div class="session-card" onclick="createChatSession()">
-                        <div class="session-card-title">Kiro Chat</div>
+                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>Kiro Chat</div>
                         <div class="session-card-desc">Graphical chat UI (ACP)</div>
+                    </div>
+                    <div class="session-card" id="notebookCard" onclick="showNotebookPicker()">
+                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-4px;margin-right:6px"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="1" x2="6" y2="15"/><line x1="1" y1="4" x2="3" y2="4"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="1" y1="12" x2="3" y2="12"/></svg>Notebook</div>
+                        <div class="session-card-desc">SilverBullet notes</div>
                     </div>
                 </div>
                 <button class="modal-close" onclick="closeNewSessionModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="notebookPickerModal" onclick="closeNotebookPicker()">
+        <div class="modal-content" onclick="event.stopPropagation()" style="max-width:340px">
+            <div class="modal-header">Open Notebook</div>
+            <div class="modal-body">
+                <select id="notebookSelect" style="width:100%;padding:8px;background:#2d2d2d;color:#d4d4d4;border:1px solid #3465a3;border-radius:4px;font-size:14px;margin-bottom:12px">
+                    <option value="">Loading...</option>
+                </select>
+                <div style="display:flex;gap:8px">
+                    <button class="modal-close" style="flex:1" onclick="openSelectedNotebook()">Open</button>
+                    <button class="modal-close" style="flex:1;background:#1e3a5f" onclick="promptCreateNotebook()">+ New</button>
+                </div>
+                <button class="modal-close" style="margin-top:8px" onclick="closeNotebookPicker()">Cancel</button>
             </div>
         </div>
     </div>

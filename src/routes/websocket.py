@@ -61,7 +61,9 @@ def register_handlers(socketio):
             return
         sessions = tmux_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
-        emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions})
+        from src.services.notebooks import list_notebooks
+        running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
+        emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks})
 
     @socketio.on("kasm_ws")
     def handle_kasm_ws(data):
@@ -238,7 +240,73 @@ def register_handlers(socketio):
         except Exception as e:
             emit("desktop_restart_error", {"error": str(e)})
 
-    # --- Automation handlers (unified subagents + workflows) ---
+    # --- Notebook handlers ---
+
+    @socketio.on("list_notebooks")
+    def handle_list_notebooks(data={}):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services.notebooks import list_notebooks
+        emit("notebooks_list", {"notebooks": list_notebooks()})
+
+    @socketio.on("create_notebook")
+    def handle_create_notebook(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        name = data.get("name", "").strip().lower()
+        from src.services.notebooks import create_notebook
+        nb, err = create_notebook(name)
+        if err:
+            emit("notebook_error", {"error": err})
+        else:
+            emit("notebook_created", {"notebook": nb})
+
+    @socketio.on("delete_notebook")
+    def handle_delete_notebook(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        name = data.get("name", "")
+        from src.services.notebooks import delete_notebook
+        err = delete_notebook(name)
+        if err:
+            emit("notebook_error", {"error": err})
+        else:
+            emit("notebook_deleted", {"name": name})
+
+    @socketio.on("start_notebook")
+    def handle_start_notebook(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        name = data.get("name", "")
+        logger.info(f"start_notebook requested: name={name}")
+        client_sid = request.sid
+        from src.services.notebooks import start_notebook
+        def _start():
+            logger.info(f"start_notebook background task running for '{name}'")
+            info, err = start_notebook(name)
+            if err:
+                logger.error(f"start_notebook failed: {err}")
+                socketio.emit("notebook_error", {"error": err}, room=client_sid)
+            else:
+                logger.info(f"start_notebook succeeded: {name} on port {info['port']}")
+                socketio.emit("notebook_started", {"name": name, "port": info["port"]}, room=client_sid)
+        socketio.start_background_task(_start)
+
+    @socketio.on("stop_notebook")
+    def handle_stop_notebook(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        name = data.get("name", "")
+        from src.services.notebooks import stop_notebook
+        stop_notebook(name)
+        emit("notebook_stopped", {"name": name})
+
+    # --- Workflow handlers ---
 
     @socketio.on("list_subagents")
     def list_subagents(data={}):

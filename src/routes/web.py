@@ -178,9 +178,9 @@ def kasm_proxy(path):
         return f"Kasm desktop error: {str(e)}", 503
 
 
-@bp.route("/notes/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-@bp.route("/notes/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
-def notes_proxy(path):
+@bp.route("/notes/<notebook>/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+@bp.route("/notes/<notebook>/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+def notes_proxy(notebook, path):
     # Auth: API key in URL (initial load) OR notes_auth cookie (sub-resources)
     api_key_valid = _check_api_key()
     cookie_valid = False
@@ -195,8 +195,20 @@ def notes_proxy(path):
     if not api_key_valid and not cookie_valid:
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
 
+    # Validate notebook name and get port
+    import re as _re
+    if not _re.match(r'^[a-z0-9][a-z0-9_-]{0,62}$', notebook):
+        return json.dumps({"error": "Invalid notebook name"}), 400, {"Content-Type": "application/json"}
+
+    from src.services.notebooks import get_notebook_port
+    port = get_notebook_port(notebook)
+    if not port:
+        return json.dumps({"error": f"Notebook '{notebook}' is not running"}), 503, {"Content-Type": "application/json"}
+
+    base_href = f"/notes/{notebook}/"
+
     try:
-        url = f"http://localhost:3001/{path}"
+        url = f"http://localhost:{port}/{path}"
         if request.query_string:
             qs = request.query_string.decode("utf-8")
             # Strip api_key from forwarded query string
@@ -233,7 +245,7 @@ def notes_proxy(path):
         # Also disable service worker registration (fails behind reverse proxy, not needed)
         if "text/html" in content_type:
             content = content.decode("utf-8", errors="ignore")
-            content = content.replace('<base href="/"', '<base href="/notes/"', 1)
+            content = content.replace('<base href="/"', f'<base href="{base_href}"', 1)
             sw_kill = "<script>Object.defineProperty(navigator,'serviceWorker',{get:()=>({register:()=>Promise.resolve(),ready:Promise.resolve(),addEventListener:()=>{},removeEventListener:()=>{},controller:null})});</script>"
             # iOS PWA iframes: IndexedDB is completely unavailable.
             # iOS PWA iframes: Safari blocks IndexedDB in iframes. Use fake-indexeddb,
@@ -259,7 +271,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 })();
 </script>
 <script src="//""" + request.host + """/static/js/fake-idb-persist.js"></script>"""
-            focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
+            focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));window.addEventListener('blur',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
             # Clickable breadcrumbs for SilverBullet.
             #
             # SilverBullet's developers made the page path in the top bar an editable
@@ -279,22 +291,13 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
             # you actually want to type a path like a caveman.
             breadcrumb_script = """<script>
 (function(){
+  var nbName='""" + notebook + """';
   var lastPage='',bc=null;
   // Inject persistent CSS — SilverBullet wipes <style> tags from <head> on boot
   function ensureStyles(){
     if(document.getElementById('f-styles'))return;
     var s=document.createElement('style');s.id='f-styles';
     s.textContent='#sb-main .sb-panel{flex:1 1 50%!important;min-width:0!important}#sb-main #sb-editor{flex:1 1 50%!important;min-width:0!important}#sb-main .cm-editor .sb-header-inside{text-indent:0!important}.cm-editor .cm-content{font-size:14px!important}.sb-top{font-size:13px!important}.sb-top .sb-mini-editor .cm-content{font-size:13px!important}#f-bc{font-size:13px!important}#sb-root #sb-top .main .inner{max-width:100%}#sb-root #sb-main .cm-editor .cm-content{padding:20px 20px}@media (max-width:600px){#sb-root #sb-main .sb-panel{flex:0 0 100%!important;min-width:100%!important}#sb-root #sb-top .main .inner .wrapper{padding:0 10px}#sb-root #sb-main .cm-editor .cm-content{padding:10px 10px!important}}.panel[style="flex: 1 1 0%;"]{display:none}';
-    document.head.appendChild(s);
-    // Inject CSS into panel iframes (for Atlas graph SVG fix)
-    var panelCSS='text[fill="#0d2848"]{fill:#5a9fd4!important}';
-    new MutationObserver(function(){
-      document.querySelectorAll('.sb-panel iframe').forEach(function(f){
-        if(f._fStyled)return;f._fStyled=true;
-        f.addEventListener('load',function(){try{var d=f.contentDocument;if(d){var st=d.createElement('style');st.textContent=panelCSS;d.head.appendChild(st)}}catch(e){}});
-        try{var d=f.contentDocument;if(d&&d.head){var st=d.createElement('style');st.textContent=panelCSS;d.head.appendChild(st)}}catch(e){}
-      });
-    }).observe(document.body,{childList:true,subtree:true});
     document.head.appendChild(s);
   }
   function nav(path){
@@ -312,10 +315,10 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
       bc.style.cssText='display:none;align-items:center;gap:0;height:100%;padding:0 4px;font:14px/1 ui-sans-serif,system-ui,sans-serif';
       el.parentNode.insertBefore(bc,el)}
     if(parts.length<=1){el.style.display='none';bc.style.display='flex';bc.innerHTML='';
-      var lbl=document.createElement('span');lbl.textContent=val==='index'?'Notes':val;
+      var lbl=document.createElement('span');lbl.textContent=val==='index'?nbName:val;
       lbl.style.cssText='color:#d4d4d4';bc.appendChild(lbl);return}
     el.style.display='none';bc.style.display='flex';bc.innerHTML='';
-    var home=document.createElement('a');home.textContent='Notes';home.href='#';
+    var home=document.createElement('a');home.textContent=nbName;home.href='#';
     home.style.cssText='color:#5a9fd4;text-decoration:none;cursor:pointer';
     home.onclick=function(e){e.preventDefault();nav('index')};
     bc.appendChild(home);
@@ -398,7 +401,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 
         response = Response(content, resp.status_code, response_headers)
         if api_key_valid and request.args.get("api_key"):
-            response.set_cookie("notes_auth", request.args["api_key"], httponly=True, samesite="Strict", path="/notes/")
+            response.set_cookie("notes_auth", request.args["api_key"], httponly=True, samesite="Strict", path=f"/notes/{notebook}/")
         return response
     except Exception as e:
         return f"Notes error: {str(e)}", 503

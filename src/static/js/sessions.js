@@ -53,8 +53,8 @@ function onSocketConnected() {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
-        } else if (urlSession === 'notes') {
-            toggleNotes();
+        } else if (urlSession && urlSession.startsWith('notebook:')) {
+            openNotebook(urlSession.slice(9));
         } else if (urlSession) {
             attachSession(urlSession);
         } else {
@@ -66,8 +66,8 @@ function onSocketConnected() {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
-            } else if (urlSession2 === 'notes') {
-                toggleNotes();
+            } else if (urlSession2 && urlSession2.startsWith('notebook:')) {
+                openNotebook(urlSession2.slice(9));
             } else if (urlSession2) {
                 attachSession(urlSession2);
             }
@@ -129,11 +129,13 @@ function toggleDesktop() {
     const isDesktop = paneTypes[activePane] === 'browser' && currentIframe && currentIframe.src.includes('/kasm/');
     if (isDesktop) {
         paneTypes[activePane] = 'terminal';
+        paneNotebook[activePane] = null;
         terminal.classList.remove('hidden');
         browser.classList.add('hidden');
         setTimeout(doFit, 100);
     } else {
         paneTypes[activePane] = 'browser';
+        paneNotebook[activePane] = null;
         terminal.classList.add('hidden');
         browser.classList.remove('hidden');
         if (activePane === 1) currentSession1 = null;
@@ -146,44 +148,117 @@ function toggleDesktop() {
     updateKbdBtn();
 }
 
-// --- Notes ---
-function ensureNotesIframe(browser) {
-    let iframe = browser.querySelector('iframe');
-    if (!iframe || !iframe.src.includes('/notes/')) {
-        browser.innerHTML = '';
-        browser.style.background = '#0d2848';
-        iframe = document.createElement('iframe');
-        iframe.src = '/notes/?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
-        iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
-        iframe.allow = 'storage-access';
-        browser.appendChild(iframe);
-    }
+// --- Notes (Notebooks) ---
+// Track which notebook is open in each pane: paneNotebook[1] = 'default', etc.
+let paneNotebook = { 1: null, 2: null };
+
+function ensureNotebookIframe(browser, notebook) {
+    browser.innerHTML = '';
+    browser.style.background = '#0d2848';
+    const iframe = document.createElement('iframe');
+    iframe.src = `/notes/${encodeURIComponent(notebook)}/?api_key=` + encodeURIComponent(window.FERNANDO_API_KEY);
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
+    iframe.allow = 'storage-access';
+    browser.appendChild(iframe);
     return iframe;
 }
 
-function toggleNotes() {
+function openNotebook(notebook) {
     const activePane = activeTerminal;
     const browser = document.getElementById(`browser${activePane}`);
     const terminal = document.getElementById(`terminal${activePane}`);
-    const currentIframe = browser.querySelector('iframe');
-    const isNotes = paneTypes[activePane] === 'browser' && currentIframe && currentIframe.src.includes('/notes/');
-    if (isNotes) {
-        paneTypes[activePane] = 'terminal';
-        terminal.classList.remove('hidden');
-        browser.classList.add('hidden');
-        setTimeout(doFit, 100);
-    } else {
-        paneTypes[activePane] = 'browser';
-        terminal.classList.add('hidden');
-        browser.classList.remove('hidden');
-        if (activePane === 1) currentSession1 = null;
-        else currentSession2 = null;
-        ensureNotesIframe(browser);
-    }
-    highlightSidebarItem('notes');
+    paneTypes[activePane] = 'browser';
+    paneNotebook[activePane] = notebook;
+    terminal.classList.add('hidden');
+    browser.classList.remove('hidden');
+    if (activePane === 1) currentSession1 = null;
+    else currentSession2 = null;
+    browser.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#5a9fd4;font-family:sans-serif">Starting notebook...</div>';
+    highlightSidebarItem('notebook:' + notebook);
     syncUrlParams();
     updateKbdBtn();
+    // Start the container (if already running, backend returns immediately)
+    emitWithCsrf('start_notebook', { name: notebook });
+    emitWithCsrf('get_sessions');
 }
+
+function showNotebookPicker() {
+    closeNewSessionModal();
+    document.getElementById('notebookPickerModal').classList.add('open');
+    emitWithCsrf('list_notebooks');
+}
+
+function closeNotebookPicker() {
+    document.getElementById('notebookPickerModal').classList.remove('open');
+}
+
+function openSelectedNotebook() {
+    const sel = document.getElementById('notebookSelect');
+    const name = sel.value;
+    if (!name) return;
+    closeNotebookPicker();
+    openNotebook(name);
+}
+
+function promptCreateNotebook() {
+    showPrompt('Notebook name (lowercase, hyphens/underscores):').then(name => {
+        if (!name) return;
+        name = name.trim().toLowerCase();
+        emitWithCsrf('create_notebook', { name: name });
+    });
+}
+
+socket.on('notebooks_list', (data) => {
+    const sel = document.getElementById('notebookSelect');
+    sel.innerHTML = '';
+    (data.notebooks || []).forEach(nb => {
+        const opt = document.createElement('option');
+        opt.value = nb.name;
+        opt.textContent = nb.name + (nb.running ? ' (running)' : '');
+        sel.appendChild(opt);
+    });
+    if (sel.options.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No notebooks — create one';
+        sel.appendChild(opt);
+    }
+});
+
+socket.on('notebook_created', (data) => {
+    // Refresh the picker list
+    emitWithCsrf('list_notebooks');
+});
+
+socket.on('notebook_started', (data) => {
+    // Find the pane waiting for this notebook and load the iframe
+    for (const pn of [1, 2]) {
+        if (paneNotebook[pn] === data.name && paneTypes[pn] === 'browser') {
+            const browser = document.getElementById(`browser${pn}`);
+            ensureNotebookIframe(browser, data.name);
+            break;
+        }
+    }
+    highlightSidebarItem('notebook:' + data.name);
+    syncUrlParams();
+});
+
+socket.on('notebook_error', (data) => {
+    showAlert('Notebook error: ' + data.error);
+    // Revert pane if it was waiting
+    for (const pn of [1, 2]) {
+        if (paneTypes[pn] === 'browser' && paneNotebook[pn]) {
+            const browser = document.getElementById(`browser${pn}`);
+            if (browser.querySelector('iframe') === null) {
+                paneTypes[pn] = 'terminal';
+                paneNotebook[pn] = null;
+                const terminal = document.getElementById(`terminal${pn}`);
+                terminal.classList.remove('hidden');
+                browser.classList.add('hidden');
+            }
+        }
+    }
+});
 
 function restartDesktop() {
     showConfirm('Restart the desktop container? This will kill all running desktop applications.').then(confirmed => {
@@ -231,7 +306,7 @@ function highlightSidebarItem(sessionKey) {
 
 let sessionListInitialized = false;
 let lastSessionsKey = '';
-function updateSessionList(sessions, chatSessions) {
+function updateSessionList(sessions, chatSessions, data) {
     const sessionList = document.getElementById('sessionList');
 
     if (!currentSession1 && paneTypes[1] !== 'browser' && !window._urlParamsProcessed) {
@@ -243,8 +318,8 @@ function updateSessionList(sessions, chatSessions) {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
-        } else if (urlSession === 'notes') {
-            toggleNotes();
+        } else if (urlSession && urlSession.startsWith('notebook:')) {
+            openNotebook(urlSession.slice(9));
         } else if (urlSession && sessions.includes(urlSession)) {
             attachSession(urlSession);
         } else if (sessions.length > 0) {
@@ -257,8 +332,8 @@ function updateSessionList(sessions, chatSessions) {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
-            } else if (urlSession2 === 'notes') {
-                toggleNotes();
+            } else if (urlSession2 && urlSession2.startsWith('notebook:')) {
+                openNotebook(urlSession2.slice(9));
             } else if (urlSession2 && sessions.includes(urlSession2)) {
                 attachSession(urlSession2);
             }
@@ -271,7 +346,7 @@ function updateSessionList(sessions, chatSessions) {
     }
 
     const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name);
-    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort());
+    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort());
     if (sessionListInitialized && lastSessionsKey === newKey) return;
     sessionListInitialized = true;
     lastSessionsKey = newKey;
@@ -284,7 +359,7 @@ function updateSessionList(sessions, chatSessions) {
     desktopItem.dataset.session = 'desktop';
     const desktopName = document.createElement('span');
     desktopName.className = 'session-name';
-    desktopName.textContent = 'Desktop';
+    desktopName.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><rect x="1" y="2" width="14" height="10" rx="1"/><line x1="5" y1="14" x2="11" y2="14"/><line x1="8" y1="12" x2="8" y2="14"/></svg>Desktop';
     const restartBtn = document.createElement('button');
     restartBtn.className = 'close-btn';
     restartBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg>';
@@ -297,19 +372,46 @@ function updateSessionList(sessions, chatSessions) {
     });
     sessionList.appendChild(desktopItem);
 
-    // Notes item
-    const notesItem = document.createElement('div');
-    notesItem.className = 'session-item';
-    notesItem.dataset.session = 'notes';
-    const notesName = document.createElement('span');
-    notesName.className = 'session-name';
-    notesName.textContent = 'Notes';
-    notesItem.appendChild(notesName);
-    notesItem.addEventListener('click', function() {
-        toggleNotes();
-        if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+    // Notebook items (running containers)
+    const runningNotebooks = data.running_notebooks || [];
+    runningNotebooks.forEach(nb => {
+        const nbItem = document.createElement('div');
+        nbItem.className = 'session-item';
+        nbItem.dataset.session = 'notebook:' + nb;
+        const nbName = document.createElement('span');
+        nbName.className = 'session-name';
+        nbName.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-1px;margin-right:4px"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="1" x2="6" y2="15"/><line x1="1" y1="4" x2="3" y2="4"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="1" y1="12" x2="3" y2="12"/></svg>' + nb;
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'close-btn';
+        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+        closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            // Close the pane and stop the container
+            for (const pn of [1, 2]) {
+                if (paneNotebook[pn] === nb) {
+                    paneTypes[pn] = 'terminal';
+                    paneNotebook[pn] = null;
+                    const terminal = document.getElementById(`terminal${pn}`);
+                    const browser = document.getElementById(`browser${pn}`);
+                    terminal.classList.remove('hidden');
+                    browser.classList.add('hidden');
+                    browser.innerHTML = '';
+                    setTimeout(doFit, 100);
+                }
+            }
+            emitWithCsrf('stop_notebook', { name: nb });
+            emitWithCsrf('get_sessions');
+            syncUrlParams();
+            updateKbdBtn();
+        };
+        nbItem.appendChild(nbName);
+        nbItem.appendChild(closeBtn);
+        nbItem.addEventListener('click', function() {
+            openNotebook(nb);
+            if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+        });
+        sessionList.appendChild(nbItem);
     });
-    sessionList.appendChild(notesItem);
 
     // Terminal sessions
     sessions.forEach(session => {
@@ -318,7 +420,10 @@ function updateSessionList(sessions, chatSessions) {
         item.dataset.session = session;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name';
-        nameSpan.textContent = session;
+        const sIcon = session.startsWith('Shell') ? '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><polyline points="2 4 6 8 2 12"/><line x1="8" y1="12" x2="14" y2="12"/></svg>'
+            : session.startsWith('Kiro') ? '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><circle cx="8" cy="5" r="3"/><path d="M3 14c0-3 2-5 5-5s5 2 5 5"/></svg>'
+            : '';
+        nameSpan.innerHTML = sIcon + session;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
@@ -376,7 +481,7 @@ function updateSessionList(sessions, chatSessions) {
         item.dataset.session = 'chat:' + chatId;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name';
-        nameSpan.textContent = chat.name;
+        nameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
@@ -439,7 +544,7 @@ function updateSessionList(sessions, chatSessions) {
     if (showArchived) emitWithCsrf('acp_list_archived');
 }
 
-socket.on('sessions_list', data => { updateSessionList(data.sessions, data.chat_sessions || []); });
+socket.on('sessions_list', data => { updateSessionList(data.sessions, data.chat_sessions || [], data); });
 setInterval(() => { emitWithCsrf('get_sessions'); }, 2000);
 
 socket.on('session_created', data => {
@@ -457,11 +562,12 @@ socket.on('session_closed', () => { emitWithCsrf('get_sessions'); });
 // --- Attach / Detach ---
 function attachSession(sessionName) {
     if (sessionName === 'desktop') { toggleDesktop(); return; }
-    if (sessionName === 'notes') { toggleNotes(); return; }
+    if (sessionName.startsWith('notebook:')) { openNotebook(sessionName.slice(9)); return; }
     if (paneTypes[activeTerminal] === 'browser') {
         const browser = document.getElementById(`browser${activeTerminal}`);
         const terminal = document.getElementById(`terminal${activeTerminal}`);
         paneTypes[activeTerminal] = 'terminal';
+        paneNotebook[activeTerminal] = null;
         terminal.classList.remove('hidden');
         browser.classList.add('hidden');
     }
@@ -482,8 +588,10 @@ function getBrowserPaneSession(pane) {
     if (iframe && iframe.src) {
         const m = iframe.src.match(/\/chat\/([^/?#]+)/);
         if (m) return 'chat:' + m[1];
-        if (iframe.src.includes('/notes/')) return 'notes';
+        const nb = iframe.src.match(/\/notes\/([^/?#]+)\//);
+        if (nb) return 'notebook:' + nb[1];
     }
+    if (paneNotebook[pane]) return 'notebook:' + paneNotebook[pane];
     return 'desktop';
 }
 
@@ -550,6 +658,44 @@ document.getElementById('terminal1-container').addEventListener('mousedown', act
 document.getElementById('terminal1-container').addEventListener('touchstart', activatePane1, { passive: true });
 document.getElementById('terminal2-container').addEventListener('mousedown', activatePane2);
 document.getElementById('terminal2-container').addEventListener('touchstart', activatePane2, { passive: true });
+
+// Also detect focus moving into iframes via periodic activeElement check
+setInterval(() => {
+    if (!isSplit) return;
+    const ae = document.activeElement;
+    if (!ae || ae.tagName !== 'IFRAME') return;
+    const c1 = document.getElementById('terminal1-container');
+    const c2 = document.getElementById('terminal2-container');
+    if (c1 && c1.contains(ae) && activeTerminal !== 1) activatePane1();
+    else if (c2 && c2.contains(ae) && activeTerminal !== 2) activatePane2();
+}, 300);
+
+// Handle focus from iframes (notes, desktop) via postMessage
+window.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'notes-focus') {
+        for (const pn of [1, 2]) {
+            const browser = document.getElementById('browser' + pn);
+            if (!browser) continue;
+            const iframe = browser.querySelector('iframe');
+            if (!iframe) continue;
+            try {
+                if (iframe.contentWindow === e.source) {
+                    if (pn === 1) activatePane1();
+                    else activatePane2();
+                    return;
+                }
+            } catch(ex) {}
+        }
+        // Fallback: if source matching failed, activate whichever pane has a notebook
+        for (const pn of [1, 2]) {
+            if (paneNotebook[pn] && activeTerminal !== pn) {
+                if (pn === 1) activatePane1();
+                else activatePane2();
+                return;
+            }
+        }
+    }
+});
 
 // --- New Session Modal ---
 function openNewSessionModal() {

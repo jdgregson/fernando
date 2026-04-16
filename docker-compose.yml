@@ -31,14 +31,7 @@ services:
     entrypoint: ["/sbin/init"]
     user: "0"
 
-  fernando-notes:
-    container_name: fernando-notes
-    image: zefhemel/silverbullet@sha256:6c36ff15f2230dbe3bca7e5d0c85a59c7dc831ce694517850ed5797775824d71
-    ports:
-      - "127.0.0.1:3001:3000"
-    volumes:
-      - ./data/notes:/space
-    restart: unless-stopped
+  # Notebook containers are managed dynamically by src/services/notebooks.py
 
 networks:
   default:
