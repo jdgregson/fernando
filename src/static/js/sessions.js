@@ -154,6 +154,7 @@ function ensureNotesIframe(browser) {
         iframe = document.createElement('iframe');
         iframe.src = '/notes/?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
         iframe.style.cssText = 'width:100%;height:100%;border:none';
+        iframe.allow = 'storage-access';
         browser.appendChild(iframe);
     }
     return iframe;
@@ -176,7 +177,6 @@ function toggleNotes() {
         browser.classList.remove('hidden');
         if (activePane === 1) currentSession1 = null;
         else currentSession2 = null;
-        browser.innerHTML = '';
         ensureNotesIframe(browser);
     }
     highlightSidebarItem('notes');

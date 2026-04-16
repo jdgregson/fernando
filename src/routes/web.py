@@ -235,6 +235,29 @@ def notes_proxy(path):
             content = content.decode("utf-8", errors="ignore")
             content = content.replace('<base href="/"', '<base href="/notes/"', 1)
             sw_kill = "<script>Object.defineProperty(navigator,'serviceWorker',{get:()=>({register:()=>Promise.resolve(),ready:Promise.resolve(),addEventListener:()=>{},removeEventListener:()=>{},controller:null})});</script>"
+            # iOS PWA iframes: IndexedDB is completely unavailable.
+            # iOS PWA iframes: Safari blocks IndexedDB in iframes. Use fake-indexeddb,
+            # a pure JS in-memory implementation of the full IndexedDB API.
+            # Only installs if native IndexedDB doesn't work. Data won't persist
+            # client-side but the server has everything.
+            idb_fix = """<script src="//""" + request.host + """/static/js/fake-idb-bundle.js"></script>
+<script>
+window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',a.join(' '))};
+(function(){
+  var works=false;
+  try{var t=indexedDB.open('__test');if(t&&typeof t.addEventListener==='function')works=true;try{indexedDB.deleteDatabase('__test')}catch(e){}}catch(e){}
+  if(works)return;
+  var f=window.__fakeIDB;if(!f)return;
+  window.indexedDB=f.fakeIndexedDB;
+  window.IDBCursor=f.IDBCursor;window.IDBCursorWithValue=f.IDBCursorWithValue;
+  window.IDBDatabase=f.IDBDatabase;window.IDBFactory=f.IDBFactory;
+  window.IDBIndex=f.IDBIndex;window.IDBKeyRange=f.IDBKeyRange;
+  window.IDBObjectStore=f.IDBObjectStore;window.IDBOpenDBRequest=f.IDBOpenDBRequest;
+  window.IDBRequest=f.IDBRequest;window.IDBTransaction=f.IDBTransaction;
+  window.IDBVersionChangeEvent=f.IDBVersionChangeEvent;
+  if(typeof globalThis!=='undefined'){globalThis.indexedDB=f.fakeIndexedDB;globalThis.IDBKeyRange=f.IDBKeyRange}
+})();
+</script>"""
             focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
             # Clickable breadcrumbs for SilverBullet.
             #
@@ -348,7 +371,7 @@ def notes_proxy(path):
 #sb-main #sb-editor .cm-content { overflow-wrap: break-word !important; word-break: break-word !important; }
 #sb-main #sb-editor .cm-line { overflow-wrap: break-word !important; word-break: break-word !important; }
 </style>"""
-            content = content.replace("<head>", "<head>" + sw_kill + focus_script + breadcrumb_script + toc_refresh_script + graph_btn_script, 1)
+            content = content.replace("<head>", "<head>" + idb_fix + sw_kill + focus_script + breadcrumb_script + toc_refresh_script + graph_btn_script, 1)
             content = content.encode("utf-8")
 
         response = Response(content, resp.status_code, response_headers)
