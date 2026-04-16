@@ -54,7 +54,7 @@ export NGINX_PORT=8080
 |----------|---------|-------------|
 | `ALLOWED_ORIGINS` | `http://localhost:8080` | Comma-separated list of allowed WebSocket origins |
 | `NGINX_PORT` | `8080` | User-facing nginx port |
-| `FLASK_HOST` | `0.0.0.0` | Flask backend bind address |
+| `FLASK_HOST` | `127.0.0.1` | Flask backend bind address |
 | `FLASK_PORT` | `5000` | Flask backend port (nginx proxies to this) |
 | `DEBUG` | `true` | Enable debug mode |
 | `TMUX_HISTORY_LINES` | `32768` | Number of lines to keep in tmux history |
