@@ -847,7 +847,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .mobile-controls button:not(.send-btn):active {
     background: rgba(255, 255, 255, 0.2);
 }
-.mobile-controls.chat-active { display: none !important; }
+.mobile-controls.chat-active, .mobile-controls.notes-active { display: none !important; }
 .session-item:last-of-type {
     margin-bottom: 30px;
 }

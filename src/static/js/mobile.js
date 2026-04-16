@@ -12,6 +12,11 @@ function updateMobileControls() {
         return iframe && iframe.src.includes('/chat/');
     })();
     mc.classList.toggle('chat-active', chatActive);
+    const notesActive = paneTypes[activeTerminal] === 'browser' && (() => {
+        const iframe = document.getElementById('browser' + activeTerminal).querySelector('iframe');
+        return iframe && iframe.src.includes('/notes/');
+    })();
+    mc.classList.toggle('notes-active', notesActive);
 }
 
 function sendKey(key, desktopKey) {

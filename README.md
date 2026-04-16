@@ -9,6 +9,9 @@ An AI agent runtime — a persistent environment where Kiro CLI agents live, wor
 - **Terminal sessions**: Tmux-based shell, Kiro CLI, and Kiro Unchained sessions
 - **Subagent management**: Spawn, schedule, and manage autonomous Kiro CLI agents
 - **Microsoft 365 integration**: Email, calendar, contacts, OneDrive, OneNote, and To Do
+- **Integrated notes**: SilverBullet markdown notebook with live sync, graph view, and iOS PWA support
+- **Inbound email automation**: Rule-based email monitoring that dispatches subagents on matching messages
+- **Conversation memory**: Semantic search (RAG) across past chat sessions for persistent context
 - **Self-mutation**: Agents can modify and restart Fernando to evolve their own runtime
 - **Mobile-responsive PWA**: Touch-optimized, installable, works on phone and laptop
 
@@ -69,7 +72,8 @@ sudo systemctl restart fernando  # Restart
 - **Shell**: Standard bash shell session
 - **Kiro**: Kiro CLI in default mode
 - **Kiro-Unchained**: Kiro CLI with all tools enabled (`-a` flag)
+- **ACP Chat**: Graphical chat UI for conversational interaction
 
 ## Architecture
 
-Fernando is a Flask + Flask-SocketIO backend with an xterm.js frontend, behind an nginx reverse proxy. A Kasm Workspaces Docker container provides the integrated Linux desktop (VNC on port 6901). Three MCP servers (`mcp_servers/`) extend Kiro CLI with subagent management, desktop automation, and Microsoft 365 integration. All state-changing actions go through authenticated WebSocket connections; Flask HTTP routes are read-only.
+Fernando is a Flask + Flask-SocketIO backend with an xterm.js frontend, behind an nginx reverse proxy. A Kasm Workspaces Docker container provides the integrated Linux desktop (VNC on port 6901). Three MCP servers (`mcp_servers/`) extend Kiro CLI with subagent management, desktop automation, and Microsoft 365 integration. A SilverBullet instance provides the integrated notes system, proxied through Flask with iOS PWA compatibility shims. All state-changing actions go through authenticated WebSocket connections; Flask HTTP POST routes require API key authentication.

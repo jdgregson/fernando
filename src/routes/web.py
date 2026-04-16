@@ -238,8 +238,8 @@ def notes_proxy(path):
             # iOS PWA iframes: IndexedDB is completely unavailable.
             # iOS PWA iframes: Safari blocks IndexedDB in iframes. Use fake-indexeddb,
             # a pure JS in-memory implementation of the full IndexedDB API.
-            # Only installs if native IndexedDB doesn't work. Data won't persist
-            # client-side but the server has everything.
+            # Only installs if native IndexedDB doesn't work. Data persists to
+            # localStorage via fake-idb-persist.js so it survives iframe reloads.
             idb_fix = """<script src="//""" + request.host + """/static/js/fake-idb-bundle.js"></script>
 <script>
 window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',a.join(' '))};
@@ -257,7 +257,8 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
   window.IDBVersionChangeEvent=f.IDBVersionChangeEvent;
   if(typeof globalThis!=='undefined'){globalThis.indexedDB=f.fakeIndexedDB;globalThis.IDBKeyRange=f.IDBKeyRange}
 })();
-</script>"""
+</script>
+<script src="//""" + request.host + """/static/js/fake-idb-persist.js"></script>"""
             focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
             # Clickable breadcrumbs for SilverBullet.
             #
@@ -283,7 +284,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
   function ensureStyles(){
     if(document.getElementById('f-styles'))return;
     var s=document.createElement('style');s.id='f-styles';
-    s.textContent='#sb-main .sb-panel{flex:1 1 50%!important;min-width:0!important}#sb-main #sb-editor{flex:1 1 50%!important;min-width:0!important}#sb-main .cm-editor .sb-header-inside{text-indent:0!important}';
+    s.textContent='#sb-main .sb-panel{flex:1 1 50%!important;min-width:0!important}#sb-main #sb-editor{flex:1 1 50%!important;min-width:0!important}#sb-main .cm-editor .sb-header-inside{text-indent:0!important}.cm-editor .cm-content{font-size:14px!important}.sb-top{font-size:13px!important}.sb-top .sb-mini-editor .cm-content{font-size:13px!important}#f-bc{font-size:13px!important}#sb-root #sb-top .main .inner{max-width:100%}@media (max-width:600px){#sb-root #sb-main .sb-panel{flex:0 0 100%!important;min-width:100%!important}#sb-root #sb-top .main .inner .wrapper{padding:0 10px}#sb-root #sb-main .cm-editor .cm-content{padding:5px 10px}}.panel[style="flex: 1 1 0%;"]{display:none}';
     document.head.appendChild(s);
   }
   function nav(path){
@@ -300,7 +301,9 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
     if(!bc){bc=document.createElement('div');bc.id='f-bc';
       bc.style.cssText='display:none;align-items:center;gap:0;height:100%;padding:0 4px;font:14px/1 ui-sans-serif,system-ui,sans-serif';
       el.parentNode.insertBefore(bc,el)}
-    if(parts.length<=1){bc.style.display='none';el.style.display='';return}
+    if(parts.length<=1){el.style.display='none';bc.style.display='flex';bc.innerHTML='';
+      var lbl=document.createElement('span');lbl.textContent=val==='index'?'Notes':val;
+      lbl.style.cssText='color:#d4d4d4';bc.appendChild(lbl);return}
     el.style.display='none';bc.style.display='flex';bc.innerHTML='';
     var home=document.createElement('a');home.textContent='Notes';home.href='#';
     home.style.cssText='color:#5a9fd4;text-decoration:none;cursor:pointer';
@@ -370,6 +373,14 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 #sb-main #sb-editor .cm-scroller { overflow-x: hidden !important; }
 #sb-main #sb-editor .cm-content { overflow-wrap: break-word !important; word-break: break-word !important; }
 #sb-main #sb-editor .cm-line { overflow-wrap: break-word !important; word-break: break-word !important; }
+/* Mobile: graph panel goes full-width */
+@media (max-width: 600px) {
+  #sb-root #sb-main .sb-panel { flex: 0 0 100% !important; min-width: 100% !important; }
+  #sb-root #sb-top .main .inner .wrapper { padding: 0 10px; }
+  #sb-root #sb-top .main .inner { max-width: 100%; }
+  #sb-root #sb-main .cm-editor .cm-content { padding: 5px 10px; }
+}
+.panel[style="flex: 1 1 0%;"] { display: none; }
 </style>"""
             content = content.replace("<head>", "<head>" + idb_fix + sw_kill + focus_script + breadcrumb_script + toc_refresh_script + graph_btn_script, 1)
             content = content.encode("utf-8")
