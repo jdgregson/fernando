@@ -286,6 +286,16 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
     var s=document.createElement('style');s.id='f-styles';
     s.textContent='#sb-main .sb-panel{flex:1 1 50%!important;min-width:0!important}#sb-main #sb-editor{flex:1 1 50%!important;min-width:0!important}#sb-main .cm-editor .sb-header-inside{text-indent:0!important}.cm-editor .cm-content{font-size:14px!important}.sb-top{font-size:13px!important}.sb-top .sb-mini-editor .cm-content{font-size:13px!important}#f-bc{font-size:13px!important}#sb-root #sb-top .main .inner{max-width:100%}@media (max-width:600px){#sb-root #sb-main .sb-panel{flex:0 0 100%!important;min-width:100%!important}#sb-root #sb-top .main .inner .wrapper{padding:0 10px}#sb-root #sb-main .cm-editor .cm-content{padding:5px 10px}}.panel[style="flex: 1 1 0%;"]{display:none}';
     document.head.appendChild(s);
+    // Inject CSS into panel iframes (for Atlas graph SVG fix)
+    var panelCSS='text[fill="#0d2848"]{fill:#5a9fd4!important}';
+    new MutationObserver(function(){
+      document.querySelectorAll('.sb-panel iframe').forEach(function(f){
+        if(f._fStyled)return;f._fStyled=true;
+        f.addEventListener('load',function(){try{var d=f.contentDocument;if(d){var st=d.createElement('style');st.textContent=panelCSS;d.head.appendChild(st)}}catch(e){}});
+        try{var d=f.contentDocument;if(d&&d.head){var st=d.createElement('style');st.textContent=panelCSS;d.head.appendChild(st)}}catch(e){}
+      });
+    }).observe(document.body,{childList:true,subtree:true});
+    document.head.appendChild(s);
   }
   function nav(path){
     if(window.client&&client.navigate){client.navigate({path:path+'.md'},false,false)}

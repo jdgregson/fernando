@@ -6,6 +6,8 @@ html[data-theme="dark"] {
     --panel-background-color: #0f1e38;
     --editor-background-color: #0d2848;
     --modal-background-color: #0f1e38;
+    --modal-help-background-color: #25364b;
+    --modal-hint-background-color: #153d6c;
     --root-color: #d4d4d4;
     --editor-heading-color: #5a9fd4;
     --editor-link-color: #3465a3;
