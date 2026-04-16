@@ -392,7 +392,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 }
 .panel[style="flex: 1 1 0%;"] { display: none; }
 </style>"""
-            content = content.replace('<html ', '<html style="background:#0d2848" ', 1)
+            content = content.replace('<html ', '<html data-theme="dark" style="background:#0d2848" ', 1)
             content = content.replace("<head>", "<head><style>html,body{background:#0d2848!important}</style>" + idb_fix + sw_kill + focus_script + breadcrumb_script + toc_refresh_script + graph_btn_script, 1)
             content = content.encode("utf-8")
 

@@ -154,7 +154,7 @@ function ensureNotesIframe(browser) {
         browser.style.background = '#0d2848';
         iframe = document.createElement('iframe');
         iframe.src = '/notes/?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
-        iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848;color-scheme:dark';
+        iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
         iframe.allow = 'storage-access';
         browser.appendChild(iframe);
     }
@@ -488,6 +488,7 @@ function getBrowserPaneSession(pane) {
 }
 
 function syncUrlParams() {
+    if (!window._urlParamsProcessed) return;
     const params = new URLSearchParams();
     const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
     const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
