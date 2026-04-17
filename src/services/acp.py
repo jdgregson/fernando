@@ -617,10 +617,10 @@ class ACPManager:
             _save_archived_map(archived)
 
     def list_archived(self):
-        return [
+        return list(reversed([
             {"id": sid, "name": info.get("name", "Chat-" + sid)}
             for sid, info in _load_archived_map().items()
-        ]
+        ]))
 
     def restore_session(self, session_id, on_event=None):
         """Restore an archived session back to active."""

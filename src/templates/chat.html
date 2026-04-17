@@ -98,11 +98,13 @@
             input.disabled = false;
             // Chrome won't spellcheck a textarea that was disabled at page load
             // until it goes through a real blur/focus cycle with time in between.
-            // This simulates what happens when the user switches tabs and back.
-            setTimeout(() => {
-                input.blur();
-                setTimeout(() => { input.focus(); }, 50);
-            }, 50);
+            // Only auto-focus if this iframe already has focus (don't steal from other panes).
+            if (document.hasFocus()) {
+                setTimeout(() => {
+                    input.blur();
+                    setTimeout(() => { input.focus(); }, 50);
+                }, 50);
+            }
             btn.classList.remove('disabled');
             btn.textContent = 'Send';
             btn.onclick = sendMessage;

@@ -167,11 +167,6 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     color: #ffffff;
 }
 
-.session-item[data-session="desktop"] .close-btn {
-    background: #d4a017;
-    color: #fff;
-    font-size: 18px;
-}
 
 .session-item[data-session="desktop"] .close-btn:hover {
     background: #f4c430;
@@ -311,7 +306,6 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     border: 1px solid #143151;
     color: #fff;
     cursor: pointer;
-    margin-bottom: 10px;
     border-radius: 6px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
@@ -323,11 +317,89 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .modal-close {
     background: #143151 !important;
     color: #fff !important;
-    margin-top: 10px !important;
+    margin-top: 20px;
 }
 
 .modal-close:hover {
     background: #3465a3 !important;
+}
+
+#notebookPickerModal .modal-content {
+    max-width: 340px;
+}
+
+#notebookSelect {
+    width: 100%;
+    padding: 8px;
+    background: #0a1d35;
+    color: #d4d4d4;
+    border: 1px solid #143151;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+#notebookPickerModal .notebook-actions {
+    display: flex;
+    gap: 8px;
+}
+
+#notebookCreateModal .modal-content {
+    max-width: 340px;
+}
+
+.modal-input {
+    width: 100%;
+    padding: 8px;
+    background: #0a1d35;
+    color: #d4d4d4;
+    border: 1px solid #143151;
+    border-radius: 4px;
+    font-size: 14px;
+    margin-bottom: 4px;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.modal-input:focus {
+    outline: none;
+    border-color: #3465a3;
+}
+
+.modal-input-hint {
+    font-size: 12px;
+    color: #6a8caf;
+    margin-bottom: 12px;
+}
+
+.notebook-select-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+    margin-bottom: 12px;
+}
+
+.notebook-select-row select {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+button.notebook-delete-btn {
+    background: #091d35;
+    border: 1px solid #143151;
+    color: #3465a3;
+    padding: 5px;
+    cursor: pointer;
+    border-radius: 3px;
+    vertical-align: middle;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 35px;
+}
+
+.notebook-delete-btn:hover {
+    background: #e81123 !important;
+    color: #ffffff;
 }
 
 /* Subagent panel */
@@ -850,4 +922,5 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .mobile-controls.chat-active, .mobile-controls.notes-active { display: none !important; }
 .session-item:last-of-type {
     margin-bottom: 30px;
+}0px;
 }

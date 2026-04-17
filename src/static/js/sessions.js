@@ -201,12 +201,47 @@ function openSelectedNotebook() {
 }
 
 function promptCreateNotebook() {
-    showPrompt('Notebook name (lowercase, hyphens/underscores):').then(name => {
-        if (!name) return;
-        name = name.trim().toLowerCase();
-        emitWithCsrf('create_notebook', { name: name });
+    document.getElementById('notebookPickerModal').classList.remove('open');
+    const modal = document.getElementById('notebookCreateModal');
+    const input = document.getElementById('notebookNameInput');
+    input.value = '';
+    modal.classList.add('open');
+    input.focus();
+}
+
+function closeCreateNotebook() {
+    document.getElementById('notebookCreateModal').classList.remove('open');
+}
+
+let pendingNotebookOpen = null;
+
+function submitCreateNotebook() {
+    const name = document.getElementById('notebookNameInput').value.trim().toLowerCase();
+    if (!name) return;
+    pendingNotebookOpen = name;
+    emitWithCsrf('create_notebook', { name: name });
+    closeCreateNotebook();
+}
+
+function deleteSelectedNotebook() {
+    const sel = document.getElementById('notebookSelect');
+    const name = sel.value;
+    if (!name) return;
+    showConfirm('Delete notebook "' + name + '"? This cannot be undone.').then(confirmed => {
+        if (!confirmed) return;
+        emitWithCsrf('delete_notebook', { name: name });
     });
 }
+
+socket.on('notebook_deleted', (data) => {
+    emitWithCsrf('list_notebooks');
+    for (const pn of [1, 2]) {
+        if (paneNotebook[pn] === data.name) {
+            paneNotebook[pn] = null;
+            document.getElementById(`browser${pn}`).innerHTML = '';
+        }
+    }
+});
 
 socket.on('notebooks_list', (data) => {
     const sel = document.getElementById('notebookSelect');
@@ -226,8 +261,12 @@ socket.on('notebooks_list', (data) => {
 });
 
 socket.on('notebook_created', (data) => {
-    // Refresh the picker list
     emitWithCsrf('list_notebooks');
+    const name = data.notebook && data.notebook.name;
+    if (pendingNotebookOpen && name === pendingNotebookOpen) {
+        pendingNotebookOpen = null;
+        openNotebook(name);
+    }
 });
 
 socket.on('notebook_started', (data) => {
