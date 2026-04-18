@@ -84,7 +84,7 @@ socket.on('acp_archived_list', (data) => {
         delBtn.className = 'close-btn';
         delBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         delBtn.title = 'Delete';
-        delBtn.onclick = (e) => { e.stopPropagation(); emitWithCsrf('acp_delete_archived', { session_id: s.id }); emitWithCsrf('acp_list_archived'); };
+        delBtn.onclick = (e) => { e.stopPropagation(); showConfirm('Delete "' + s.name + '" permanently?').then(ok => { if (ok) { item.remove(); emitWithCsrf('acp_delete_archived', { session_id: s.id }); } }); };
         btns.appendChild(restoreBtn);
         btns.appendChild(delBtn);
         item.appendChild(name);
@@ -98,7 +98,17 @@ socket.on('acp_archived_list', (data) => {
 });
 
 socket.on('acp_restored', (data) => {
-    if (data.ok) { emitWithCsrf('acp_list_archived'); openChatPane(data.session_id); }
+    if (data.ok) {
+        emitWithCsrf('acp_list_archived');
+        // Force reload if already previewing this chat
+        for (const pn of [1, 2]) {
+            const iframe = document.getElementById(`browser${pn}`).querySelector('iframe');
+            if (iframe && iframe.src.includes('/chat/' + data.session_id)) {
+                iframe.parentElement.innerHTML = '';
+            }
+        }
+        openChatPane(data.session_id);
+    }
 });
 
 // --- iframe messages ---

@@ -580,7 +580,10 @@ function updateSessionList(sessions, chatSessions, data) {
     } else if (hp === 1 ? currentSession1 : currentSession2) {
         highlightSidebarItem(hp === 1 ? currentSession1 : currentSession2);
     }
-    if (showArchived) emitWithCsrf('acp_list_archived');
+    if (showArchived) {
+        document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = 'none');
+        emitWithCsrf('acp_list_archived');
+    }
 }
 
 socket.on('sessions_list', data => { updateSessionList(data.sessions, data.chat_sessions || [], data); });

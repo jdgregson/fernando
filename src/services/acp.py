@@ -1,5 +1,6 @@
 """ACP (Agent Client Protocol) service for managing kiro-cli acp subprocesses."""
 
+import glob
 import json
 import logging
 import os
@@ -55,10 +56,15 @@ def _load_sessions_map():
         return {}
 
 
+_archived_lock = threading.Lock()
+
+
 def _save_archived_map(archived_map):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(ARCHIVED_FILE, "w") as f:
+    tmp = ARCHIVED_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(archived_map, f, indent=2)
+    os.replace(tmp, ARCHIVED_FILE)
 
 
 def _load_archived_map():
@@ -516,6 +522,7 @@ class ACPManager:
 
     def _start_new(self, session_id, session):
         try:
+            session._load_history()
             session.start()
             session.ready = True
             self._save()
@@ -539,19 +546,61 @@ class ACPManager:
             else:
                 acp_id, name = info["acp_id"], info.get("name", "Chat-" + fernando_id)
             session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
-            if not os.path.exists(session_file):
-                continue
+            can_load = os.path.exists(session_file)
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id))
             session.display_name = name
             session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
-            session.acp_session_id = acp_id  # Set before thread so _save() won't drop it
             with self._lock:
                 self.sessions[fernando_id] = session
-            threading.Thread(
-                target=self._load_existing,
-                args=(fernando_id, session, acp_id, continuation),
-                daemon=True,
-            ).start()
+            if can_load:
+                session.acp_session_id = acp_id
+                threading.Thread(
+                    target=self._load_existing,
+                    args=(fernando_id, session, acp_id, continuation),
+                    daemon=True,
+                ).start()
+            else:
+                threading.Thread(
+                    target=self._start_new,
+                    args=(fernando_id, session),
+                    daemon=True,
+                ).start()
+        self._recover_orphans()
+
+    def _recover_orphans(self):
+        """Auto-archive history files not in active or archived maps."""
+        active = set(self.sessions.keys())
+        with _archived_lock:
+            archived = _load_archived_map()
+            tracked = active | set(archived.keys())
+            history_ids = {
+                os.path.basename(f)[:-6]  # strip .jsonl
+                for f in glob.glob(os.path.join(HISTORY_DIR, "*.jsonl"))
+            }
+            orphaned = history_ids - tracked
+            if not orphaned:
+                return
+            # Get names from RAG
+            rag_names = {}
+            try:
+                coll = rag._get_collection()
+                results = coll.get(include=["metadatas"])
+                for meta in results["metadatas"]:
+                    sid = meta.get("session_id", "")
+                    name = meta.get("session_name", "")
+                    if sid and name:
+                        rag_names.setdefault(sid, name)
+            except Exception:
+                pass
+            for sid in orphaned:
+                fpath = os.path.join(HISTORY_DIR, f"{sid}.jsonl")
+                archived[sid] = {
+                    "acp_id": "",
+                    "name": rag_names.get(sid, "Chat-" + sid),
+                    "archived_at": os.path.getmtime(fpath),
+                }
+            _save_archived_map(archived)
+            logger.info(f"Recovered {len(orphaned)} orphaned sessions into archive")
 
     def _load_existing(self, session_id, session, acp_session_id, continuation=None):
         try:
@@ -638,45 +687,57 @@ class ACPManager:
         session.stop()
         self._save()
         if acp_id:
-            archived = _load_archived_map()
-            archived[session_id] = {"acp_id": acp_id, "name": name, "archived_at": time.time()}
-            _save_archived_map(archived)
+            with _archived_lock:
+                archived = _load_archived_map()
+                archived[session_id] = {"acp_id": acp_id, "name": name, "archived_at": time.time()}
+                _save_archived_map(archived)
 
     def list_archived(self):
-        return list(reversed([
-            {"id": sid, "name": info.get("name", "Chat-" + sid)}
-            for sid, info in _load_archived_map().items()
-        ]))
+        items = sorted(
+            _load_archived_map().items(),
+            key=lambda x: x[1].get("archived_at", 0),
+            reverse=True,
+        )
+        return [{"id": sid, "name": info.get("name", "Chat-" + sid)} for sid, info in items]
 
     def restore_session(self, session_id, on_event=None):
         """Restore an archived session back to active."""
-        archived = _load_archived_map()
-        info = archived.pop(session_id, None)
-        if not info:
-            return False
-        _save_archived_map(archived)
-        acp_id = info["acp_id"]
-        session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
-        if not os.path.exists(session_file):
-            return False
+        with _archived_lock:
+            archived = _load_archived_map()
+            info = archived.get(session_id)
+            if not info:
+                return False
+            acp_id = info["acp_id"]
+            # For recovered orphans (no acp_id) or missing session files, start fresh
+            can_load = acp_id and os.path.exists(os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json"))
+            archived.pop(session_id)
+            _save_archived_map(archived)
         session = ACPSession(session_id, on_event=on_event)
         session.display_name = info.get("name", "Chat-" + session_id)
-        session.acp_session_id = acp_id
         with self._lock:
             self.sessions[session_id] = session
-        self._save()
-        threading.Thread(
-            target=self._load_existing,
-            args=(session_id, session, acp_id),
-            daemon=True,
-        ).start()
+        if can_load:
+            session.acp_session_id = acp_id
+            self._save()
+            threading.Thread(
+                target=self._load_existing,
+                args=(session_id, session, acp_id),
+                daemon=True,
+            ).start()
+        else:
+            threading.Thread(
+                target=self._start_new,
+                args=(session_id, session),
+                daemon=True,
+            ).start()
         return True
 
     def delete_archived(self, session_id):
         """Permanently delete an archived session and its history."""
-        archived = _load_archived_map()
-        archived.pop(session_id, None)
-        _save_archived_map(archived)
+        with _archived_lock:
+            archived = _load_archived_map()
+            archived.pop(session_id, None)
+            _save_archived_map(archived)
         try:
             os.remove(os.path.join(HISTORY_DIR, f"{session_id}.jsonl"))
         except OSError:
