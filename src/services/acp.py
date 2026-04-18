@@ -241,6 +241,8 @@ class ACPSession:
             "cwd": os.path.expanduser("~/fernando"),
             "mcpServers": [],
         }, timeout=120)
+        if not resp:
+            raise RuntimeError(f"session/load failed for {acp_session_id}")
         self._recording = True
         self._broadcasting = True
 
@@ -583,11 +585,35 @@ class ACPManager:
         session.stop()
         self._save()
         threading.Thread(
-            target=self._load_existing,
+            target=self._change_model_reload,
             args=(session_id, session, acp_id),
             daemon=True,
         ).start()
         return True
+
+    def _change_model_reload(self, session_id, session, acp_id):
+        """Try to reload existing session; fall back to new session if load fails."""
+        try:
+            session.load(acp_id)
+        except Exception:
+            logger.info(f"change_model: session/load failed for {session_id}, falling back to session/new")
+            # Clean up the zombie process and flags left by the failed load()
+            session.stop()
+            session._recording = True
+            session._broadcasting = True
+            try:
+                session.start()
+            except Exception as e:
+                logger.error(f"change_model: session/new also failed for {session_id}: {e}")
+                if session.on_event:
+                    session.on_event(session_id, {"type": "session_error", "error": str(e)})
+                self.destroy_session(session_id, delete_history=False)
+                return
+        session.ready = True
+        self._save()
+        self._save_pid_map()
+        if session.on_event:
+            session.on_event(session_id, {"type": "session_ready"})
 
     def destroy_session(self, session_id, delete_history=True):
         with self._lock:

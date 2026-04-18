@@ -637,7 +637,10 @@ def register_handlers(socketio):
     def acp_rename(data):
         if not validate_csrf(data):
             return
-        acp_manager.rename_session(data.get("session_id"), data.get("name", ""))
+        name = (data.get("name") or "").strip()
+        if not name:
+            return
+        acp_manager.rename_session(data.get("session_id"), name)
 
     # --- Workflow handlers ---
 
