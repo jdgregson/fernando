@@ -118,7 +118,7 @@ window.addEventListener('message', (e) => {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); highlightSidebarItem('chat:' + e.data.sessionId); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); highlightSidebarItem('chat:' + e.data.sessionId); return; }
             }
         }
     }
@@ -126,7 +126,7 @@ window.addEventListener('message', (e) => {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); highlightSidebarItem('notes'); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); highlightSidebarItem('notes'); return; }
             }
         }
     }
@@ -134,7 +134,7 @@ window.addEventListener('message', (e) => {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum); highlightSidebarItem('desktop'); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); highlightSidebarItem('desktop'); return; }
             }
         }
     }

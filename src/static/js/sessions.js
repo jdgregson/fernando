@@ -395,6 +395,7 @@ function updateSessionList(sessions, chatSessions, data) {
     const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name);
     const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort());
     if (sessionListInitialized && lastSessionsKey === newKey) return;
+    console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, oldKey: lastSessionsKey, newKey});
     sessionListInitialized = true;
     lastSessionsKey = newKey;
 
