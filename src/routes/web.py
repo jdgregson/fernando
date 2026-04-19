@@ -300,7 +300,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 })();
 </script>
 <script src="//""" + request.host + """/static/js/fake-idb-persist.js"></script>"""
-            focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));window.addEventListener('blur',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
+            focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
             # Clickable breadcrumbs for SilverBullet.
             #
             # SilverBullet's developers made the page path in the top bar an editable
