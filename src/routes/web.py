@@ -63,6 +63,33 @@ def api_auth_check():
     return "", 401
 
 
+@bp.route("/api/spawn_subagent", methods=["POST"])
+def api_spawn_subagent():
+    """Create an ACP chat session and send a task as the first prompt."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    task = data.get("task", "")
+    name = data.get("name", "")
+    if not task:
+        return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
+    on_event = acp_manager.default_on_event
+    session_id = acp_manager.create_session(on_event=on_event)
+    if name:
+        acp_manager.rename_session(session_id, name)
+
+    def _send_when_ready():
+        for _ in range(120):
+            session = acp_manager.get_session(session_id)
+            if session and session.ready:
+                session.send_prompt(task)
+                return
+            time.sleep(1)
+    threading.Thread(target=_send_when_ready, daemon=True).start()
+
+    return json.dumps({"session_id": session_id}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/rename_chat", methods=["POST"])
 def api_rename_chat():
     if not _check_api_key():

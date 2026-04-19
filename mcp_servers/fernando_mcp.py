@@ -377,6 +377,7 @@ def create_subagent(
     at_schedule=None,
     cron_schedule=None,
 ):
+    """Spawn a subagent with full workspace/instructions, using ACP instead of tmux."""
     task_id, workspace = create_workspace(task_id)
     context_file = resolve_context_path(context_path)
     session_name = f"subagent-{task_id}"
@@ -392,6 +393,8 @@ def create_subagent(
     script_path = write_spawn_script(workspace, session_name, instructions_file)
 
     if at_schedule:
+        # Rewrite spawn.sh to use ACP API instead of tmux
+        _write_acp_spawn_script(script_path, instructions_file, session_name)
         schedule_at(script_path, at_schedule)
         return {
             "task_id": task_id,
@@ -401,6 +404,7 @@ def create_subagent(
         }
 
     if cron_schedule:
+        _write_acp_spawn_script(script_path, instructions_file, session_name)
         schedule_cron(script_path, cron_schedule)
         return {
             "task_id": task_id,
@@ -409,8 +413,43 @@ def create_subagent(
             "cron": cron_schedule,
         }
 
-    run_immediately(session_name, instructions_file)
-    return {"task_id": task_id, "session_name": session_name, "workspace": workspace}
+    # Immediate: spawn via ACP API
+    prompt = f"Read the instructions from {instructions_file} and execute the task described there."
+    api_key = ""
+    try:
+        with open("/tmp/fernando-api-key") as f:
+            api_key = f.read().strip()
+    except Exception:
+        pass
+    payload = json.dumps({"task": prompt, "name": session_name}).encode()
+    req = urllib.request.Request(
+        "http://localhost:5000/api/spawn_subagent",
+        data=payload,
+        headers={"Content-Type": "application/json", "X-API-Key": api_key},
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        result = json.loads(resp.read())
+        result["task_id"] = task_id
+        result["workspace"] = workspace
+        return result
+    except Exception as e:
+        return {"error": str(e), "task_id": task_id, "workspace": workspace}
+
+
+def _write_acp_spawn_script(script_path, instructions_file, session_name):
+    """Overwrite spawn.sh to use ACP API instead of tmux."""
+    os.chmod(script_path, 0o700)
+    with open(script_path, "w") as f:
+        f.write(f"""#!/bin/bash
+API_KEY=$(cat /tmp/fernando-api-key 2>/dev/null)
+TASK="Read the instructions from {instructions_file} and execute the task described there."
+curl -s -X POST http://localhost:5000/api/spawn_subagent \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: $API_KEY" \\
+  --data-raw "{{\\"task\\": \\"$TASK\\", \\"name\\": \\"{session_name}\\"}}"
+""")
+    os.chmod(script_path, 0o500)
 
 
 @app.list_tools()
@@ -418,7 +457,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="spawn_subagent",
-            description="Spawn a subagent in a new tmux session to work on a delegated task. The subagent will save proof of work and communicate progress via JSON files.",
+            description="Spawn a subagent in a new ACP chat session to work on a delegated task. The subagent will save proof of work and communicate progress via JSON files.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -468,7 +507,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="terminate_subagent",
-            description="Terminate a subagent tmux session",
+            description="Terminate a subagent ACP chat session",
             inputSchema={
                 "type": "object",
                 "properties": {
