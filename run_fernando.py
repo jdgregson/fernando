@@ -1,6 +1,6 @@
 from src import create_app, socketio
 from src.config import config
-from src.services.tmux import tmux_service
+from src.services.pty_service import pty_service
 import os
 import signal
 import logging
@@ -12,6 +12,9 @@ logging.basicConfig(
 logger = logging.getLogger("fernando")
 
 app = create_app()
+
+# Restore any saved terminal sessions from previous run
+pty_service.restore_all()
 
 
 def _reap_children():
@@ -28,7 +31,7 @@ def _reap_children():
 
 def _shutdown(signum, frame):
     logger.info(f"Received signal {signum}, shutting down...")
-    tmux_service.cleanup_all_sessions()
+    pty_service.cleanup_all()
     _reap_children()
     raise SystemExit(0)
 

@@ -3,7 +3,7 @@ import json
 import os
 import requests
 import msal
-from src.services.tmux import tmux_service
+from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
 
@@ -36,7 +36,7 @@ from src.microsoft_scopes import SCOPES, REDIRECT_URI
 
 @bp.route("/")
 def index():
-    sessions = tmux_service.list_sessions()
+    sessions = pty_service.list_sessions()
     # Read API key
     try:
         with open("/tmp/fernando-api-key", "r") as f:

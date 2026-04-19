@@ -22,22 +22,30 @@ function _doForeground() {
     if (!socket.connected) { socket.connect(); return; }
     if (currentSession1 && paneTypes[1] === 'terminal') {
         setTimeout(() => {
-            term1.clear();
-            emitWithCsrf('attach_session', { terminal: 1, session: currentSession1 });
-            setTimeout(() => { doFit(); term1.scrollToBottom(); }, 100);
+            _paneSession[1] = currentSession1;
+            showTermInPane(currentSession1, 1);
+            emitWithCsrf('attach_session', { terminal: 1, session: currentSession1, skip_replay: true });
+            setTimeout(doFit, 100);
         }, 200);
     }
     if (currentSession2 && paneTypes[2] === 'terminal' && isSplit) {
         setTimeout(() => {
-            term2.clear();
-            emitWithCsrf('attach_session', { terminal: 2, session: currentSession2 });
-            setTimeout(() => { doFit(); term2.scrollToBottom(); }, 100);
+            _paneSession[2] = currentSession2;
+            showTermInPane(currentSession2, 2);
+            emitWithCsrf('attach_session', { terminal: 2, session: currentSession2, skip_replay: true });
+            setTimeout(doFit, 100);
         }, 200);
     }
-    // Re-focus the active terminal after reconnect so iOS touch events register correctly
     setTimeout(() => {
         const activeTerm = activeTerminal === 1 ? term1 : term2;
-        if (paneTypes[activeTerminal] === 'terminal') activeTerm.focus();
+        if (paneTypes[activeTerminal] === 'terminal' && activeTerm) activeTerm.focus();
+        // iOS: re-toggle spacers after returning from background
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+            document.querySelectorAll('.ios-spacer').forEach(s => {
+                s.style.display = 'none';
+                setTimeout(() => { s.style.display = ''; }, 100);
+            });
+        }
     }, 400);
 }
 
@@ -599,12 +607,21 @@ socket.on('session_renamed', data => {
     emitWithCsrf('get_sessions');
     syncUrlParams();
 });
-socket.on('session_closed', () => { emitWithCsrf('get_sessions'); });
+socket.on('session_closed', (data) => {
+    if (data && data.session) destroyTerm(data.session);
+    emitWithCsrf('get_sessions');
+});
 
 // --- Attach / Detach ---
 function attachSession(sessionName) {
     if (sessionName === 'desktop') { toggleDesktop(); return; }
     if (sessionName.startsWith('notebook:')) { openNotebook(sessionName.slice(9)); return; }
+    // Already attached to this pane — no-op
+    const currentSession = activeTerminal === 1 ? currentSession1 : currentSession2;
+    if (paneTypes[activeTerminal] === 'terminal' && currentSession === sessionName) {
+        highlightSidebarItem(sessionName);
+        return;
+    }
     if (paneTypes[activeTerminal] === 'browser') {
         const browser = document.getElementById(`browser${activeTerminal}`);
         const terminal = document.getElementById(`terminal${activeTerminal}`);
@@ -614,13 +631,17 @@ function attachSession(sessionName) {
         browser.classList.add('hidden');
     }
     updateKbdBtn();
-    const term = activeTerminal === 1 ? term1 : term2;
-    term.clear();
     if (activeTerminal === 1) { currentSession1 = sessionName; sessionStorage.setItem('fernando_session1', sessionName); }
     else { currentSession2 = sessionName; sessionStorage.setItem('fernando_session2', sessionName); }
-    emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName });
+    _paneSession[activeTerminal] = sessionName;
+    const entry = showTermInPane(sessionName, activeTerminal);
+    // If this session already has a rendered terminal, skip scrollback replay —
+    // the content is already in the DOM. We still attach to get live output.
+    const skipReplay = entry.ready && !entry.firstAttach;
+    entry.firstAttach = false;
+    emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName, skip_replay: skipReplay });
     highlightSidebarItem(sessionName);
-    term.focus();
+    if (entry.ready) entry.wterm.focus();
     setTimeout(doFit, 100);
     syncUrlParams();
 }
@@ -655,25 +676,56 @@ function toggleSplit() {
     if (isSplit) {
         document.getElementById('terminal1-container').classList.remove('hidden');
         document.getElementById('terminal2-container').classList.remove('hidden');
-        setActiveTerminal(2);
+        setActiveTerminal(2, true);
     } else {
         const keep = activeTerminal;
         const discard = keep === 1 ? 2 : 1;
         document.getElementById(`terminal${discard}-container`).classList.add('hidden');
-        setActiveTerminal(keep);
+        setActiveTerminal(keep, true);
     }
     setTimeout(doFit, 100);
     syncUrlParams();
 }
 
-function setActiveTerminal(termNum) {
+// Focus guard: only direct user touch/click can change the active pane.
+// postMessage from iframes and setInterval polling cannot override a
+// user's direct pane selection.
+let _lastDirectPaneTouch = 0;
+let _lastDirectPaneTarget = 0;
+
+function setActiveTerminal(termNum, direct) {
+    if (direct) {
+        _lastDirectPaneTouch = Date.now();
+        _lastDirectPaneTarget = termNum;
+    } else {
+        // Indirect call — block if user recently directly touched a different pane
+        if (Date.now() - _lastDirectPaneTouch < 2000 && _lastDirectPaneTarget !== termNum) return;
+    }
     activeTerminal = termNum;
+    // Blur the other pane's textarea so next tap triggers a fresh focus event
+    // (which drives scroll-into-view via setupFocusScroll)
+    const otherPane = termNum === 1 ? 2 : 1;
+    const otherTerm = otherPane === 1 ? (typeof term1 !== 'undefined' ? term1 : null) : (typeof term2 !== 'undefined' ? term2 : null);
+    if (otherTerm && otherTerm.element) {
+        const ta = otherTerm.element.querySelector('textarea');
+        if (ta) ta.blur();
+    }
     const c1 = document.getElementById('terminal1-container');
     const c2 = document.getElementById('terminal2-container');
     c1.classList.toggle('active', termNum === 1);
     c2.classList.toggle('active', termNum === 2);
     if (isSplit) { c1.classList.add('split-mode'); c2.classList.add('split-mode'); }
     else { c1.classList.remove('split-mode'); c2.classList.remove('split-mode'); }
+    // Don't auto-focus textarea here — wterm's own click handler does it
+    // after checking for text selection. Focusing here would kill selection.
+    // Scroll the pane into view on direct touch (mobile split mode)
+    if (direct && typeof isSplit !== 'undefined' && isSplit) {
+        setTimeout(() => {
+            const container = document.getElementById('terminal' + termNum + '-container');
+            const rect = container.getBoundingClientRect();
+            window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
+        }, 300);
+    }
     updateKbdBtn();
     updateMobileControls();
     syncUrlParams();
@@ -685,13 +737,13 @@ function syncPaneSidebar(paneNum) {
     if (s) highlightSidebarItem(s);
 }
 function activatePane1() {
-    setActiveTerminal(1);
+    setActiveTerminal(1, true);
     syncPaneSidebar(1);
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
 function activatePane2() {
     if (isSplit) {
-        setActiveTerminal(2);
+        setActiveTerminal(2, true);
         syncPaneSidebar(2);
     }
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
@@ -701,16 +753,7 @@ document.getElementById('terminal1-container').addEventListener('touchstart', ac
 document.getElementById('terminal2-container').addEventListener('mousedown', activatePane2);
 document.getElementById('terminal2-container').addEventListener('touchstart', activatePane2, { passive: true });
 
-// Also detect focus moving into iframes via periodic activeElement check
-setInterval(() => {
-    if (!isSplit) return;
-    const ae = document.activeElement;
-    if (!ae || ae.tagName !== 'IFRAME') return;
-    const c1 = document.getElementById('terminal1-container');
-    const c2 = document.getElementById('terminal2-container');
-    if (c1 && c1.contains(ae) && activeTerminal !== 1) activatePane1();
-    else if (c2 && c2.contains(ae) && activeTerminal !== 2) activatePane2();
-}, 300);
+// iframe focus detection handled by container touchstart/mousedown handlers
 
 // Handle focus from iframes (notes, desktop) via postMessage
 window.addEventListener('message', (e) => {

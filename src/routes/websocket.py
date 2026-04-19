@@ -1,11 +1,10 @@
 from flask import request
 from flask_socketio import emit
 import os
-import select
 import ssl
 import subprocess
 import websocket as ws_client
-from src.services.tmux import tmux_service
+from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
 from src.services.automation import (
@@ -59,7 +58,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        sessions = tmux_service.list_sessions()
+        sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
         from src.services.notebooks import list_notebooks
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
@@ -130,40 +129,34 @@ def register_handlers(socketio):
 
         session_name = data["session"]
         terminal = data.get("terminal", 1)
-        sid = f"{request.sid}_{terminal}"
-        client_sid = request.sid  # Capture this before background task
+        vid = f"{request.sid}_{terminal}"
+        client_sid = request.sid
 
-        logger.info(f"Attaching session {session_name} to terminal {terminal}, sid={sid}")
+        logger.info(f"Attaching session {session_name} to terminal {terminal}, vid={vid}")
 
-        # Track this terminal sid for cleanup on disconnect
         if client_sid in socket_terminals:
-            socket_terminals[client_sid].add(sid)
+            socket_terminals[client_sid].add(vid)
 
-        # Clean up any existing session for this terminal (handles reconnect case)
-        tmux_service.cleanup_session(sid)
+        # Detach any previous viewer for this terminal
+        pty_service.detach_viewer(vid)
 
-        master = tmux_service.attach_session(session_name, sid)
+        def on_output(raw_bytes):
+            decoded = raw_bytes.decode("utf-8", errors="ignore")
+            socketio.emit("output", {"terminal": terminal, "data": decoded}, room=client_sid)
 
-        def read_output():
-            logger.info(f"Starting read_output loop for {sid}")
-            while tmux_service.has_session(sid):
-                r, _, _ = select.select([master], [], [], 0.1)
-                if r:
-                    try:
-                        output = os.read(master, 65536)
-                        if output:
-                            decoded = output.decode("utf-8", errors="ignore")
-                            socketio.emit(
-                                "output",
-                                {"terminal": terminal, "data": decoded},
-                                room=client_sid,
-                            )
-                    except Exception as e:
-                        logger.info(f"Read loop ending for {sid}: {e}")
-                        break
-            logger.info(f"Exiting read_output loop for {sid}")
+        try:
+            scrollback = pty_service.attach_viewer(vid, session_name, on_output)
+        except ValueError as e:
+            emit("error", {"message": str(e)})
+            return
 
-        socketio.start_background_task(read_output)
+        # Replay scrollback so the user sees previous output
+        if scrollback and not data.get("skip_replay"):
+            decoded = scrollback.decode("utf-8", errors="ignore")
+            emit("output", {"terminal": terminal, "data": decoded})
+
+        # Send a resize to ensure the PTY matches the browser's terminal size
+        # (the session may have started at default 80x24 before the browser attached)
 
     @socketio.on("create_session")
     def create_session(data):
@@ -171,7 +164,7 @@ def register_handlers(socketio):
             emit("error", {"message": "Invalid CSRF token"})
             return
         session_type = data.get("type", "shell")
-        name = tmux_service.create_session_with_type(session_type)
+        name = pty_service.create_session(session_type)
         emit("session_created", {"name": name, "switch": True})
 
     @socketio.on("input")
@@ -179,16 +172,16 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         terminal = data.get("terminal", 1)
-        sid = f"{request.sid}_{terminal}"
-        tmux_service.write_input(sid, data["data"])
+        vid = f"{request.sid}_{terminal}"
+        pty_service.write_input(vid, data["data"])
 
     @socketio.on("resize")
     def handle_resize(data):
         if not validate_csrf(data):
             return
         terminal = data.get("terminal", 1)
-        sid = f"{request.sid}_{terminal}"
-        tmux_service.resize_terminal(sid, data["rows"], data["cols"])
+        vid = f"{request.sid}_{terminal}"
+        pty_service.resize(vid, data["rows"], data["cols"])
 
     @socketio.on("rename_session")
     def rename_session(data):
@@ -198,7 +191,7 @@ def register_handlers(socketio):
         try:
             old_name = data["old_name"]
             new_name = data["new_name"]
-            tmux_service.rename_session(old_name, new_name)
+            pty_service.rename_session(old_name, new_name)
             emit("session_renamed", {"old_name": old_name, "new_name": new_name}, broadcast=True)
         except Exception as e:
             emit("error", {"message": str(e)})
@@ -209,7 +202,7 @@ def register_handlers(socketio):
             emit("error", {"message": "Invalid CSRF token"})
             return
         session_name = data["session"]
-        tmux_service.kill_session(session_name)
+        pty_service.kill_session(session_name)
         emit("session_closed", {"session": session_name}, broadcast=True)
 
     @socketio.on("disconnect")
@@ -217,14 +210,14 @@ def register_handlers(socketio):
         sid = request.sid
         logger.info(f"Client disconnected: sid={sid}")
         csrf_tokens.pop(sid, None)
-        # Clean up all terminal sessions tracked for this socket
-        terminal_sids = socket_terminals.pop(sid, set())
-        for tsid in terminal_sids:
-            logger.info(f"Cleaning up terminal session on disconnect: {tsid}")
-            tmux_service.cleanup_session(tsid)
-        # Also clean up the default _1 and _2 in case they weren't tracked
-        tmux_service.cleanup_session(f"{sid}_1")
-        tmux_service.cleanup_session(f"{sid}_2")
+        # Detach all viewer connections for this socket
+        terminal_vids = socket_terminals.pop(sid, set())
+        for vid in terminal_vids:
+            logger.info(f"Detaching viewer on disconnect: {vid}")
+            pty_service.detach_viewer(vid)
+        # Also detach the default _1 and _2 in case they weren't tracked
+        pty_service.detach_viewer(f"{sid}_1")
+        pty_service.detach_viewer(f"{sid}_2")
 
     @socketio.on("restart_desktop")
     def restart_desktop(data={}):
@@ -467,6 +460,7 @@ def register_handlers(socketio):
             socketio.emit("acp_event", {"session_id": session_id, "seq": seq, "event": event}, room=sid)
 
     # Restore persisted chat sessions on startup
+    acp_manager.default_on_event = acp_on_event
     acp_manager.restore_sessions(lambda sid: acp_on_event)
 
     @socketio.on("acp_create")

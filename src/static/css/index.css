@@ -182,6 +182,9 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     .new-session {
         padding-bottom: calc(65px + env(safe-area-inset-bottom));
     }
+    .term-grid {
+        contain: style;
+    }
 }
 
 .new-session input {
@@ -665,6 +668,7 @@ button.notebook-delete-btn {
     border-bottom: 1px solid #143151;
     border: 2px solid transparent;
     background: #102d50;
+    overflow: hidden;
 }
 
 .terminal-container:last-child {
@@ -691,16 +695,23 @@ button.notebook-delete-btn {
     bottom: 0;
     padding: 5px 0 0 5px;
     box-sizing: border-box;
+    pointer-events: none;
 }
 
-.terminal .xterm {
+.terminal.wterm {
+    pointer-events: auto;
+    --term-bg: #102d50;
+    --term-color-8: #999999;
     width: 100% !important;
     height: 100% !important;
+    border-radius: 0;
+    box-shadow: none;
+    padding: 0 !important;
 }
 
-.terminal .xterm .xterm-viewport {
-    overflow-y: scroll !important;
-    -webkit-overflow-scrolling: touch !important;
+.terminal.wterm.has-scrollback {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
 }
 
 .browser-pane {

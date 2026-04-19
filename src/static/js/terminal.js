@@ -1,46 +1,170 @@
-// --- Terminal Setup ---
-const term1 = new Terminal({
-    cursorBlink: true, fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: { background: '#102d50', brightBlack: '#999999' }, scrollback: 10000, allowTransparency: false
-});
-const term2 = new Terminal({
-    cursorBlink: true, fontSize: 14,
-    fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-    theme: { background: '#102d50', brightBlack: '#999999' }, scrollback: 10000, allowTransparency: false
-});
+// --- Terminal Setup (wterm) ---
+// Each session gets its own WTerm instance. Panes show/hide them on switch.
 
-term1.open(document.getElementById('terminal1'));
-term2.open(document.getElementById('terminal2'));
+// session_name -> { wterm, element, pane, ready, pending }
+const termInstances = {};
 
-const fitAddon1 = new FitAddon.FitAddon();
-const fitAddon2 = new FitAddon.FitAddon();
-term1.loadAddon(fitAddon1);
-term1.loadAddon(new WebLinksAddon.WebLinksAddon());
-term2.loadAddon(fitAddon2);
-term2.loadAddon(new WebLinksAddon.WebLinksAddon());
+// pane -> session_name (for routing output from server)
+const _paneSession = { 1: null, 2: null };
+
+// Measure container to get correct initial cols/rows using wterm's font styles.
+function measureTermSize(container) {
+    container.classList.add('wterm');
+    const style = getComputedStyle(container);
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font-family:' +
+        style.getPropertyValue('--term-font-family') + ';font-size:' +
+        style.getPropertyValue('--term-font-size') + ';line-height:' +
+        style.getPropertyValue('--term-line-height') + ';';
+    probe.textContent = 'W';
+    container.appendChild(probe);
+    const rect = probe.getBoundingClientRect();
+    probe.remove();
+    container.classList.remove('wterm');
+    if (!rect.width || !rect.height) return null;
+    const pad = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    const padV = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    const w = container.clientWidth - pad;
+    const h = container.clientHeight - padV;
+    return { cols: Math.max(1, Math.floor(w / rect.width)), rows: Math.max(1, Math.floor(h / rect.height)) };
+}
+
+// Get or create a WTerm for a session, placed in the given pane.
+function getOrCreateTerm(sessionName, pane) {
+    let entry = termInstances[sessionName];
+    if (entry) {
+        // Move to different pane if needed
+        if (entry.pane !== pane) {
+            document.getElementById('terminal' + pane).appendChild(entry.element);
+            entry.pane = pane;
+        }
+        return entry;
+    }
+
+    const container = document.getElementById('terminal' + pane);
+
+    // Create element with same classes as the original .terminal div
+    const el = document.createElement('div');
+    el.className = 'terminal';
+    container.appendChild(el);
+
+    const size = measureTermSize(container);
+    const wterm = new WTerm(el, Object.assign({
+        autoResize: true,
+        cursorBlink: true,
+        onResize: (cols, rows) => { emitWithCsrf('resize', { terminal: entry.pane, rows, cols }); },
+    }, size || {}));
+    wterm.onData = data => { emitWithCsrf('input', { terminal: entry.pane, data }); };
+
+    entry = { wterm, element: el, pane, ready: false, pending: [], firstAttach: true };
+    termInstances[sessionName] = entry;
+
+    wterm.init().then(() => {
+        entry.ready = true;
+        if (entry.pending.length) {
+            entry.pending.forEach(d => wterm.write(d));
+            entry.pending = [];
+        }
+        requestAnimationFrame(() => wterm.scrollToBottom());
+        // iOS WebKit paint bug: inject spacer after first paint
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+            setTimeout(() => {
+                const grid = el.querySelector('.term-grid');
+                if (grid) {
+                    const spacer = document.createElement('div');
+                    spacer.className = 'ios-spacer';
+                    spacer.style.height = '10px';
+                    el.insertBefore(spacer, grid);
+                }
+            }, 100);
+        }
+        setupFocusScroll(el, pane);
+    }).catch(err => console.error('wterm init failed for', sessionName, err));
+
+    return entry;
+}
+
+// Show a session's terminal in a pane, hide all others in that pane.
+function showTermInPane(sessionName, pane) {
+    const container = document.getElementById('terminal' + pane);
+    // Hide all terminals in this pane — disconnect ResizeObserver first to prevent
+    // 0-width resize that corrupts scrollback, then move offscreen
+    for (const [name, inst] of Object.entries(termInstances)) {
+        if (inst.pane === pane && name !== sessionName) {
+            if (inst.wterm.resizeObserver) inst.wterm.resizeObserver.disconnect();
+            inst.element.style.cssText = 'position:fixed;left:-9999px;visibility:hidden;';
+        }
+    }
+    const entry = getOrCreateTerm(sessionName, pane);
+    entry.element.style.cssText = '';
+    // Reconnect ResizeObserver
+    if (entry.wterm.resizeObserver) entry.wterm.resizeObserver.observe(entry.wterm.element);
+    if (entry.ready) {
+        requestAnimationFrame(() => entry.wterm.scrollToBottom());
+    }
+    // iOS paint bug: re-toggle spacer to force relayout after showing
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
+        const spacer = entry.element.querySelector('.ios-spacer');
+        if (spacer) {
+            spacer.style.display = 'none';
+            setTimeout(() => { spacer.style.display = ''; }, 0);
+        }
+    }
+    return entry;
+}
+
+// Destroy a session's terminal
+function destroyTerm(sessionName) {
+    const entry = termInstances[sessionName];
+    if (!entry) return;
+    entry.wterm.destroy();
+    entry.element.remove();
+    delete termInstances[sessionName];
+}
+
+// Get the active WTerm for a pane
+function getTermForPane(pane) {
+    const session = pane === 1 ? currentSession1 : currentSession2;
+    return session && termInstances[session] ? termInstances[session].wterm : null;
+}
+
+// Compatibility shims — term1/term2 as dynamic getters
+const _dummyTerm = { clear() {}, scrollToBottom() {}, focus() {}, rows: 24, cols: 80 };
+Object.defineProperty(window, 'term1', { get: () => getTermForPane(1) || _dummyTerm });
+Object.defineProperty(window, 'term2', { get: () => getTermForPane(2) || _dummyTerm });
+
+// WTerm prototype shims
+WTerm.prototype.clear = function() {};  // No-op — we hide/show, never clear
+WTerm.prototype.scrollToBottom = function() {
+    this.element.scrollTop = this.element.scrollHeight;
+};
 
 function doFit() {
     if (document.hidden || typeof paneTypes === 'undefined') return;
     if (paneTypes[1] === 'terminal') {
-        fitAddon1.fit();
-        term1.resize(term1.cols + 1, term1.rows);
-        emitWithCsrf('resize', { terminal: 1, rows: term1.rows, cols: term1.cols });
+        const t = getTermForPane(1);
+        if (t) emitWithCsrf('resize', { terminal: 1, rows: t.rows, cols: t.cols });
     }
     if (paneTypes[2] === 'terminal' && !document.getElementById('terminal2-container').classList.contains('hidden')) {
-        fitAddon2.fit();
-        term2.resize(term2.cols + 1, term2.rows);
-        emitWithCsrf('resize', { terminal: 2, rows: term2.rows, cols: term2.cols });
+        const t = getTermForPane(2);
+        if (t) emitWithCsrf('resize', { terminal: 2, rows: t.rows, cols: t.cols });
     }
 }
 
 document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) setTimeout(doFit, 100);
+    if (!document.hidden) {
+        setTimeout(doFit, 100);
+        // iOS: re-toggle spacers after returning from background/lock
+        if (_isIOS) {
+            setTimeout(() => {
+                document.querySelectorAll('.ios-spacer').forEach(s => {
+                    s.style.display = 'none';
+                    setTimeout(() => { s.style.display = ''; }, 100);
+                });
+            }, 500);
+        }
+    }
 });
-
-// --- Input ---
-term1.onData(data => { emitWithCsrf('input', { terminal: 1, data: data }); });
-term2.onData(data => { emitWithCsrf('input', { terminal: 2, data: data }); });
 
 // --- OSC 52 clipboard ---
 let oscBuffer = '';
@@ -80,84 +204,56 @@ function processOsc52(str) {
 socket.on('output', data => {
     let output = data.data;
     if (typeof output === 'string') output = processOsc52(output);
-    if (data.terminal === 1) { if (output) term1.write(output); }
-    else if (data.terminal === 2) { if (output) term2.write(output); }
+    if (!output) return;
+
+    // Route to the session currently attached to this pane
+    const sessionName = _paneSession[data.terminal];
+    if (!sessionName) return;
+    const entry = termInstances[sessionName];
+    if (!entry) return;
+
+    if (!entry.ready) {
+        entry.pending.push(output);
+        return;
+    }
+    entry.wterm.write(output);
+    // iOS: re-toggle spacer only on screen clear to fix paint after grid rebuild
+    if (_isIOS && typeof output === 'string' && output.includes('\x1b[2J')) _iosRetoggle(entry.element);
 });
 
-// --- iOS touch scrolling ---
-setTimeout(() => {
-    document.querySelectorAll('.xterm').forEach((xtermEl, idx) => {
-        const termNum = idx + 1;
-        let startY = 0, lastY = 0, lastTime = 0, isScrolling = false, hasMoved = false, keyboardOpen = false;
-
-        const textarea = xtermEl.querySelector('.xterm-helper-textarea');
-        if (textarea) {
-            textarea.addEventListener('focus', () => {
-                if (typeof setActiveTerminal === 'function') setActiveTerminal(termNum);
-                isScrolling = false;
-                keyboardOpen = true;
-                setTimeout(() => {
-                    const viewport = xtermEl.querySelector('.xterm-viewport');
-                    if (viewport) {
-                        const scrollTop = viewport.scrollTop;
-                        const scrollHeight = viewport.scrollHeight;
-                        const clientHeight = viewport.clientHeight;
-                        if (isSplit) {
-                            const container = document.getElementById(`terminal${termNum}-container`);
-                            const rect = container.getBoundingClientRect();
-                            window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
-                        } else {
-                            if (scrollTop + clientHeight >= scrollHeight - 50) {
-                                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-                            }
-                        }
-                    }
-                }, 300);
-            });
-            textarea.addEventListener('blur', () => { keyboardOpen = false; });
+const _isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let _iosRetoggleTimer = null;
+function _iosRetoggle(el) {
+    if (_iosRetoggleTimer) return;
+    _iosRetoggleTimer = setTimeout(() => {
+        _iosRetoggleTimer = null;
+        const spacer = el.querySelector('.ios-spacer');
+        if (spacer) {
+            spacer.style.display = 'none';
+            requestAnimationFrame(() => { spacer.style.display = ''; });
         }
+    }, 50);
+}
 
-        xtermEl.addEventListener('touchstart', (e) => {
-            if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
-            startY = lastY = e.touches[0].clientY;
-            lastTime = Date.now();
-            hasMoved = false;
-            isScrolling = false;
-        }, { passive: false });
+// --- Mobile: focus scroll ---
+function setupMobileFocusScroll() {}
 
-        xtermEl.addEventListener('touchmove', (e) => {
-            if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const currentY = e.touches[0].clientY;
-            const currentTime = Date.now();
-            const deltaY = lastY - currentY;
-            const deltaTime = Math.max(1, currentTime - lastTime);
-            const velocity = Math.abs(deltaY) / deltaTime;
-            if (Math.abs(startY - currentY) > 10) hasMoved = true;
-            lastY = currentY;
-            lastTime = currentTime;
-            if (!isScrolling && hasMoved) {
-                emitWithCsrf('input', { terminal: termNum, data: '\x02[' });
-                isScrolling = true;
+function setupFocusScroll(wtermEl, pane) {
+    const textarea = wtermEl.querySelector('textarea');
+    if (!textarea) return;
+    textarea.addEventListener('focus', () => {
+        if (typeof setActiveTerminal === 'function') setActiveTerminal(pane, false);
+        setTimeout(() => {
+            if (typeof isSplit !== 'undefined' && isSplit) {
+                const container = document.getElementById('terminal' + pane + '-container');
+                const rect = container.getBoundingClientRect();
+                window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
+            } else {
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
             }
-            if (isScrolling && Math.abs(deltaY) > 0.5) {
-                const multiplier = Math.min(3, 1 + velocity * 2);
-                const lines = Math.max(1, Math.round(Math.abs(deltaY) * multiplier / 3));
-                const key = deltaY > 0 ? '\x1b[B' : '\x1b[A';
-                for (let i = 0; i < lines; i++) emitWithCsrf('input', { terminal: termNum, data: key });
-            }
-        }, { passive: false });
-
-        xtermEl.addEventListener('touchend', (e) => {
-            if (e.target.tagName === 'TEXTAREA' || keyboardOpen) return;
-            if (isScrolling) {
-                emitWithCsrf('input', { terminal: termNum, data: 'q' });
-                isScrolling = false;
-            }
-        }, { passive: false });
+        }, 300);
     });
-}, 100);
+}
 
 // --- Resize ---
 let resizeTimeout;
@@ -165,8 +261,3 @@ window.addEventListener('resize', () => {
     clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(doFit, 100);
 });
-
-setTimeout(doFit, 100);
-setTimeout(doFit, 300);
-setTimeout(doFit, 500);
-setTimeout(doFit, 1000);
