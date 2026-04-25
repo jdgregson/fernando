@@ -167,6 +167,14 @@ def register_handlers(socketio):
         name = pty_service.create_session(session_type)
         emit("session_created", {"name": name, "switch": True})
 
+    @socketio.on("detach_viewer")
+    def handle_detach_viewer(data):
+        if not validate_csrf(data):
+            return
+        terminal = data.get("terminal", 1)
+        vid = f"{request.sid}_{terminal}"
+        pty_service.detach_viewer(vid)
+
     @socketio.on("input")
     def handle_input(data):
         if not validate_csrf(data):
