@@ -362,20 +362,43 @@ def _match_inbound(rule, message):
     return True
 
 
+def _specificity_score(rule):
+    """Score a rule by how specific its trigger filters are. Higher = more specific."""
+    trigger = rule.get("trigger", {})
+    score = 0
+    from_filter = trigger.get("from", "")
+    if "@" in from_filter:
+        score += 2  # exact email
+    elif from_filter:
+        score += 1  # domain only
+    if trigger.get("subject_contains"):
+        score += 2
+    if trigger.get("body_contains"):
+        score += 2
+    if trigger.get("channel"):
+        score += 1
+    if trigger.get("headers"):
+        score += len(trigger["headers"])
+    return score
+
+
 def evaluate_inbound(message):
-    """Evaluate a message against inbound rules. Returns (action, rule, processed_message)."""
+    """Evaluate a message against inbound rules. Most specific match wins."""
     rules = _load_rules()
-    for rule in rules:
-        if _match_inbound(rule, message):
-            action = rule.get("action", "dispatch")
-            if rule.get("fire_once"):
-                delete_rule(rule["id"])
-            if action == "summary":
-                stripped = {k: v for k, v in message.items() if k != "body"}
-                stripped["body"] = "(body stripped by automation rule)"
-                return action, rule, stripped
-            return action, rule, message
-    return "drop", None, message
+    matches = [(rule, _specificity_score(rule)) for rule in rules if _match_inbound(rule, message)]
+    if not matches:
+        return "drop", None, message
+    # Highest specificity wins; insertion order breaks ties (stable sort)
+    matches.sort(key=lambda x: x[1], reverse=True)
+    rule = matches[0][0]
+    action = rule.get("action", "dispatch")
+    if rule.get("fire_once"):
+        delete_rule(rule["id"])
+    if action == "summary":
+        stripped = {k: v for k, v in message.items() if k != "body"}
+        stripped["body"] = "(body stripped by automation rule)"
+        return action, rule, stripped
+    return action, rule, message
 
 
 # ---------------------------------------------------------------------------
