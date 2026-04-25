@@ -15,6 +15,7 @@ services:
       - VNC_RESIZE=scale
     volumes:
       - ./data/desktop:/home/kasm-user:rw
+      - /home/fernando/projects:/home/kasm-user/projects:rw
     shm_size: 512m
     restart: unless-stopped
     runtime: sysbox-runc

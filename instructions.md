@@ -24,6 +24,25 @@ Your Microsoft 365 account email and your user's email should be stored in memor
 - Track your progress and long term goals in Microsoft ToDo.
 - You can use Docker with sysbox-runc as a runtime for full operating systems if needed (the desktop, for example).
 
+## Shell Tool Pitfalls
+
+The shell tool waits for the command AND all its child processes to exit before returning. This means:
+
+- **Background processes block the tool.** `some-server &` will hang forever because the shell tool waits for the backgrounded process to finish. `nohup ... &` has the same problem.
+- **Correct pattern for starting a server**: Run it in a completely detached process, then interact with it in a separate shell command:
+  ```bash
+  # Command 1: Start the server detached
+  setsid python3 -m http.server 8888 > /dev/null 2>&1 &
+  # Command 2 (separate tool call): Use the server
+  curl http://localhost:8888/
+  ```
+  Or use `tmux` to run it in a named session:
+  ```bash
+  tmux new-session -d -s myserver 'cd /path && python3 -m http.server 8888'
+  ```
+- **Never combine a long-running process and a dependent command in one shell call.** Split them into separate tool calls.
+- This applies to ANY long-running process: HTTP servers, file watchers, `tail -f`, `docker logs -f`, etc.
+
 ## Web Search & Fetching
 
 - When searching the web, prefer `@fernando/brave_search` over built-in search tools. Brave Search has an independent index that is significantly better for Reddit, forums, and niche content.
@@ -38,6 +57,16 @@ DISPLAY=:1 /usr/bin/google-chrome [URL] 2>&1 &
 ```
 
 Do NOT use `google-chrome-stable`, `/opt/google/chrome/google-chrome`, or `/usr/bin/chrome` — they bypass the wrapper and will be missing required flags (CDP, sandbox, crash recovery, etc.).
+
+Never reset the Chrome profile as a troubleshooting step. The Chrome profile contains saved passwords, session data, and account logins that cannot be recovered.
+
+## Host ↔ Desktop File Sharing
+
+The host's `~/projects/` directory is bind-mounted into the Kasm desktop container at `/home/kasm-user/projects/`. This means:
+- Files written to `~/projects/` on the host are immediately visible inside the container
+- Chrome in the desktop can serve/open project files without copying
+- To test a web project in the desktop browser, start an HTTP server on the host (e.g., `setsid python3 -m http.server 8888 --directory ~/projects/my-project > /dev/null 2>&1 &`) and open `http://localhost:8888` in the desktop Chrome, OR open the file directly if it doesn't need a server
+- No need to use `desktop_copy_file` for anything under `~/projects/`
 
 ## Development Details
 
