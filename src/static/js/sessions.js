@@ -712,11 +712,18 @@ socket.on('session_closed', (data) => {
 function attachSession(sessionName) {
     if (sessionName === 'desktop') { toggleDesktop(); return; }
     if (sessionName.startsWith('notebook:')) { openNotebook(sessionName.slice(9)); return; }
-    // Already attached to this pane — no-op
+    // Already attached to this pane — no-op.
+    // In split mode, if the user recently directly clicked a different pane,
+    // honor that as the target (handles race where activeTerminal hasn't updated).
     const currentSession = activeTerminal === 1 ? currentSession1 : currentSession2;
     if (paneTypes[activeTerminal] === 'terminal' && currentSession === sessionName) {
-        highlightSidebarItem(sessionName);
-        return;
+        if (isSplit && _lastDirectPaneTarget !== activeTerminal
+            && Date.now() - _lastDirectPaneTouch < 5000) {
+            setActiveTerminal(_lastDirectPaneTarget, true);
+        } else {
+            highlightSidebarItem(sessionName);
+            return;
+        }
     }
     if (paneTypes[activeTerminal] === 'browser') {
         const browser = document.getElementById(`browser${activeTerminal}`);
@@ -730,6 +737,15 @@ function attachSession(sessionName) {
     if (activeTerminal === 1) { currentSession1 = sessionName; sessionStorage.setItem('fernando_session1', sessionName); }
     else { currentSession2 = sessionName; sessionStorage.setItem('fernando_session2', sessionName); }
     _paneSession[activeTerminal] = sessionName;
+    // If this session was in the other pane, detach the stale viewer to prevent
+    // duplicate output (the PTY broadcasts to all viewers on a session).
+    const otherPane = activeTerminal === 1 ? 2 : 1;
+    if (_paneSession[otherPane] === sessionName) {
+        emitWithCsrf('detach_viewer', { terminal: otherPane });
+        _paneSession[otherPane] = null;
+        if (otherPane === 1) { currentSession1 = null; sessionStorage.removeItem('fernando_session1'); }
+        else { currentSession2 = null; sessionStorage.removeItem('fernando_session2'); }
+    }
     const entry = showTermInPane(sessionName, activeTerminal);
     // If this session already has a rendered terminal, skip scrollback replay —
     // the content is already in the DOM. We still attach to get live output.
@@ -779,6 +795,9 @@ function toggleSplit() {
         const keep = activeTerminal;
         const discard = keep === 1 ? 2 : 1;
         document.getElementById(`terminal${discard}-container`).classList.add('hidden');
+        // Detach the discarded pane's viewer so it doesn't produce duplicate output
+        emitWithCsrf('detach_viewer', { terminal: discard });
+        _paneSession[discard] = null;
         setActiveTerminal(keep, true);
     }
     setTimeout(doFit, 100);
@@ -836,6 +855,8 @@ function syncPaneSidebar(paneNum) {
         highlightSidebarItem(s);
         // Retry in case sidebar is rebuilding
         setTimeout(() => highlightSidebarItem(s), 200);
+    } else {
+        document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
     }
 }
 function activatePane1() {
