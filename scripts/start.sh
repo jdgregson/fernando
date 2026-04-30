@@ -68,10 +68,11 @@ VNC_AUTH=$(echo -n "kasm_user:$VNC_PASSWORD" | base64)
 sed -e "s|{{NGINX_HOST}}|$NGINX_HOST|g" \
     -e "s|{{NGINX_PORT}}|$NGINX_PORT|g" \
     -e "s|{{FLASK_PORT}}|$FLASK_PORT|g" \
+    -e "s|{{JUPYTER_PORT}}|9999|g" \
     -e "s|{{ALLOWED_ORIGINS}}|$ALLOWED_ORIGINS|g" \
     -e "s|{{VNC_AUTH}}|$VNC_AUTH|g" \
     -e "s|{{API_KEY}}|$(cat /tmp/fernando-api-key 2>/dev/null)|g" \
-    nginx.conf.template > nginx.conf
+    "${FERNANDO_NGINX_TEMPLATE:-nginx.conf.template}" > nginx.conf
 chmod 600 nginx.conf
 
 # Ensure desktop data dir exists before Docker creates it as root
@@ -80,9 +81,13 @@ mkdir -p "$REPO_DIR/data/desktop"
 # Ensure notebook data dir exists
 mkdir -p "$REPO_DIR/data/notebooks"
 
+# Ensure Jupyter data dir exists
+mkdir -p "$REPO_DIR/data/jupyter"
+
 # Start Kasm desktop container with VNC_PW
-echo "Starting Kasm desktop container..."
-docker compose up -d fernando-desktop
+COMPOSE_FILE="${FERNANDO_COMPOSE_FILE:-docker-compose.yml}"
+echo "Starting Kasm desktop container (compose file: $COMPOSE_FILE)..."
+docker compose -f "$COMPOSE_FILE" up -d fernando-desktop
 
 # Wait for Kasm to be ready
 echo "Waiting for Kasm to be ready..."
@@ -94,8 +99,9 @@ for i in {1..30}; do
     sleep 1
 done
 
-# Start crond for recurring subagent schedules if not already running
-if ! pgrep -u "$USER" crond > /dev/null 2>&1; then
+# Start crond for recurring subagent schedules if not already running (Linux only;
+# macOS uses launchd and has no crond binary)
+if [ "$(uname)" != "Darwin" ] && ! pgrep -u "$USER" crond > /dev/null 2>&1; then
     crond 2>/dev/null || /usr/sbin/crond 2>/dev/null
 fi
 

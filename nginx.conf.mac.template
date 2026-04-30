@@ -15,22 +15,6 @@ http {
     scgi_temp_path /tmp/nginx-fernando-scgi;
     client_max_body_size 50m;
 
-    # Auth callback for Docker containers (pinned subnet 172.25.0.0/24)
-    server {
-        listen 172.25.0.1:{{NGINX_PORT}} default_server;
-        server_name _;
-
-        location = /auth/callback {
-            proxy_pass http://localhost:{{FLASK_PORT}};
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-
-        location / {
-            return 403;
-        }
-    }
-
     server {
         listen {{NGINX_HOST}}:{{NGINX_PORT}};
         server_name _;
@@ -108,7 +92,7 @@ http {
             proxy_send_timeout 3600s;
         }
 
-        # Kasm VNC WebSocket — API key checked via Lua or map
+        # Kasm VNC WebSocket — API key checked via arg match
         location /websockify {
             set $api_key_file '{{API_KEY}}';
             if ($arg_api_key != $api_key_file) {
