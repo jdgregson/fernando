@@ -1,14 +1,22 @@
 /* Fernando theme for Jupyter Notebook (nbclassic) */
 
 body {
-    background-color: #0d2848 !important;
+    background-color: #0d2748 !important;
     color: #d4d4d4 !important;
 }
 
+html, body {
+    overflow-y: hidden;
+}
+
 #header {
-    background-color: #0f1e38 !important;
+    background-color: #0c213c !important;
     border-bottom: 1px solid #143151 !important;
     box-shadow: none !important;
+}
+
+body > #header .header-bar {
+    background: #143151 !important;
 }
 
 #header-container {
@@ -33,21 +41,30 @@ body {
 }
 
 #menubar-container {
-    background-color: #0f1e38 !important;
+    background-color: #0c213c !important;
 }
 
 .navbar-default {
-    background-color: #0f1e38 !important;
+    background-color: #0c213c !important;
+    border-color: #143151 !important;
+}
+
+.navbar-default .navbar-collapse, .navbar-default .navbar-form {
     border-color: #143151 !important;
 }
 
 #menubar .navbar-nav > li > a {
-    color: #d4d4d4 !important;
+    color: #3465a3 !important;
 }
 
 #menubar .navbar-nav > li > a:hover {
     color: #5a9fd4 !important;
     background-color: #143151 !important;
+}
+
+#menubar-container .navbar-default .navbar-nav > .open > a, #menubar-container .navbar-default .navbar-nav > .open > a:hover, #menubar-container .navbar-default .navbar-nav > .open > a:focus {
+    background-color: #3465a3 !important;
+    color: #fff !important;
 }
 
 .dropdown-menu {
@@ -70,19 +87,25 @@ body {
 
 /* Notebook cells */
 #notebook-container {
-    background-color: #0d2848 !important;
+    background-color: #0d2748 !important;
     box-shadow: none !important;
     padding: 0 !important;
 }
 
-#notebook {
-    background-color: #0d2848 !important;
+div#notebook {
+    background-color: #0d2748 !important;
+    padding-top: 0 !important;
 }
 
-.cell {
-    background-color: #0a1e3a !important;
+.container {
+    width: 95% !important;
+}
+
+div.cell {
+    background-color: #0c213c !important;
     border: 1px solid #143151 !important;
     border-radius: 4px !important;
+    margin: 10px 0;
 }
 
 .cell.selected {
@@ -94,17 +117,17 @@ body {
 }
 
 .input_area {
-    background-color: #0a1e3a !important;
+    background-color: #0c213c !important;
     border: none !important;
 }
 
 .CodeMirror {
-    background-color: #0a1e3a !important;
+    background-color: #0c213c !important;
     color: #d4d4d4 !important;
 }
 
 .CodeMirror-gutters {
-    background-color: #0a1e3a !important;
+    background-color: #0c213c !important;
     border-right: 1px solid #143151 !important;
 }
 
@@ -136,8 +159,10 @@ body {
 
 /* Output area */
 .output_area {
-    background-color: #0d2848 !important;
+    background-color: #0e2544 !important;
     color: #d4d4d4 !important;
+    border: 1px solid #143151;
+    margin: 5px 3px 3px 3px;
 }
 
 .output_area pre {
@@ -154,8 +179,8 @@ body {
 
 /* Toolbar */
 #maintoolbar-container {
-    background-color: #0f1e38 !important;
-    border-bottom: 1px solid #143151 !important;
+    background-color: #0c213c !important;
+    border-bottom: 0 !important;
 }
 
 .btn-default {
@@ -186,11 +211,11 @@ body {
 
 /* Tree view (file browser) */
 #tab_content {
-    background-color: #0d2848 !important;
+    background-color: #0d2748 !important;
 }
 
 .list_container {
-    background-color: #0d2848 !important;
+    background-color: #0d2748 !important;
     border: 1px solid #143151 !important;
 }
 
@@ -216,7 +241,7 @@ body {
 }
 
 .tab-content {
-    background-color: #0d2848 !important;
+    background-color: #0d2748 !important;
 }
 
 .nav-tabs {
@@ -234,9 +259,9 @@ body {
 }
 
 .nav-tabs > li.active > a {
-    background-color: #0d2848 !important;
+    background-color: #0d2748 !important;
     border-color: #143151 !important;
-    border-bottom-color: #0d2848 !important;
+    border-bottom-color: #0d2748 !important;
     color: #5a9fd4 !important;
 }
 
@@ -247,21 +272,25 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-    background: #0d2848;
+    background: #0d2748;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #143151;
+    background: #091d35;
     border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: #1e4a6e;
+    background: #0c2848;
 }
 
 /* Kernel indicator */
 #kernel_indicator {
     color: #6a7a8a !important;
+}
+
+#kernel_indicator .kernel_indicator_name {
+    color: #3465a3 !important;
 }
 
 /* Checkpoint/save status */
@@ -287,7 +316,7 @@ body {
 
 /* Form controls */
 .form-control {
-    background-color: #0a1e3a !important;
+    background-color: #0c213c !important;
     border-color: #143151 !important;
     color: #d4d4d4 !important;
 }
@@ -313,7 +342,7 @@ body {
 }
 
 .text_cell_render code {
-    background-color: #0a1e3a !important;
+    background-color: #0c213c !important;
     color: #ce9178 !important;
 }
 
@@ -325,4 +354,54 @@ body {
 /* Notification area */
 #notification_area .notification_widget {
     color: #6a7a8a !important;
+}
+
+span.save_widget span.filename:hover {
+    background-color: #3465a3;
+}
+
+.typeahead__dropdown, .typeahead__list {
+    background-color: #0d2848 !important;
+    border: 1px solid #143151 !important;
+}
+
+.typeahead__dropdown .typeahead__dropdown-item>a, .typeahead__list .typeahead__item>a {
+    color: #d4d4d4 !important;
+}
+
+.typeahead__list>li {
+    border-top: solid 1px #143151 !important;
+}
+
+.typeahead__dropdown .typeahead__dropdown-item:not([disabled]).active>a, .typeahead__dropdown .typeahead__dropdown-item:not([disabled])>a:focus, .typeahead__dropdown .typeahead__dropdown-item:not([disabled])>a:hover, .typeahead__list .typeahead__item:not([disabled]).active>a, .typeahead__list .typeahead__item:not([disabled])>a:focus, .typeahead__list .typeahead__item:not([disabled])>a:hover {
+    background-color: #3465a3 !important;
+    color: #d4d4d4 !important;
+}
+
+.typeahead__container.hint .typeahead__field [contenteditable], .typeahead__container.hint .typeahead__field input, .typeahead__container.hint .typeahead__field textarea {
+    background: #091d35 !important;
+    border-top-left-radius: 4px !important;
+    border-bottom-left-radius: 4px !important;
+    border: 1px solid #3465a3 !important;
+}
+
+.cmd-palette form {
+    background: transparent !important;
+}
+
+.typeahead__button > button {
+    background-color: #3465a3;
+    border-color: #3465a3;
+}
+
+.typeahead__list>.typeahead__group.active>a, .typeahead__list>.typeahead__group>a, .typeahead__list>.typeahead__group>a:focus, .typeahead__list>.typeahead__group>a:hover {
+    background: #25364b !important;
+}
+
+#running .panel-group .panel .panel-heading {
+    background-color: #091d35 !important;
+}
+
+.panel-default {
+    border-color: #0d2848 !important;
 }

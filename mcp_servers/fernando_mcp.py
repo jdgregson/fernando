@@ -449,10 +449,16 @@ def _jupyter_read_notebook(path):
 def _jupyter_execute(code):
     """Execute code on a running kernel and return the output."""
     import glob as _glob
-    runtime_dir = os.path.expanduser("~/Library/Jupyter/runtime")
-    if not os.path.isdir(runtime_dir):
-        runtime_dir = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jupyter/runtime")
-    files = sorted(_glob.glob(os.path.join(runtime_dir, "kernel-*.json")), key=os.path.getmtime, reverse=True)
+    candidates = [
+        os.path.expanduser("~/Library/Jupyter/runtime"),
+        os.path.expanduser("~/.local/share/jupyter/runtime"),
+        os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jupyter/runtime"),
+    ]
+    files = []
+    for runtime_dir in candidates:
+        files = sorted(_glob.glob(os.path.join(runtime_dir, "kernel-*.json")), key=os.path.getmtime, reverse=True)
+        if files:
+            break
     if not files:
         return {"error": "No running kernel found. Open a notebook in the UI first."}
     conn_file = files[0]
