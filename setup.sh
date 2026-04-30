@@ -227,6 +227,19 @@ CRON_LINE="0 6 * * * $INSTALL_DIR/scripts/update-kiro.sh >> /tmp/fernando-update
 # Install global Kiro steering file
 gecho "Installing Kiro steering file..."
 sudo -u "$FERNANDO_USER" mkdir -p "$FERNANDO_HOME/.kiro/steering"
+
+# Install Jupyter custom theme
+gecho "Installing Jupyter custom theme..."
+jupyter_custom_dst="$FERNANDO_HOME/.jupyter/custom"
+if [ -L "$jupyter_custom_dst" ]; then
+    gecho "Jupyter custom symlink already exists, skipping."
+elif [ -d "$jupyter_custom_dst" ]; then
+    gecho "WARNING: $jupyter_custom_dst is a regular directory. Remove it and re-run setup to use the repo copy."
+else
+    sudo -u "$FERNANDO_USER" mkdir -p "$FERNANDO_HOME/.jupyter"
+    sudo -u "$FERNANDO_USER" ln -s "$INSTALL_DIR/jupyter/custom" "$jupyter_custom_dst"
+    gecho "Symlinked $jupyter_custom_dst -> $INSTALL_DIR/jupyter/custom"
+fi
 instructions_src="$INSTALL_DIR/instructions.md"
 instructions_dst="$FERNANDO_HOME/.kiro/steering/instructions.md"
 if [ -L "$instructions_dst" ]; then

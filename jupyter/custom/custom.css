@@ -1,0 +1,328 @@
+/* Fernando theme for Jupyter Notebook (nbclassic) */
+
+body {
+    background-color: #0d2848 !important;
+    color: #d4d4d4 !important;
+}
+
+#header {
+    background-color: #0f1e38 !important;
+    border-bottom: 1px solid #143151 !important;
+    box-shadow: none !important;
+}
+
+#header-container {
+    padding: 4px 8px !important;
+}
+
+#ipython_notebook img {
+    display: none;
+}
+
+#ipython_notebook::after {
+    content: 'Fernando';
+    color: #5a9fd4;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+#notebook_name {
+    color: #d4d4d4 !important;
+    font-family: ui-monospace, monospace !important;
+}
+
+#menubar-container {
+    background-color: #0f1e38 !important;
+}
+
+.navbar-default {
+    background-color: #0f1e38 !important;
+    border-color: #143151 !important;
+}
+
+#menubar .navbar-nav > li > a {
+    color: #d4d4d4 !important;
+}
+
+#menubar .navbar-nav > li > a:hover {
+    color: #5a9fd4 !important;
+    background-color: #143151 !important;
+}
+
+.dropdown-menu {
+    background-color: #0f1e38 !important;
+    border: 1px solid #143151 !important;
+}
+
+.dropdown-menu > li > a {
+    color: #d4d4d4 !important;
+}
+
+.dropdown-menu > li > a:hover {
+    background-color: #143151 !important;
+    color: #5a9fd4 !important;
+}
+
+.dropdown-menu .divider {
+    background-color: #143151 !important;
+}
+
+/* Notebook cells */
+#notebook-container {
+    background-color: #0d2848 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+}
+
+#notebook {
+    background-color: #0d2848 !important;
+}
+
+.cell {
+    background-color: #0a1e3a !important;
+    border: 1px solid #143151 !important;
+    border-radius: 4px !important;
+}
+
+.cell.selected {
+    border-color: #3465a3 !important;
+}
+
+.cell.selected::before {
+    background-color: #3465a3 !important;
+}
+
+.input_area {
+    background-color: #0a1e3a !important;
+    border: none !important;
+}
+
+.CodeMirror {
+    background-color: #0a1e3a !important;
+    color: #d4d4d4 !important;
+}
+
+.CodeMirror-gutters {
+    background-color: #0a1e3a !important;
+    border-right: 1px solid #143151 !important;
+}
+
+.CodeMirror-linenumber {
+    color: #6a7a8a !important;
+}
+
+.CodeMirror-cursor {
+    border-left-color: #d4d4d4 !important;
+}
+
+.CodeMirror-selected {
+    background-color: #143151 !important;
+}
+
+.CodeMirror-activeline-background {
+    background-color: #112d50 !important;
+}
+
+/* Syntax highlighting */
+.cm-s-ipython span.cm-keyword { color: #c586c0 !important; }
+.cm-s-ipython span.cm-string { color: #ce9178 !important; }
+.cm-s-ipython span.cm-number { color: #b5cea8 !important; }
+.cm-s-ipython span.cm-comment { color: #6a9955 !important; }
+.cm-s-ipython span.cm-builtin { color: #4ec9b0 !important; }
+.cm-s-ipython span.cm-def { color: #dcdcaa !important; }
+.cm-s-ipython span.cm-variable { color: #9cdcfe !important; }
+.cm-s-ipython span.cm-operator { color: #d4d4d4 !important; }
+
+/* Output area */
+.output_area {
+    background-color: #0d2848 !important;
+    color: #d4d4d4 !important;
+}
+
+.output_area pre {
+    color: #d4d4d4 !important;
+}
+
+.output_stderr {
+    background-color: #2d1b1b !important;
+}
+
+.output_error pre {
+    color: #f48771 !important;
+}
+
+/* Toolbar */
+#maintoolbar-container {
+    background-color: #0f1e38 !important;
+    border-bottom: 1px solid #143151 !important;
+}
+
+.btn-default {
+    background-color: #143151 !important;
+    border-color: #1e4a6e !important;
+    color: #d4d4d4 !important;
+}
+
+.btn-default:hover {
+    background-color: #1e4a6e !important;
+    color: #5a9fd4 !important;
+}
+
+/* Modal dialogs */
+.modal-content {
+    background-color: #0f1e38 !important;
+    border: 1px solid #143151 !important;
+    color: #d4d4d4 !important;
+}
+
+.modal-header {
+    border-bottom-color: #143151 !important;
+}
+
+.modal-footer {
+    border-top-color: #143151 !important;
+}
+
+/* Tree view (file browser) */
+#tab_content {
+    background-color: #0d2848 !important;
+}
+
+.list_container {
+    background-color: #0d2848 !important;
+    border: 1px solid #143151 !important;
+}
+
+.list_container > div {
+    border-bottom: 1px solid #143151 !important;
+}
+
+.list_item:hover {
+    background-color: #143151 !important;
+}
+
+.item_link {
+    color: #5a9fd4 !important;
+}
+
+.item_icon {
+    color: #6a7a8a !important;
+}
+
+#notebook_list_header, #running_list_header {
+    background-color: #0f1e38 !important;
+    border-bottom: 1px solid #143151 !important;
+}
+
+.tab-content {
+    background-color: #0d2848 !important;
+}
+
+.nav-tabs {
+    border-bottom-color: #143151 !important;
+}
+
+.nav-tabs > li > a {
+    color: #6a7a8a !important;
+}
+
+.nav-tabs > li > a:hover {
+    background-color: #143151 !important;
+    border-color: #143151 !important;
+    color: #d4d4d4 !important;
+}
+
+.nav-tabs > li.active > a {
+    background-color: #0d2848 !important;
+    border-color: #143151 !important;
+    border-bottom-color: #0d2848 !important;
+    color: #5a9fd4 !important;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0d2848;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #143151;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #1e4a6e;
+}
+
+/* Kernel indicator */
+#kernel_indicator {
+    color: #6a7a8a !important;
+}
+
+/* Checkpoint/save status */
+.checkpoint_status, .autosave_status {
+    color: #6a7a8a !important;
+}
+
+/* Hide unnecessary elements in iframe context */
+#shutdown_widget, #login_widget {
+    display: none !important;
+}
+
+/* New notebook button */
+#new-buttons .btn {
+    background-color: #3465a3 !important;
+    border-color: #3465a3 !important;
+    color: #fff !important;
+}
+
+#new-buttons .btn:hover {
+    background-color: #4a7ab8 !important;
+}
+
+/* Form controls */
+.form-control {
+    background-color: #0a1e3a !important;
+    border-color: #143151 !important;
+    color: #d4d4d4 !important;
+}
+
+/* Tooltip */
+.tooltip-inner {
+    background-color: #0f1e38 !important;
+    border: 1px solid #143151 !important;
+}
+
+/* Markdown cells */
+.text_cell_render {
+    color: #d4d4d4 !important;
+}
+
+.text_cell_render h1, .text_cell_render h2, .text_cell_render h3,
+.text_cell_render h4, .text_cell_render h5, .text_cell_render h6 {
+    color: #5a9fd4 !important;
+}
+
+.text_cell_render a {
+    color: #3465a3 !important;
+}
+
+.text_cell_render code {
+    background-color: #0a1e3a !important;
+    color: #ce9178 !important;
+}
+
+/* Prompt */
+.input_prompt, .output_prompt {
+    color: #3465a3 !important;
+}
+
+/* Notification area */
+#notification_area .notification_widget {
+    color: #6a7a8a !important;
+}
