@@ -32,6 +32,11 @@ def _reap_children():
 def _shutdown(signum, frame):
     logger.info(f"Received signal {signum}, shutting down...")
     pty_service.cleanup_all()
+    try:
+        from src.services.jupyter import stop as jupyter_stop
+        jupyter_stop()
+    except Exception:
+        pass
     _reap_children()
     raise SystemExit(0)
 

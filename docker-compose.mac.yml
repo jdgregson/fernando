@@ -1,0 +1,28 @@
+services:
+  fernando-desktop:
+    container_name: fernando-desktop
+    image: fernando-desktop
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: Dockerfile.desktop
+      platforms:
+        - linux/amd64
+    ports:
+      - "127.0.0.1:6901:6901"
+    environment:
+      - VNC_PW=${VNC_PW:-password}
+      - KASM_PORT=6901
+      - DISPLAY_WIDTH=1920
+      - DISPLAY_HEIGHT=1080
+      - VNC_RESIZE=scale
+    volumes:
+      - ./data/desktop:/home/kasm-user:rw
+    shm_size: 512m
+    restart: unless-stopped
+    # On Linux, docker-compose.yml uses /sbin/init (systemd) with sysbox-runc.
+    # On macOS, systemd child process spawning fails under Rosetta amd64 emulation,
+    # so we use Kasm's native entrypoint directly instead.
+    entrypoint: ["/dockerstartup/kasm_default_profile.sh", "/dockerstartup/vnc_startup.sh", "/dockerstartup/kasm_startup.sh"]
+    command: ["--tail-log"]
+    user: "0"

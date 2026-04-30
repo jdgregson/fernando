@@ -14,10 +14,13 @@ echo "Stopping nginx..."
 nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null || pkill nginx
 
 echo "Stopping desktop container..."
-docker compose down
+docker compose -f "${FERNANDO_COMPOSE_FILE:-docker-compose.yml}" down
 
 echo "Stopping kiro-cli acp processes..."
 pkill -TERM -f "kiro-cli-chat acp" 2>/dev/null
+
+echo "Stopping Jupyter..."
+pkill -TERM -f "jupyter-notebook" 2>/dev/null
 sleep 2
 pkill -9 -f "kiro-cli-chat acp" 2>/dev/null
 # Also kill their parent kiro-cli wrappers

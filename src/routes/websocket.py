@@ -25,6 +25,17 @@ logger = logging.getLogger("fernando.websocket")
 csrf_tokens = {}
 # Track all terminal sids per socket sid for cleanup
 socket_terminals = {}
+# Track open Jupyter session names (for sidebar)
+_open_jupyter = set()
+# Track jupyter_cmd acks by id: {id: total_receivers}
+_jupyter_acks = {}
+_jupyter_acks_lock = threading.Lock()
+
+
+def consume_jupyter_ack(cmd_id: str) -> int:
+    """Pop and return the ack count for a given jupyter_cmd id. Returns 0 if no ack received."""
+    with _jupyter_acks_lock:
+        return _jupyter_acks.pop(cmd_id, 0)
 
 
 def register_handlers(socketio):
@@ -62,7 +73,7 @@ def register_handlers(socketio):
         chat_sessions = acp_manager.list_sessions()
         from src.services.notebooks import list_notebooks
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
-        emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks})
+        emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks, "running_jupyter": list(_open_jupyter)})
 
     @socketio.on("kasm_ws")
     def handle_kasm_ws(data):
@@ -306,6 +317,47 @@ def register_handlers(socketio):
         from src.services.notebooks import stop_notebook
         stop_notebook(name)
         emit("notebook_stopped", {"name": name})
+
+    @socketio.on("jupyter_cmd")
+    def handle_jupyter_cmd(data):
+        """Forward a command to the Jupyter iframe via broadcast."""
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        # Broadcast to all clients — the frontend will forward to the Jupyter iframe
+        socketio.emit("jupyter_cmd", {
+            "action": data.get("action"),
+            "source": data.get("source", ""),
+            "cell_type": data.get("cell_type", "code"),
+            "id": data.get("id", ""),
+            "index": data.get("index", 0),
+        })
+
+    @socketio.on("jupyter_cmd_ack")
+    def handle_jupyter_cmd_ack(data):
+        """Receive an ack from the frontend indicating how many iframes received a command."""
+        if not validate_csrf(data):
+            return
+        cmd_id = data.get("id", "")
+        receivers = int(data.get("receivers", 0) or 0)
+        if not cmd_id:
+            return
+        with _jupyter_acks_lock:
+            _jupyter_acks[cmd_id] = _jupyter_acks.get(cmd_id, 0) + receivers
+
+    @socketio.on("open_jupyter")
+    def handle_open_jupyter(data):
+        if not validate_csrf(data):
+            return
+        name = data.get("name", "Jupyter")
+        _open_jupyter.add(name)
+
+    @socketio.on("close_jupyter")
+    def handle_close_jupyter(data):
+        if not validate_csrf(data):
+            return
+        name = data.get("name", "Jupyter")
+        _open_jupyter.discard(name)
 
     # --- Workflow handlers ---
 
