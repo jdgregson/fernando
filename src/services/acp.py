@@ -595,8 +595,30 @@ class ACPManager:
                 pass
             for sid in orphaned:
                 fpath = os.path.join(HISTORY_DIR, f"{sid}.jsonl")
+                # Extract ACP session ID from history events so restore can reload context
+                acp_id = ""
+                try:
+                    with open(fpath) as hf:
+                        for line in hf:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                obj = json.loads(line)
+                            except (json.JSONDecodeError, ValueError):
+                                continue
+                            # session/update notifications contain sessionId in params
+                            sid_val = (obj.get("params") or {}).get("sessionId", "")
+                            if not sid_val:
+                                # session/prompt results contain sessionId in result
+                                sid_val = (obj.get("result") or {}).get("sessionId", "")
+                            if sid_val:
+                                acp_id = sid_val
+                                break
+                except OSError:
+                    pass
                 archived[sid] = {
-                    "acp_id": "",
+                    "acp_id": acp_id,
                     "name": rag_names.get(sid, "Chat-" + sid),
                     "archived_at": os.path.getmtime(fpath),
                 }
@@ -694,6 +716,7 @@ class ACPManager:
                 _save_archived_map(archived)
 
     def list_archived(self):
+        self._recover_orphans()
         items = sorted(
             _load_archived_map().items(),
             key=lambda x: x[1].get("archived_at", 0),
@@ -703,13 +726,14 @@ class ACPManager:
 
     def restore_session(self, session_id, on_event=None):
         """Restore an archived session back to active."""
+        # Run orphan recovery first in case this session has a history file but isn't tracked
+        self._recover_orphans()
         with _archived_lock:
             archived = _load_archived_map()
             info = archived.get(session_id)
             if not info:
                 return False
             acp_id = info["acp_id"]
-            # For recovered orphans (no acp_id) or missing session files, start fresh
             can_load = acp_id and os.path.exists(os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json"))
             archived.pop(session_id)
             _save_archived_map(archived)
