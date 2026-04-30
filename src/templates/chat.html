@@ -53,6 +53,7 @@
     const socket = io({
         path: window.location.pathname.replace(/\/chat\/.*$/, '') + '/socket.io',
         query: { api_key: apiKey },
+        transports: ['websocket'],
         reconnection: true,
     });
 
