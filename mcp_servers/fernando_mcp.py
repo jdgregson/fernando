@@ -366,6 +366,178 @@ def _notes_search(notebook, query):
     return {"notebook": notebook, "query": query, "results": results}
 
 
+# --- Jupyter helpers ---
+_JUPYTER_PORT = 9999
+_JUPYTER_API = f"http://127.0.0.1:{_JUPYTER_PORT}"
+
+
+def _jupyter_ensure_running():
+    """Start Jupyter if not running."""
+    try:
+        req = urllib.request.Request(f"{_JUPYTER_API}/api/kernels", method="GET")
+        urllib.request.urlopen(req, timeout=2)
+        return True
+    except Exception:
+        pass
+    # Trigger start via Flask proxy
+    try:
+        api_key = open("/tmp/fernando-api-key").read().strip()
+        req = urllib.request.Request(f"http://localhost:5000/jupyter/?api_key={api_key}")
+        urllib.request.urlopen(req, timeout=30)
+        return True
+    except Exception:
+        return False
+
+
+def _jupyter_api(path, method="GET", data=None):
+    """Make a request to the Jupyter REST API."""
+    _jupyter_ensure_running()
+    url = f"{_JUPYTER_API}/{path}"
+    headers = {"Content-Type": "application/json"} if data else {}
+    body = json.dumps(data).encode() if data else None
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        return {"error": f"HTTP {e.code}: {e.read().decode()[:200]}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _jupyter_list_notebooks():
+    """List all .ipynb files."""
+    result = _jupyter_api("api/contents/")
+    if "error" in result:
+        return result
+    items = result.get("content", [])
+    notebooks = []
+    def walk(items, prefix=""):
+        for item in items:
+            if item["type"] == "notebook":
+                notebooks.append({"name": item["name"], "path": item["path"]})
+            elif item["type"] == "directory":
+                sub = _jupyter_api(f"api/contents/{urllib.parse.quote(item['path'], safe='/')}")
+                if "content" in sub:
+                    walk(sub["content"], item["path"] + "/")
+    walk(items)
+    return {"notebooks": notebooks}
+
+
+def _jupyter_read_notebook(path):
+    """Read a notebook's cells."""
+    result = _jupyter_api(f"api/contents/{urllib.parse.quote(path, safe='/')}")
+    if "error" in result:
+        return result
+    cells = []
+    for i, c in enumerate(result.get("content", {}).get("cells", [])):
+        cell = {"index": i, "cell_type": c["cell_type"], "source": c["source"]}
+        if c.get("outputs"):
+            outputs = []
+            for o in c["outputs"]:
+                if o.get("text"):
+                    outputs.append({"type": "stream", "text": o["text"]})
+                elif o.get("data"):
+                    outputs.append({"type": o.get("output_type", "display"), "data": o["data"]})
+                elif o.get("ename"):
+                    outputs.append({"type": "error", "ename": o["ename"], "evalue": o["evalue"]})
+            cell["outputs"] = outputs
+        cells.append(cell)
+    return {"path": path, "cells": cells}
+
+
+def _jupyter_execute(code):
+    """Execute code on a running kernel and return the output."""
+    import glob as _glob
+    runtime_dir = os.path.expanduser("~/Library/Jupyter/runtime")
+    if not os.path.isdir(runtime_dir):
+        runtime_dir = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jupyter/runtime")
+    files = sorted(_glob.glob(os.path.join(runtime_dir, "kernel-*.json")), key=os.path.getmtime, reverse=True)
+    if not files:
+        return {"error": "No running kernel found. Open a notebook in the UI first."}
+    conn_file = files[0]
+    try:
+        from jupyter_client import BlockingKernelClient
+        kc = BlockingKernelClient()
+        kc.load_connection_file(conn_file)
+        kc.start_channels()
+        msg_id = kc.execute(code)
+        outputs = []
+        while True:
+            try:
+                msg = kc.get_iopub_msg(timeout=30)
+                mt = msg["msg_type"]
+                if msg["parent_header"].get("msg_id") != msg_id:
+                    continue
+                if mt == "stream":
+                    outputs.append({"type": "stream", "name": msg["content"]["name"], "text": msg["content"]["text"]})
+                elif mt in ("display_data", "execute_result"):
+                    outputs.append({"type": mt, "data": msg["content"]["data"]})
+                elif mt == "error":
+                    outputs.append({"type": "error", "ename": msg["content"]["ename"], "evalue": msg["content"]["evalue"], "traceback": msg["content"]["traceback"]})
+                elif mt == "status" and msg["content"]["execution_state"] == "idle":
+                    break
+            except Exception:
+                break
+        kc.stop_channels()
+        return {"status": "ok", "outputs": outputs}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _jupyter_insert_and_run(code):
+    """Insert a cell into the open notebook and execute it (live in UI)."""
+    return _jupyter_cmd("insert_and_run", source=code)
+
+
+def _jupyter_cmd(action, **kwargs):
+    """Send a command to the Jupyter iframe via WebSocket, return error if no notebook is open."""
+    try:
+        from src.routes.websocket import consume_jupyter_ack
+        api_key = open("/tmp/fernando-api-key").read().strip()
+        import socketio as _sio
+        import uuid as _uuid
+        sio = _sio.Client()
+        csrf = [None]
+        @sio.on("connected")
+        def on_conn(data):
+            csrf[0] = data.get("csrf_token")
+        sio.connect(f"http://localhost:5000?api_key={api_key}")
+        for _ in range(20):
+            if csrf[0]:
+                break
+            time.sleep(0.1)
+        if not csrf[0]:
+            sio.disconnect()
+            return {"error": "Could not get CSRF token"}
+        cmd_id = str(_uuid.uuid4())
+        sio.emit("jupyter_cmd", {
+            "action": action,
+            "id": cmd_id,
+            "csrf_token": csrf[0],
+            **kwargs,
+        })
+        # Wait for frontend ack(s)
+        for _ in range(10):
+            time.sleep(0.1)
+            count = consume_jupyter_ack(cmd_id)
+            if count:
+                sio.disconnect()
+                return {
+                    "status": "ok",
+                    "action": action,
+                    "receivers": count,
+                    "warning": "Command delivered to multiple notebooks" if count > 1 else None,
+                }
+        sio.disconnect()
+        return {
+            "error": "No Jupyter notebook is open in the browser. Open a notebook and retry.",
+            "action": action,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 app = Server("fernando")
 
 
@@ -517,6 +689,24 @@ async def list_tools() -> list[Tool]:
                     }
                 },
                 "required": ["task_id"],
+            },
+        ),
+        Tool(
+            name="run_daemon",
+            description="Launch a long-lived background process (server, watcher, etc.) that persists after this tool returns. Returns immediately with the PID. Use this instead of the shell tool for any process that should keep running (e.g., dev servers, jupyter, file watchers). The process is fully detached and will not block the session.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "The command to run (e.g., 'jupyter notebook --no-browser --port=9999')",
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Optional working directory for the command",
+                    },
+                },
+                "required": ["command"],
             },
         ),
         Tool(
@@ -810,6 +1000,75 @@ async def list_tools() -> list[Tool]:
                 "required": ["notebook", "query"],
             },
         ),
+        Tool(
+            name="jupyter_list",
+            description="List all Jupyter notebooks (.ipynb files) in the Jupyter data directory.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="jupyter_read",
+            description="Read a Jupyter notebook's cells (source code and outputs).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Notebook path (e.g. 'Untitled.ipynb')"},
+                },
+                "required": ["path"],
+            },
+        ),
+        Tool(
+            name="jupyter_execute",
+            description="Execute Python code on a running Jupyter kernel. Returns output. Does NOT show in the notebook UI — use jupyter_insert_and_run for that.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python code to execute"},
+                },
+                "required": ["code"],
+            },
+        ),
+        Tool(
+            name="jupyter_insert_and_run",
+            description="Insert a new code cell into the open Jupyter notebook and execute it. The cell and its output appear live in the user's browser.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "code": {"type": "string", "description": "Python code for the new cell"},
+                },
+                "required": ["code"],
+            },
+        ),
+        Tool(
+            name="jupyter_run_cell",
+            description="Run an existing cell in the open Jupyter notebook by index. The cell executes live in the user's browser.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer", "description": "Cell index (0-based)"},
+                },
+                "required": ["index"],
+            },
+        ),
+        Tool(
+            name="jupyter_run_all",
+            description="Run all cells in the open Jupyter notebook sequentially. Executes live in the user's browser.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+            },
+        ),
+        Tool(
+            name="jupyter_edit_cell",
+            description="Replace the source code of an existing cell in the open Jupyter notebook by index. The change appears live in the user's browser.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer", "description": "Cell index (0-based)"},
+                    "source": {"type": "string", "description": "New cell source code"},
+                },
+                "required": ["index", "source"],
+            },
+        ),
     ]
 
 
@@ -830,6 +1089,29 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = list_subagents()
     elif name == "terminate_subagent":
         result = terminate_subagent(arguments["task_id"])
+    elif name == "run_daemon":
+        cmd = arguments["command"]
+        cwd = arguments.get("working_dir", _project_root)
+        proc = subprocess.Popen(
+            ["bash", "-c", f"nohup {cmd} > /dev/null 2>&1 &"],
+            cwd=cwd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        proc.wait()
+        # Find the actual daemon PID (child of the bash -c)
+        import time
+        time.sleep(0.5)
+        try:
+            ps = subprocess.run(
+                ["pgrep", "-f", cmd[:60]],
+                capture_output=True, text=True, timeout=5
+            )
+            pids = [p for p in ps.stdout.strip().split("\n") if p]
+            result = {"status": "started", "command": cmd, "pids": pids, "working_dir": cwd}
+        except Exception:
+            result = {"status": "started", "command": cmd, "working_dir": cwd}
     elif name == "mutate":
         _save_continuation(arguments.get("continuation"))
         subprocess.Popen(
@@ -988,6 +1270,20 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = _notes_write(arguments["notebook"], arguments["page"], arguments["content"])
     elif name == "notes_search":
         result = _notes_search(arguments["notebook"], arguments["query"])
+    elif name == "jupyter_list":
+        result = _jupyter_list_notebooks()
+    elif name == "jupyter_read":
+        result = _jupyter_read_notebook(arguments["path"])
+    elif name == "jupyter_execute":
+        result = _jupyter_execute(arguments["code"])
+    elif name == "jupyter_insert_and_run":
+        result = _jupyter_insert_and_run(arguments["code"])
+    elif name == "jupyter_run_cell":
+        result = _jupyter_cmd("run_cell", index=arguments["index"])
+    elif name == "jupyter_run_all":
+        result = _jupyter_cmd("run_all")
+    elif name == "jupyter_edit_cell":
+        result = _jupyter_cmd("edit_cell", index=arguments["index"], source=arguments["source"])
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

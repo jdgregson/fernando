@@ -61,6 +61,8 @@ function onSocketConnected() {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
+        } else if (urlSession === 'jupyter' || (urlSession && urlSession.startsWith('jupyter:'))) {
+            openJupyter(urlSession.startsWith('jupyter:') ? urlSession.slice(8) : undefined);
         } else if (urlSession && urlSession.startsWith('notebook:')) {
             openNotebook(urlSession.slice(9));
         } else if (urlSession) {
@@ -74,6 +76,8 @@ function onSocketConnected() {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
+            } else if (urlSession2 === 'jupyter' || (urlSession2 && urlSession2.startsWith('jupyter:'))) {
+                openJupyter(urlSession2.startsWith('jupyter:') ? urlSession2.slice(8) : undefined);
             } else if (urlSession2 && urlSession2.startsWith('notebook:')) {
                 openNotebook(urlSession2.slice(9));
             } else if (urlSession2) {
@@ -154,6 +158,36 @@ function toggleDesktop() {
     highlightSidebarItem('desktop');
     syncUrlParams();
     updateKbdBtn();
+}
+
+// --- Jupyter ---
+let _jupyterCounter = 0;
+function openJupyter(name) {
+    closeNewSessionModal();
+    if (!name) name = 'Jupyter-' + (++_jupyterCounter);
+    const activePane = activeTerminal;
+    const browser = document.getElementById(`browser${activePane}`);
+    const terminal = document.getElementById(`terminal${activePane}`);
+    paneTypes[activePane] = 'browser';
+    paneNotebook[activePane] = 'jupyter:' + name;
+    terminal.classList.add('hidden');
+    browser.classList.remove('hidden');
+    if (activePane === 1) currentSession1 = null;
+    else currentSession2 = null;
+    browser.innerHTML = '';
+    browser.style.background = '#0d2848';
+    const iframe = document.createElement('iframe');
+    // Only load a specific notebook if the name looks like an actual notebook name
+    const isTreeView = name === 'Jupyter' || name === 'Home' || name.match(/^Jupyter-\d+$/);
+    const path = isTreeView ? '' : 'notebooks/' + encodeURIComponent(name) + '.ipynb';
+    iframe.src = `/jupyter/${path}?api_key=` + encodeURIComponent(window.FERNANDO_API_KEY);
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
+    browser.appendChild(iframe);
+    highlightSidebarItem('jupyter:' + name);
+    syncUrlParams();
+    updateKbdBtn();
+    emitWithCsrf('open_jupyter', { name: name });
+    emitWithCsrf('get_sessions');
 }
 
 // --- Notes (Notebooks) ---
@@ -268,6 +302,23 @@ socket.on('notebooks_list', (data) => {
     }
 });
 
+// Forward Jupyter commands from websocket to the Jupyter iframe
+socket.on('jupyter_cmd', (data) => {
+    const receivers = [];
+    for (const pn of [1, 2]) {
+        const iframe = document.querySelector(`#browser${pn} iframe`);
+        if (iframe && iframe.src && iframe.src.includes('/jupyter/') && iframe.contentWindow) {
+            iframe.contentWindow.postMessage({type: 'jupyter-cmd', ...data}, '*');
+            receivers.push(pn);
+        }
+    }
+    // Emit an ack so MCP knows how many iframes received the command
+    emitWithCsrf('jupyter_cmd_ack', {
+        id: data.id || '',
+        receivers: receivers.length,
+    });
+});
+
 socket.on('notebook_created', (data) => {
     emitWithCsrf('list_notebooks');
     const name = data.notebook && data.notebook.name;
@@ -365,6 +416,8 @@ function updateSessionList(sessions, chatSessions, data) {
             openChatPane(urlSession.slice(5));
         } else if (urlSession === 'desktop') {
             toggleDesktop();
+        } else if (urlSession === 'jupyter' || (urlSession && urlSession.startsWith('jupyter:'))) {
+            openJupyter(urlSession.startsWith('jupyter:') ? urlSession.slice(8) : undefined);
         } else if (urlSession && urlSession.startsWith('notebook:')) {
             openNotebook(urlSession.slice(9));
         } else if (urlSession && sessions.includes(urlSession)) {
@@ -379,6 +432,8 @@ function updateSessionList(sessions, chatSessions, data) {
                 openChatPane(urlSession2.slice(5));
             } else if (urlSession2 === 'desktop') {
                 toggleDesktop();
+            } else if (urlSession2 === 'jupyter' || (urlSession2 && urlSession2.startsWith('jupyter:'))) {
+                openJupyter(urlSession2.startsWith('jupyter:') ? urlSession2.slice(8) : undefined);
             } else if (urlSession2 && urlSession2.startsWith('notebook:')) {
                 openNotebook(urlSession2.slice(9));
             } else if (urlSession2 && sessions.includes(urlSession2)) {
@@ -393,7 +448,7 @@ function updateSessionList(sessions, chatSessions, data) {
     }
 
     const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name);
-    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort());
+    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort());
     if (sessionListInitialized && lastSessionsKey === newKey) return;
     console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, oldKey: lastSessionsKey, newKey});
     sessionListInitialized = true;
@@ -419,6 +474,46 @@ function updateSessionList(sessions, chatSessions, data) {
         if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
     });
     sessionList.appendChild(desktopItem);
+
+    // Jupyter items (from backend running_jupyter set)
+    const runningJupyter = data.running_jupyter || [];
+    runningJupyter.forEach(jname => {
+        const jItem = document.createElement('div');
+        jItem.className = 'session-item';
+        jItem.dataset.session = 'jupyter:' + jname;
+        const jNameSpan = document.createElement('span');
+        jNameSpan.className = 'session-name';
+        jNameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:4px"><path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>' + jname;
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'close-btn';
+        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+        closeBtn.onclick = (e) => {
+            e.stopPropagation();
+            for (const pn of [1, 2]) {
+                if (paneNotebook[pn] === 'jupyter:' + jname) {
+                    paneTypes[pn] = 'terminal';
+                    paneNotebook[pn] = null;
+                    const terminal = document.getElementById(`terminal${pn}`);
+                    const browser = document.getElementById(`browser${pn}`);
+                    terminal.classList.remove('hidden');
+                    browser.classList.add('hidden');
+                    browser.innerHTML = '';
+                    setTimeout(doFit, 100);
+                }
+            }
+            emitWithCsrf('close_jupyter', { name: jname });
+            emitWithCsrf('get_sessions');
+            syncUrlParams();
+            updateKbdBtn();
+        };
+        jItem.appendChild(jNameSpan);
+        jItem.appendChild(closeBtn);
+        jItem.addEventListener('click', function() {
+            openJupyter(jname);
+            if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+        });
+        sessionList.appendChild(jItem);
+    });
 
     // Notebook items (running containers)
     const runningNotebooks = data.running_notebooks || [];
@@ -654,8 +749,10 @@ function getBrowserPaneSession(pane) {
         if (m) return 'chat:' + m[1];
         const nb = iframe.src.match(/\/notes\/([^/?#]+)\//);
         if (nb) return 'notebook:' + nb[1];
+        if (iframe.src.includes('/jupyter/') && paneNotebook[pane] && paneNotebook[pane].startsWith('jupyter:')) return paneNotebook[pane];
+        if (iframe.src.includes('/jupyter/')) return 'jupyter';
     }
-    if (paneNotebook[pane]) return 'notebook:' + paneNotebook[pane];
+    if (paneNotebook[pane]) return paneNotebook[pane].startsWith('jupyter:') ? paneNotebook[pane] : 'notebook:' + paneNotebook[pane];
     return 'desktop';
 }
 
@@ -735,7 +832,11 @@ function setActiveTerminal(termNum, direct) {
 // Click handlers
 function syncPaneSidebar(paneNum) {
     const s = paneTypes[paneNum] === 'browser' ? getBrowserPaneSession(paneNum) : (paneNum === 1 ? currentSession1 : currentSession2);
-    if (s) highlightSidebarItem(s);
+    if (s) {
+        highlightSidebarItem(s);
+        // Retry in case sidebar is rebuilding
+        setTimeout(() => highlightSidebarItem(s), 200);
+    }
 }
 function activatePane1() {
     setActiveTerminal(1, true);
@@ -772,13 +873,46 @@ window.addEventListener('message', (e) => {
                 }
             } catch(ex) {}
         }
-        // Fallback: if source matching failed, activate whichever pane has a notebook
+        // Fallback: if source matching failed, activate whichever pane has a notebook/jupyter
         for (const pn of [1, 2]) {
             if (paneNotebook[pn] && activeTerminal !== pn) {
                 if (pn === 1) activatePane1();
                 else activatePane2();
                 return;
             }
+        }
+    }
+    // Update Jupyter sidebar label when notebook name changes
+    if (e.data && e.data.type === 'jupyter-name' && e.data.name) {
+        for (const pn of [1, 2]) {
+            const browser = document.getElementById('browser' + pn);
+            if (!browser) continue;
+            const iframe = browser.querySelector('iframe');
+            if (!iframe) continue;
+            try {
+                if (iframe.contentWindow === e.source && paneNotebook[pn] && paneNotebook[pn].startsWith('jupyter:')) {
+                    const oldName = paneNotebook[pn].slice(8);
+                    const newName = e.data.name;
+                    if (oldName === newName) continue;
+                    // Update paneNotebook
+                    paneNotebook[pn] = 'jupyter:' + newName;
+                    // Update sidebar item
+                    const item = document.querySelector(`.session-item[data-session="jupyter:${oldName}"]`);
+                    if (item) {
+                        item.dataset.session = 'jupyter:' + newName;
+                        const nameSpan = item.querySelector('.session-name');
+                        if (nameSpan) {
+                            const icon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:4px"><path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>';
+                            nameSpan.innerHTML = icon + newName;
+                        }
+                    }
+                    // Update backend tracking
+                    emitWithCsrf('close_jupyter', { name: oldName });
+                    emitWithCsrf('open_jupyter', { name: newName });
+                    highlightSidebarItem('jupyter:' + newName);
+                    syncUrlParams();
+                }
+            } catch(ex) {}
         }
     }
 });

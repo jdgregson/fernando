@@ -1,4 +1,4 @@
-from flask import Blueprint, render_template, Response, request, current_app
+from flask import Blueprint, render_template, Response, request, current_app, make_response
 import json
 import os
 import threading
@@ -435,6 +435,241 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
         return response
     except Exception as e:
         return f"Notes error: {str(e)}", 503
+
+
+# --- Jupyter Notebook Proxy ---
+@bp.route("/jupyter/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+@bp.route("/jupyter/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"])
+def jupyter_proxy(path):
+    # Auth: API key in URL (initial load) OR jupyter_auth cookie (sub-resources)
+    api_key_valid = _check_api_key()
+    cookie_valid = False
+    if not api_key_valid:
+        cookie = request.cookies.get("jupyter_auth")
+        if cookie:
+            try:
+                with open("/tmp/fernando-api-key") as f:
+                    cookie_valid = cookie == f.read().strip()
+            except Exception:
+                pass
+    if not api_key_valid and not cookie_valid:
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+
+    from src.services.jupyter import is_running, get_port, start
+    if not is_running():
+        ok, err = start()
+        if not ok:
+            return json.dumps({"error": f"Jupyter not available: {err}"}), 503, {"Content-Type": "application/json"}
+
+    port = get_port()
+
+    # Map /jupyter/X to Jupyter's /nbclassic/X for tree/notebook views,
+    # but pass /api/, /static/, /custom/, /nbextensions/, /kernelspecs/ paths through directly
+    if path.startswith(("api/", "static/", "nbextensions/", "custom/", "custom-preload", "kernelspecs/")):
+        upstream_path = path
+    elif path == "" or path.startswith("tree") or path.startswith("notebooks/"):
+        upstream_path = f"nbclassic/{path}" if path else "nbclassic/tree/"
+    else:
+        upstream_path = f"nbclassic/{path}"
+
+    try:
+        url = f"http://127.0.0.1:{port}/{upstream_path}"
+        if request.query_string:
+            qs = request.query_string.decode("utf-8")
+            import re
+            qs = re.sub(r'(^|&)api_key=[^&]*', '', qs).lstrip('&')
+            if qs:
+                url += f"?{qs}"
+
+        headers = {
+            k: v for k, v in request.headers
+            if k.lower() not in ["host", "connection", "upgrade"]
+        }
+
+        resp = requests.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            data=request.get_data(),
+            cookies=request.cookies,
+            allow_redirects=False,
+            stream=False,
+            timeout=30,
+        )
+
+        # Handle redirects — rewrite Location header
+        if resp.status_code in (301, 302, 303, 307, 308):
+            location = resp.headers.get("Location", "")
+            if location.startswith("/nbclassic/"):
+                location = location.replace("/nbclassic/", "/jupyter/", 1)
+            elif location.startswith("/"):
+                location = "/jupyter" + location
+            flask_resp = make_response("", resp.status_code)
+            flask_resp.headers["Location"] = location
+            if api_key_valid:
+                flask_resp.set_cookie("jupyter_auth", request.args.get("api_key", ""), httponly=True, samesite="Strict", path="/jupyter/")
+            return flask_resp
+
+        excluded_headers = ["content-encoding", "content-length", "transfer-encoding", "connection"]
+        response_headers = [
+            (k, v) for k, v in resp.headers.items() if k.lower() not in excluded_headers
+        ]
+
+        content = resp.content
+        content_type = resp.headers.get("content-type", "")
+
+        if "text/html" in content_type:
+            content = content.decode("utf-8", errors="ignore")
+            # Rewrite absolute paths to go through /jupyter/ proxy
+            content = content.replace("'/nbclassic'", "'/jupyter'")
+            content = content.replace('"/nbclassic/', '"/jupyter/')
+            content = content.replace("'/nbclassic/", "'/jupyter/")
+            content = content.replace('"/static/nbclassic/', '"/jupyter/static/nbclassic/')
+            content = content.replace("'/static/nbclassic/", "'/jupyter/static/nbclassic/")
+            content = content.replace('"/custom/', '"/jupyter/custom/')
+            content = content.replace("'/custom/", "'/jupyter/custom/")
+            # RequireJS paths use absolute paths without trailing slash
+            content = content.replace("'/custom'", "'/jupyter/custom'")
+            content = content.replace("'/custom-preload'", "'/jupyter/custom/custom-preload'")
+            content = content.replace("'/nbextensions'", "'/jupyter/nbextensions'")
+            content = content.replace("'/kernelspecs'", "'/jupyter/kernelspecs'")
+            # Rewrite wsUrl to use the direct WS proxy path with api_key
+            # Also intercept XHR/fetch to rewrite absolute /api/ paths to /jupyter/api/
+            ak = request.args.get("api_key", "")
+            intercept = (
+                "<script>"
+                # Store api_key in sessionStorage on initial load, read it back on subsequent pages
+                "if('" + ak + "')sessionStorage.setItem('_jAk','" + ak + "');"
+                "var _ak=sessionStorage.getItem('_jAk')||'';"
+                # Rewrite function for URLs
+                "function _jRw(u){"
+                "if(typeof u!=='string')return u;"
+                "if(u.startsWith('/api/'))return '/jupyter'+u;"
+                "if(u.startsWith('/nbclassic/'))return '/jupyter/'+u.slice(11);"
+                "if(u.startsWith('/nbextensions/'))return '/jupyter'+u;"
+                "if(u.startsWith('/kernelspecs/'))return '/jupyter'+u;"
+                "if(u.startsWith('/custom/'))return '/jupyter'+u;"
+                "return u;}"
+                # Patch XMLHttpRequest.open
+                "var _xo=XMLHttpRequest.prototype.open;"
+                "XMLHttpRequest.prototype.open=function(m,u){arguments[1]=_jRw(u);return _xo.apply(this,arguments)};"
+                # Patch fetch
+                "var _ft=window.fetch;"
+                "window.fetch=function(u,o){if(typeof u==='string')u=_jRw(u);return _ft.call(this,u,o)};"
+                # Patch WebSocket for kernel connections
+                "var _WS=window.WebSocket;"
+                "window.WebSocket=function(u,p){"
+                "if(typeof u==='string'){"
+                "u=u.replace('/nbclassic/','/jupyter-ws/nbclassic/');"
+                "if(u.includes('/api/'))u=u.replace('/api/','/jupyter-ws/api/');"
+                "u+=(u.includes('?')?'&':'?')+'api_key='+_ak;"
+                "}"
+                "return p!==undefined?new _WS(u,p):new _WS(u)};"
+                "window.WebSocket.prototype=_WS.prototype;"
+                "window.WebSocket.CONNECTING=_WS.CONNECTING;"
+                "window.WebSocket.OPEN=_WS.OPEN;"
+                "window.WebSocket.CLOSING=_WS.CLOSING;"
+                "window.WebSocket.CLOSED=_WS.CLOSED;"
+                # Prevent links from opening in new tabs — stay in iframe
+                "var _wo=window.open;"
+                "window.open=function(u,t,f){if(u&&typeof u==='string'){u=_jRw(u);window.location.href=u;return window}return _wo.call(this,u,t,f)};"
+                "document.addEventListener('click',function(e){"
+                "var a=e.target.closest('a');"
+                "if(a&&a.target==='_blank')a.target='_self';"
+                "},true);"
+                # Autosave every 10s, suppress "Notebook saved" toast
+                "(function(){var nb=window.Jupyter&&Jupyter.notebook;"
+                "if(nb){"
+                "nb._update_autosave_interval=function(){};"
+                "nb.events.off('notebook_saved.Notebook');"
+                "nb.set_autosave_interval(10000);}"
+                "else{setTimeout(arguments.callee,1000);}})();"
+                # Listen for cell commands from parent Fernando window via postMessage
+                "window.addEventListener('message',function(e){"
+                "if(!e.source||e.source!==window.parent)return;"
+                "var d=e.data;if(!d||d.type!=='jupyter-cmd')return;"
+                "function run(){"
+                "var nb=window.Jupyter&&Jupyter.notebook;"
+                "if(!nb){setTimeout(function(){run()},500);return;}"
+                "if(d.action==='insert_and_run'){"
+                "var cell=nb.insert_cell_below('code');"
+                "cell.set_text(d.source);"
+                "nb.select(nb.find_cell_index(cell));"
+                "var h=function(_,data){if(data.cell===cell){"
+                "nb.events.off('finished_execute.CodeCell',h);"
+                "nb.save_notebook();}};"
+                "nb.events.on('finished_execute.CodeCell',h);"
+                "nb.execute_cell();"
+                "}"
+                "if(d.action==='insert'){"
+                "var cell=nb.insert_cell_below(d.cell_type||'code');"
+                "cell.set_text(d.source);"
+                "nb.select(nb.find_cell_index(cell));"
+                "}"
+                "if(d.action==='edit_cell'){"
+                "nb.select(d.index||0);"
+                "var cell=nb.get_selected_cell();"
+                "if(cell)cell.set_text(d.source);"
+                "}"
+                "if(d.action==='run_selected'){"
+                "var sc=nb.get_selected_cell();"
+                "var h2=function(_,data){if(data.cell===sc){"
+                "nb.events.off('finished_execute.CodeCell',h2);"
+                "nb.save_notebook();}};"
+                "nb.events.on('finished_execute.CodeCell',h2);"
+                "nb.execute_cell();"
+                "}"
+                "if(d.action==='run_cell'){"
+                "nb.select(d.index||0);"
+                "var sc2=nb.get_selected_cell();"
+                "var h3=function(_,data){if(data.cell===sc2){"
+                "nb.events.off('finished_execute.CodeCell',h3);"
+                "nb.save_notebook();}};"
+                "nb.events.on('finished_execute.CodeCell',h3);"
+                "nb.execute_cell();"
+                "}"
+                "if(d.action==='run_all'){"
+                "nb.execute_all_cells();"
+                "nb.events.one('notebook_save_success.Notebook',function(){});"
+                "var pending=nb.get_cells().filter(function(c){return c.cell_type==='code';}).length;"
+                "var h4=function(){pending--;if(pending<=0){"
+                "nb.events.off('finished_execute.CodeCell',h4);"
+                "nb.save_notebook();}};"
+                "nb.events.on('finished_execute.CodeCell',h4);"
+                "}"
+                "if(d.action==='get_cells'){"
+                "var cells=nb.get_cells().map(function(c,i){"
+                "return{index:i,type:c.cell_type,source:c.get_text(),outputs:c.output_area?c.output_area.outputs:[]};"
+                "});"
+                "window.parent.postMessage({type:'jupyter-resp',id:d.id,cells:cells},'*');"
+                "}"
+                "}"
+                "run();"
+                "});"
+                # Focus messaging — tell parent Fernando when this pane is clicked
+                "document.addEventListener('click',function(){window.parent.postMessage({type:'notes-focus'},'*')});"
+                # Report current notebook name to parent for sidebar label
+                "setInterval(function(){"
+                "var name='Jupyter';"
+                "var nb=window.Jupyter&&Jupyter.notebook;"
+                "if(nb&&nb.notebook_name)name=nb.notebook_name.replace('.ipynb','');"
+                "else if(document.title&&document.title!=='Home')name=document.title;"
+                "window.parent.postMessage({type:'jupyter-name',name:name},'*');"
+                "},1000);"
+                "</script>"
+            )
+            content = content.replace("</head>", intercept + "</head>", 1)
+            content = content.encode("utf-8")
+
+        flask_resp = make_response(content, resp.status_code)
+        for k, v in response_headers:
+            flask_resp.headers[k] = v
+        if api_key_valid:
+            flask_resp.set_cookie("jupyter_auth", request.args.get("api_key", ""), httponly=True, samesite="Strict", path="/jupyter/")
+        return flask_resp
+
+    except Exception as e:
+        return f"Jupyter error: {str(e)}", 503
 
 
 @bp.route("/chat/<session_id>")
