@@ -33,6 +33,18 @@ mkdir -p data/notes
 
 echo "Installing Kiro steering file..."
 mkdir -p "$HOME/.kiro/steering"
+
+echo "Installing Jupyter custom theme..."
+jupyter_custom_dst="$HOME/.jupyter/custom"
+if [ -L "$jupyter_custom_dst" ]; then
+    echo "  Symlink already exists, skipping."
+elif [ -d "$jupyter_custom_dst" ]; then
+    echo "  WARNING: $jupyter_custom_dst is a regular directory. Remove it and re-run setup to use the repo copy."
+else
+    mkdir -p "$HOME/.jupyter"
+    ln -s "$REPO_DIR/jupyter/custom" "$jupyter_custom_dst"
+    echo "  Symlinked $jupyter_custom_dst -> $REPO_DIR/jupyter/custom"
+fi
 instructions_dst="$HOME/.kiro/steering/instructions.md"
 if [ -L "$instructions_dst" ]; then
     echo "  Symlink already exists, skipping."
