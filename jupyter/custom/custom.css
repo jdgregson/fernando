@@ -405,3 +405,48 @@ span.save_widget span.filename:hover {
 .panel-default {
     border-color: #0d2848 !important;
 }
+
+#new-terminal {
+    display: none !important;
+}
+
+#notebook_list_header {
+    padding-bottom: 2px;
+}
+
+#texteditor-backdrop {
+    background-color: #112d50;
+}
+
+#texteditor-backdrop #texteditor-container .CodeMirror-gutter, #texteditor-backdrop #texteditor-container .CodeMirror-gutters {
+    background-color: #0d2848;
+}
+
+#texteditor-backdrop #texteditor-container {
+    box-shadow: none;
+}
+
+#texteditor-backdrop {
+    padding-top: 0;
+    padding-bottom: 0;
+}
+
+#texteditor-container.container {
+    width: 100% !important;
+}
+
+#ipython_notebook {
+    width: 0;
+}
+
+div.output_subarea.output_text.output_stderr {
+    background-color: #e58c0066 !important;
+}
+
+div.output_subarea.output_text.output_error {
+    background-color: #ac00005e;
+}
+
+.output_subarea {
+    border-left: 1px solid #143151;
+}

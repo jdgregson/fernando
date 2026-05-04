@@ -59,6 +59,19 @@ def _allocate_port():
     raise RuntimeError("No available ports for notebook containers")
 
 
+def _sync_notebook_config(nb_dir):
+    """Copy SETTINGS.md and STYLES.md from the canonical repo copies, overwriting any existing."""
+    import shutil
+    for fname in ("SETTINGS.md", "STYLES.md"):
+        dest = os.path.join(nb_dir, fname)
+        src = os.path.join(_project_root, "silverbullet", fname)
+        if os.path.exists(src):
+            # Remove existing symlink or file before copying
+            if os.path.lexists(dest):
+                os.remove(dest)
+            shutil.copy2(src, dest)
+
+
 def _init_notebook_dir(notebook):
     """Create notebook directory with default files if it doesn't exist."""
     nb_dir = os.path.join(_NOTEBOOKS_DIR, notebook)
@@ -67,15 +80,7 @@ def _init_notebook_dir(notebook):
     if not os.path.exists(index):
         with open(index, "w") as f:
             f.write(f"# {notebook}\n\nWelcome to the {notebook} notebook.\n")
-    settings = os.path.join(nb_dir, "SETTINGS.md")
-    if not os.path.exists(settings):
-        repo_settings = os.path.join(_project_root, "silverbullet", "SETTINGS.md")
-        if os.path.exists(repo_settings):
-            import shutil
-            shutil.copy2(repo_settings, settings)
-        else:
-            with open(settings, "w") as f:
-                f.write("```yaml\nindexPage: index\n```\n")
+    _sync_notebook_config(nb_dir)
     # Copy Library (Atlas plugin etc.) if not present
     lib_dir = os.path.join(nb_dir, "Library")
     if not os.path.exists(lib_dir):

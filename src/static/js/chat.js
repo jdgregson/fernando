@@ -122,6 +122,33 @@ window.addEventListener('message', (e) => {
             }
         }
     }
+    if (e.data && e.data.type === 'get-pane-context') {
+        const ctx = {};
+        for (const pn of [1, 2]) {
+            const p = { type: paneTypes[pn] };
+            if (paneTypes[pn] === 'terminal') {
+                p.session = pn === 1 ? currentSession1 : currentSession2;
+            } else if (paneTypes[pn] === 'browser') {
+                if (paneNotebook[pn]) {
+                    if (paneNotebook[pn].startsWith('jupyter:')) {
+                        p.type = 'jupyter';
+                        p.notebook = paneNotebook[pn].slice(8);
+                    } else {
+                        p.type = 'notebook';
+                        p.notebook = paneNotebook[pn];
+                    }
+                } else {
+                    const iframe = document.getElementById(`browser${pn}`).querySelector('iframe');
+                    if (iframe && iframe.src.includes('/chat/')) p.type = 'chat';
+                    else if (iframe && iframe.src.includes('/kasm/')) p.type = 'desktop';
+                }
+            }
+            ctx[`pane${pn}`] = p;
+        }
+        ctx.split = isSplit;
+        e.source.postMessage({ type: 'pane-context', context: ctx }, window.location.origin);
+        return;
+    }
     if (e.data && e.data.type === 'notes-focus') {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {

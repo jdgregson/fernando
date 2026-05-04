@@ -26,10 +26,8 @@ docker pull zefhemel/silverbullet@sha256:6c36ff15f2230dbe3bca7e5d0c85a59c7dc831c
 echo "Building Kasm desktop container (linux/amd64, uses Rosetta emulation)..."
 docker compose -f docker-compose.mac.yml build
 
-echo "Seeding config and notes..."
+echo "Seeding config..."
 [ -f config ] || cp config.example config
-mkdir -p data/notes
-[ -f data/notes/SETTINGS.md ] || cp silverbullet/SETTINGS.md data/notes/SETTINGS.md
 
 echo "Installing Kiro steering file..."
 mkdir -p "$HOME/.kiro/steering"

@@ -808,12 +808,41 @@
         setStatus('working', 'Thinking...');
         resetStallTimer();
 
-        socket.emit('acp_prompt', {
-            csrf_token: csrfToken,
-            session_id: sessionId,
-            text: text,
-        });
-        scrollToBottom(true);
+        // Request pane context from parent, then send prompt
+        function doSend(contextText) {
+            const fullText = contextText ? contextText + '\n' + text : text;
+            socket.emit('acp_prompt', {
+                csrf_token: csrfToken,
+                session_id: sessionId,
+                text: fullText,
+            });
+            scrollToBottom(true);
+        }
+        if (window.parent !== window) {
+            const ctxTimeout = setTimeout(() => doSend(''), 500);
+            function onCtx(e) {
+                if (e.source !== window.parent) return;
+                if (e.data && e.data.type === 'pane-context') {
+                    window.removeEventListener('message', onCtx);
+                    clearTimeout(ctxTimeout);
+                    const c = e.data.context;
+                    const parts = [];
+                    for (const [k, v] of Object.entries(c)) {
+                        if (k === 'split') continue;
+                        if (v.type === 'chat') parts.push(`${k}: this chat`);
+                        else if (v.type === 'jupyter') parts.push(`${k}: Jupyter notebook "${v.notebook}"`);
+                        else if (v.type === 'notebook') parts.push(`${k}: SilverBullet notebook "${v.notebook}"`);
+                        else if (v.type === 'terminal') parts.push(`${k}: terminal session "${v.session || 'none'}"`);
+                        else if (v.type === 'desktop') parts.push(`${k}: Kasm desktop`);
+                    }
+                    doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
+                }
+            }
+            window.addEventListener('message', onCtx);
+            window.parent.postMessage({ type: 'get-pane-context' }, '*');
+        } else {
+            doSend('');
+        }
     }
 
     socket.on('acp_event', (data) => {

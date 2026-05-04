@@ -524,8 +524,8 @@ def jupyter_proxy(path):
             content = content.replace("'/nbclassic'", "'/jupyter'")
             content = content.replace('"/nbclassic/', '"/jupyter/')
             content = content.replace("'/nbclassic/", "'/jupyter/")
-            content = content.replace('"/static/nbclassic/', '"/jupyter/static/nbclassic/')
-            content = content.replace("'/static/nbclassic/", "'/jupyter/static/nbclassic/")
+            content = content.replace('"/static/', '"/jupyter/static/')
+            content = content.replace("'/static/", "'/jupyter/static/")
             content = content.replace('"/custom/', '"/jupyter/custom/')
             content = content.replace("'/custom/", "'/jupyter/custom/")
             # RequireJS paths use absolute paths without trailing slash
@@ -573,22 +573,21 @@ def jupyter_proxy(path):
                 # Prevent links from opening in new tabs — stay in iframe
                 "var _wo=window.open;"
                 "window.open=function(u,t,f){"
-                "if(u&&typeof u==='string'){u=_jRw(u);window.location.href=u;return window;}"
-                "if(!u||u==='about:blank'||typeof u==='undefined'){"
                 "var _p={closed:false,close:function(){}};"
                 "Object.defineProperty(_p,'location',{set:function(v){v=_jRw(v);window.location.href=v;},get:function(){return window.location;}});"
-                "return _p;}"
-                "return _wo.call(this,u,t,f);};"
+                "if(u&&typeof u==='string'&&u!=='#'&&u!=='about:blank'){_jRw(u);window.location.href=_jRw(u);}"
+                "return _p;};"
                 "document.addEventListener('click',function(e){"
                 "var a=e.target.closest('a');"
                 "if(a&&a.target==='_blank')a.target='_self';"
                 "},true);"
-                # Autosave every 10s, suppress "Notebook saved" toast
+                # Autosave every 10s, suppress "Notebook saved" toast, kill beforeunload dialog
                 "(function(){var nb=window.Jupyter&&Jupyter.notebook;"
                 "if(nb){"
                 "nb._update_autosave_interval=function(){};"
                 "nb.events.off('notebook_saved.Notebook');"
-                "nb.set_autosave_interval(10000);}"
+                "nb.set_autosave_interval(10000);"
+                "window.onbeforeunload=null;}"
                 "else{setTimeout(arguments.callee,1000);}})();"
                 # Listen for cell commands from parent Fernando window via postMessage
                 "window.addEventListener('message',function(e){"
@@ -598,7 +597,9 @@ def jupyter_proxy(path):
                 "var nb=window.Jupyter&&Jupyter.notebook;"
                 "if(!nb){setTimeout(function(){run()},500);return;}"
                 "if(d.action==='insert_and_run'){"
-                "var cell=nb.insert_cell_below('code');"
+                "if(d.position==='top'){nb.select(0);var cell=nb.insert_cell_above('code');}"
+                "else if(d.position!==undefined&&d.position!=='bottom'&&!isNaN(Number(d.position))){nb.select(Number(d.position));var cell=nb.insert_cell_below('code');}"
+                "else{nb.select(nb.ncells()-1);var cell=nb.insert_cell_below('code');}"
                 "cell.set_text(d.source);"
                 "nb.select(nb.find_cell_index(cell));"
                 "var h=function(_,data){if(data.cell===cell){"

@@ -27,15 +27,9 @@ csrf_tokens = {}
 socket_terminals = {}
 # Track open Jupyter session names (for sidebar)
 _open_jupyter = set()
-# Track jupyter_cmd acks by id: {id: total_receivers}
-_jupyter_acks = {}
-_jupyter_acks_lock = threading.Lock()
-
-
-def consume_jupyter_ack(cmd_id: str) -> int:
-    """Pop and return the ack count for a given jupyter_cmd id. Returns 0 if no ack received."""
-    with _jupyter_acks_lock:
-        return _jupyter_acks.pop(cmd_id, 0)
+# Track jupyter_cmd origin: {cmd_id: originating_socket_sid}
+_jupyter_cmd_origins = {}
+_jupyter_cmd_origins_lock = threading.Lock()
 
 
 def register_handlers(socketio):
@@ -324,26 +318,36 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
+        cmd_id = data.get("id", "")
+        if cmd_id:
+            with _jupyter_cmd_origins_lock:
+                _jupyter_cmd_origins[cmd_id] = request.sid
         # Broadcast to all clients — the frontend will forward to the Jupyter iframe
         socketio.emit("jupyter_cmd", {
             "action": data.get("action"),
             "source": data.get("source", ""),
             "cell_type": data.get("cell_type", "code"),
-            "id": data.get("id", ""),
+            "id": cmd_id,
             "index": data.get("index", 0),
+            "position": data.get("position", "bottom"),
         })
 
     @socketio.on("jupyter_cmd_ack")
     def handle_jupyter_cmd_ack(data):
-        """Receive an ack from the frontend indicating how many iframes received a command."""
+        """Receive an ack from the frontend and relay result to the originating MCP client."""
         if not validate_csrf(data):
             return
         cmd_id = data.get("id", "")
         receivers = int(data.get("receivers", 0) or 0)
         if not cmd_id:
             return
-        with _jupyter_acks_lock:
-            _jupyter_acks[cmd_id] = _jupyter_acks.get(cmd_id, 0) + receivers
+        with _jupyter_cmd_origins_lock:
+            origin_sid = _jupyter_cmd_origins.pop(cmd_id, None)
+        if origin_sid:
+            socketio.emit("jupyter_cmd_result", {
+                "id": cmd_id,
+                "receivers": receivers,
+            }, room=origin_sid)
 
     @socketio.on("open_jupyter")
     def handle_open_jupyter(data):

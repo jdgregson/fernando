@@ -491,23 +491,31 @@ def _jupyter_execute(code):
         return {"error": str(e)}
 
 
-def _jupyter_insert_and_run(code):
+def _jupyter_insert_and_run(code, position="bottom"):
     """Insert a cell into the open notebook and execute it (live in UI)."""
-    return _jupyter_cmd("insert_and_run", source=code)
+    return _jupyter_cmd("insert_and_run", source=code, position=position)
 
 
 def _jupyter_cmd(action, **kwargs):
     """Send a command to the Jupyter iframe via WebSocket, return error if no notebook is open."""
     try:
-        from src.routes.websocket import consume_jupyter_ack
         api_key = open("/tmp/fernando-api-key").read().strip()
         import socketio as _sio
         import uuid as _uuid
         sio = _sio.Client()
         csrf = [None]
+        result = [None]
+        cmd_id = str(_uuid.uuid4())
+
         @sio.on("connected")
         def on_conn(data):
             csrf[0] = data.get("csrf_token")
+
+        @sio.on("jupyter_cmd_result")
+        def on_result(data):
+            if data.get("id") == cmd_id:
+                result[0] = data
+
         sio.connect(f"http://localhost:5000?api_key={api_key}")
         for _ in range(20):
             if csrf[0]:
@@ -516,18 +524,17 @@ def _jupyter_cmd(action, **kwargs):
         if not csrf[0]:
             sio.disconnect()
             return {"error": "Could not get CSRF token"}
-        cmd_id = str(_uuid.uuid4())
         sio.emit("jupyter_cmd", {
             "action": action,
             "id": cmd_id,
             "csrf_token": csrf[0],
             **kwargs,
         })
-        # Wait for frontend ack(s)
-        for _ in range(10):
+        # Wait for result from Flask (relayed from browser ack)
+        for _ in range(30):
             time.sleep(0.1)
-            count = consume_jupyter_ack(cmd_id)
-            if count:
+            if result[0]:
+                count = result[0].get("receivers", 0)
                 sio.disconnect()
                 return {
                     "status": "ok",
@@ -1040,6 +1047,7 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "Python code for the new cell"},
+                    "position": {"description": "Where to insert the cell: 'top', 'bottom' (default), or a cell index to insert after"},
                 },
                 "required": ["code"],
             },
@@ -1283,7 +1291,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "jupyter_execute":
         result = _jupyter_execute(arguments["code"])
     elif name == "jupyter_insert_and_run":
-        result = _jupyter_insert_and_run(arguments["code"])
+        result = _jupyter_insert_and_run(arguments["code"], arguments.get("position", "bottom"))
     elif name == "jupyter_run_cell":
         result = _jupyter_cmd("run_cell", index=arguments["index"])
     elif name == "jupyter_run_all":
