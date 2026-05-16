@@ -247,3 +247,12 @@ body { display: flex; flex-direction: column; }
 .canvas-copy:hover { background: #143151; }
 .canvas-iframe { width: 100%; border: none; background: #0c213c; height: 200px; display: block; }
 .canvas-code { margin: 0; padding: 10px; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; color: #d4d4d4; white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto; }
+
+/* Diff syntax highlighting */
+pre code.language-diff { display: block; padding: 0; }
+pre:has(code.language-diff) { padding: 0; overflow-x: auto; }
+pre code.language-diff .diff-add { color: #9ece6a; background: rgba(158, 206, 106, 0.1); display: block; padding: 0 10px; min-width: fit-content; }
+pre code.language-diff .diff-del { color: #f7768e; background: rgba(247, 118, 142, 0.1); display: block; padding: 0 10px; min-width: fit-content; }
+pre code.language-diff .diff-hunk { color: #7aa2f7; display: block; padding: 0 10px; min-width: fit-content; }
+pre code.language-diff .diff-header { color: #bb9af7; font-weight: bold; display: block; padding: 0 10px; min-width: fit-content; }
+pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: fit-content; }

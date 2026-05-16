@@ -568,6 +568,10 @@
                 tc.statusSpan.textContent = 'completed';
             }
         }
+        if (currentAssistantMsg) {
+            collapseCodeBlocks(currentAssistantMsg, 30);
+            highlightDiffs(currentAssistantMsg);
+        }
         currentAssistantMsg = null;
         currentContentDiv = null;
         currentText = '';
@@ -644,10 +648,30 @@
             toggle.onclick = () => {
                 expanded = !expanded;
                 code.textContent = expanded ? full : truncated;
+                if (code.classList.contains('language-diff')) highlightDiffEl(code);
                 toggle.textContent = expanded ? '▼ Collapse' : '▶ Show all ' + lines.length + ' lines';
             };
             pre.after(toggle);
         });
+    }
+
+    function highlightDiffEl(code) {
+        const text = code.textContent;
+        code.textContent = '';
+        text.split('\n').forEach((line, i, arr) => {
+            const span = document.createElement('span');
+            if (line.startsWith('+++') || line.startsWith('---')) span.className = 'diff-header';
+            else if (line.startsWith('@@')) span.className = 'diff-hunk';
+            else if (line.startsWith('+')) span.className = 'diff-add';
+            else if (line.startsWith('-')) span.className = 'diff-del';
+            else span.className = 'diff-ctx';
+            span.textContent = line + (i < arr.length - 1 ? '\n' : '');
+            code.appendChild(span);
+        });
+    }
+
+    function highlightDiffs(container) {
+        container.querySelectorAll('pre code.language-diff').forEach(highlightDiffEl);
     }
 
     function parseAttachedFiles(text) {
@@ -740,6 +764,7 @@
                     content.style.whiteSpace = 'pre-wrap';
                     content.innerHTML = renderUserText(parsed.body);
                     collapseCodeBlocks(content, 30);
+                    highlightDiffs(content);
                     el.appendChild(content);
                 }
             } else {
@@ -748,6 +773,7 @@
                 content.style.whiteSpace = 'pre-wrap';
                 content.innerHTML = renderUserText(text);
                 collapseCodeBlocks(content, 30);
+                highlightDiffs(content);
                 el.appendChild(content);
             }
         }
@@ -916,7 +942,8 @@
             if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
                 addSystemMessage(evt.text.slice(15), 'continuation');
             } else {
-                addUserMessage(evt.text);
+                const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
+                addUserMessage(display);
             }
             return;
         }
@@ -944,7 +971,8 @@
                     addSystemMessage(c.text.slice(15), 'continuation');
                 } else {
                     userMsgCount++;
-                    addUserMessage(c.text, userMsgCount === 1);
+                    const display = c.text.replace(/^\[Pane context:[^\]]*\]\n/, '');
+                    addUserMessage(display, userMsgCount === 1);
                 }
             }
         } else if (su === 'agent_message_chunk') {
