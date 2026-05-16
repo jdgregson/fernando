@@ -142,12 +142,14 @@ function toggleDesktop() {
     if (isDesktop) {
         paneTypes[activePane] = 'terminal';
         paneNotebook[activePane] = null;
+        _jupyterPaths[activePane] = null;
         terminal.classList.remove('hidden');
         browser.classList.add('hidden');
         setTimeout(doFit, 100);
     } else {
         paneTypes[activePane] = 'browser';
         paneNotebook[activePane] = null;
+        _jupyterPaths[activePane] = null;
         terminal.classList.add('hidden');
         browser.classList.remove('hidden');
         if (activePane === 1) currentSession1 = null;
@@ -162,6 +164,8 @@ function toggleDesktop() {
 
 // --- Jupyter ---
 let _jupyterCounter = 0;
+let _jupyterPaths = { 1: null, 2: null }; // Track actual Jupyter URL path per pane
+let _jupyterNamePaths = {}; // Track path by session name for sidebar restoration
 function openJupyter(name) {
     closeNewSessionModal();
     if (!name) name = 'Jupyter-' + (++_jupyterCounter);
@@ -177,10 +181,28 @@ function openJupyter(name) {
     browser.innerHTML = '';
     browser.style.background = '#0d2848';
     const iframe = document.createElement('iframe');
-    // Only load a specific notebook if the name looks like an actual notebook name
-    const isTreeView = name === 'Jupyter' || name === 'Home' || name.match(/^Jupyter-\d+$/);
-    const path = isTreeView ? '' : 'notebooks/' + encodeURIComponent(name) + '.ipynb';
-    iframe.src = `/jupyter/${path}?api_key=` + encodeURIComponent(window.FERNANDO_API_KEY);
+    // Restore from URL-encoded path, or saved name→path map, otherwise construct from name
+    let jpath = null;
+    _jupyterPaths[activePane] = null;
+    if (name.startsWith('/jupyter/')) {
+        jpath = name;
+        // Extract display name from path
+        if (jpath.includes('/notebooks/')) name = decodeURIComponent(jpath.split('/notebooks/')[1] || '').replace('.ipynb', '');
+        else if (jpath.includes('/tree/')) name = decodeURIComponent(jpath.split('/tree/')[1] || '').replace(/\/+$/, '') || 'Jupyter';
+        else if (jpath.includes('/edit/')) name = decodeURIComponent(jpath.split('/edit/')[1] || '').replace(/\/+$/, '');
+        else name = 'Jupyter';
+        paneNotebook[activePane] = 'jupyter:' + name;
+        _jupyterNamePaths[name] = jpath;
+    } else if (_jupyterNamePaths[name]) {
+        jpath = _jupyterNamePaths[name];
+    }
+    if (jpath) {
+        iframe.src = jpath + (jpath.includes('?') ? '&' : '?') + 'api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
+    } else {
+        const isTreeView = name === 'Jupyter' || name === 'Jupyter Notebook' || name === 'Home' || name.match(/^Jupyter-\d+$/);
+        const path = isTreeView ? '' : 'notebooks/' + encodeURIComponent(name) + '.ipynb';
+        iframe.src = `/jupyter/${path}?api_key=` + encodeURIComponent(window.FERNANDO_API_KEY);
+    }
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
     browser.appendChild(iframe);
     highlightSidebarItem('jupyter:' + name);
@@ -493,6 +515,7 @@ function updateSessionList(sessions, chatSessions, data) {
                 if (paneNotebook[pn] === 'jupyter:' + jname) {
                     paneTypes[pn] = 'terminal';
                     paneNotebook[pn] = null;
+                    _jupyterPaths[pn] = null;
                     const terminal = document.getElementById(`terminal${pn}`);
                     const browser = document.getElementById(`browser${pn}`);
                     terminal.classList.remove('hidden');
@@ -509,7 +532,31 @@ function updateSessionList(sessions, chatSessions, data) {
         jItem.appendChild(jNameSpan);
         jItem.appendChild(closeBtn);
         jItem.addEventListener('click', function() {
-            openJupyter(jname);
+            // If this Jupyter session is already open in a pane, just switch to it
+            for (const pn of [1, 2]) {
+                if (paneNotebook[pn] === 'jupyter:' + jname) {
+                    setActiveTerminal(pn, true);
+                    highlightSidebarItem('jupyter:' + jname);
+                    if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+                    return;
+                }
+            }
+            console.log('[jupyter-sidebar-click]', {jname, paneNotebook: {...paneNotebook}, namePaths: {..._jupyterNamePaths}, panePaths: {..._jupyterPaths}});
+            // Look up path from pane or name map
+            let clickPath = _jupyterNamePaths[jname];
+            if (!clickPath) {
+                for (const pn of [1, 2]) {
+                    if (paneNotebook[pn] === 'jupyter:' + jname && _jupyterPaths[pn]) {
+                        clickPath = _jupyterPaths[pn];
+                        break;
+                    }
+                }
+            }
+            if (clickPath) {
+                openJupyter(clickPath);
+            } else {
+                openJupyter(jname);
+            }
             if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
         });
         sessionList.appendChild(jItem);
@@ -730,6 +777,7 @@ function attachSession(sessionName) {
         const terminal = document.getElementById(`terminal${activeTerminal}`);
         paneTypes[activeTerminal] = 'terminal';
         paneNotebook[activeTerminal] = null;
+        _jupyterPaths[activeTerminal] = null;
         terminal.classList.remove('hidden');
         browser.classList.add('hidden');
     }
@@ -765,8 +813,12 @@ function getBrowserPaneSession(pane) {
         if (m) return 'chat:' + m[1];
         const nb = iframe.src.match(/\/notes\/([^/?#]+)\//);
         if (nb) return 'notebook:' + nb[1];
-        if (iframe.src.includes('/jupyter/') && paneNotebook[pane] && paneNotebook[pane].startsWith('jupyter:')) return paneNotebook[pane];
-        if (iframe.src.includes('/jupyter/')) return 'jupyter';
+        if (iframe.src.includes('/jupyter/')) {
+            // Use stored path if available for accurate restoration
+            if (_jupyterPaths[pane]) return 'jupyter:' + _jupyterPaths[pane];
+            if (paneNotebook[pane] && paneNotebook[pane].startsWith('jupyter:')) return paneNotebook[pane];
+            return 'jupyter';
+        }
     }
     if (paneNotebook[pane]) return paneNotebook[pane].startsWith('jupyter:') ? paneNotebook[pane] : 'notebook:' + paneNotebook[pane];
     return 'desktop';
@@ -912,9 +964,19 @@ window.addEventListener('message', (e) => {
             if (!iframe) continue;
             try {
                 if (iframe.contentWindow === e.source && paneNotebook[pn] && paneNotebook[pn].startsWith('jupyter:')) {
+                    // Save the current Jupyter path for reload restoration
+                    const oldPath = _jupyterPaths[pn];
+                    if (e.data.jpath) {
+                        _jupyterPaths[pn] = '/jupyter' + e.data.jpath.replace(/^\/jupyter/, '');
+                        _jupyterNamePaths[e.data.name] = _jupyterPaths[pn];
+                    }
                     const oldName = paneNotebook[pn].slice(8);
                     const newName = e.data.name;
-                    if (oldName === newName) continue;
+                    if (oldName === newName) {
+                        // Name unchanged but path may have changed — sync URL
+                        if (_jupyterPaths[pn] !== oldPath) syncUrlParams();
+                        continue;
+                    }
                     // Update paneNotebook
                     paneNotebook[pn] = 'jupyter:' + newName;
                     // Update sidebar item

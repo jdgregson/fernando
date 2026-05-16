@@ -334,8 +334,9 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
   }
   function update(){
     ensureStyles();
-    var el=document.querySelector('.sb-mini-editor');
+    var el=document.querySelector('#sb-top .sb-mini-editor');
     if(!el)return;
+    if(document.querySelector('.sb-modal-box[open]')){if(bc)bc.style.display='none';el.style.display='';return}
     var val=(el.querySelector('.cm-line')||{}).textContent||'';
     if(!val||val===lastPage)return;
     lastPage=val;
@@ -405,6 +406,23 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
     actions.prepend(btn);
   }
   setInterval(addBtn,1000);
+})();
+</script>
+<script>
+(function(){
+  function addNewBtn(){
+    var actions=document.querySelector('.sb-actions');
+    if(!actions||document.getElementById('f-new-btn'))return;
+    var btn=document.createElement('button');btn.id='f-new-btn';btn.type='button';
+    btn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>';
+    btn.title='New Page';
+    btn.style.marginRight='8px';
+    btn.onclick=function(e){e.preventDefault();e.stopPropagation();
+      var name=prompt('New page name:');
+      if(name&&name.trim()&&window.client){client.navigate({path:name.trim()+'.md'},false,false)}};
+    actions.prepend(btn);
+  }
+  setInterval(addNewBtn,1000);
 })();
 </script>
 <style>
@@ -658,10 +676,13 @@ def jupyter_proxy(path):
                 # Report current notebook name to parent for sidebar label
                 "setInterval(function(){"
                 "var name='Jupyter';"
+                "var jpath=decodeURIComponent(window.location.pathname);"
                 "var nb=window.Jupyter&&Jupyter.notebook;"
                 "if(nb&&nb.notebook_name)name=nb.notebook_name.replace('.ipynb','');"
-                "else if(document.title&&document.title!=='Home')name=document.title;"
-                "window.parent.postMessage({type:'jupyter-name',name:name},'*');"
+                "else if(jpath.indexOf('/tree/')!==-1){name=decodeURIComponent(jpath.split('/tree/')[1]||'').replace(/\\/+$/,'');if(!name)name='Jupyter';}"
+                "else if(jpath.indexOf('/edit/')!==-1){name=decodeURIComponent(jpath.split('/edit/')[1]||'').replace(/\\/+$/,'');}"
+                "else if(document.title&&document.title!=='Home'&&document.title!=='Jupyter Notebook')name=document.title;"
+                "window.parent.postMessage({type:'jupyter-name',name:name,jpath:jpath},'*');"
                 "},1000);"
                 "</script>"
             )
