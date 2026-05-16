@@ -19,10 +19,46 @@
         <div class="input-row">
             <div class="textarea-wrap">
                 <textarea id="input" placeholder="Message Fernando..." rows="1" spellcheck="true" disabled></textarea>
-                <label class="attach-btn" id="attachBtn" for="fileInput"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg></label>
+                <div class="attach-btn" id="attachBtn" onclick="togglePlusMenu(event)"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg>
+                    <div class="plus-menu" id="plusMenu">
+                        <div class="plus-menu-item" onclick="plusMenuAttach()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>File or image</div>
+                        <div class="plus-menu-item" onclick="plusMenuTool()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>Tool call</div>
+                    </div>
+                </div>
                 <input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">
             </div>
             <button type="button" id="sendBtn" tabindex="-1" class="disabled" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <div class="tool-modal-overlay" id="toolModalOverlay" onclick="closeToolModal()">
+        <div class="tool-modal" onclick="event.stopPropagation()">
+            <div class="tool-modal-header">
+                <span class="tool-modal-title" id="toolModalTitle">Run Tool</span>
+                <span class="tool-modal-close" onclick="closeToolModal()"><svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span>
+            </div>
+            <div class="tool-modal-body" id="toolModalBody">
+                <div id="toolPickerView">
+                    <input type="text" class="tool-search" id="toolSearch" placeholder="Search tools..." oninput="filterTools()" autocapitalize="off" autocorrect="off" spellcheck="true">
+                    <div class="tool-list" id="toolList"></div>
+                </div>
+                <div id="toolExecView" style="display:none">
+                    <div class="tool-exec-scroll">
+                        <div class="tool-exec-name" id="toolExecName"></div>
+                        <div class="tool-exec-desc" id="toolExecDesc"></div>
+                        <div class="tool-exec-params" id="toolExecParams"></div>
+                        <div class="tool-exec-result" id="toolExecResult" style="display:none">
+                            <div class="tool-exec-result-label">Result</div>
+                            <div class="tool-exec-result-content" id="toolResultContent"></div>
+                        </div>
+                    </div>
+                    <div class="tool-exec-footer">
+                        <button type="button" class="tool-exec-back" onclick="showToolPicker()">Back</button>
+                        <button type="button" class="tool-exec-run" id="toolRunBtn" onclick="runSelectedTool()">Run</button>
+                        <button type="button" class="tool-exec-attach" id="toolAttachBtn" onclick="attachToolResult()" style="display:none">Attach to message</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -882,6 +918,143 @@
         }
     }
 
+    const _toolResultRe = /^\[Tool result: ([^\]]+)\]\n([\s\S]*)$/;
+    function _renderUserBody(el, text) {
+        // Split text into tool result blocks and regular text
+        const parts = text.split(/(\[Tool result: [^\]]+\]\n(?:Input:\n```[\s\S]*?```\n)?Output:\n```[\s\S]*?```)/g);
+        for (const part of parts) {
+            const m = part.match(/^\[Tool result: ([^\]]+)\]\n([\s\S]*)$/);
+            if (m) {
+                const toolName = m[1];
+                const body = m[2];
+                // Parse input and output
+                let inputText = '';
+                let outputText = '';
+                const inputMatch = body.match(/^Input:\n```\n([\s\S]*?)\n```\nOutput:\n```\n([\s\S]*?)\n```$/);
+                const outputOnly = body.match(/^Output:\n```\n([\s\S]*?)\n```$/);
+                if (inputMatch) {
+                    inputText = inputMatch[1];
+                    outputText = inputMatch[2];
+                } else if (outputOnly) {
+                    outputText = outputOnly[1];
+                } else {
+                    outputText = body;
+                }
+                // Render as tool call widget
+                const div = document.createElement('div');
+                div.className = 'tool-call';
+                const header = document.createElement('div');
+                header.className = 'tool-call-header';
+                const arrow = document.createElement('span');
+                arrow.className = 'arrow';
+                arrow.textContent = '▶';
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'tool-name';
+                nameSpan.textContent = toolName;
+                const statusSpan = document.createElement('span');
+                statusSpan.className = 'tool-status completed';
+                statusSpan.textContent = 'user';
+                header.appendChild(arrow);
+                header.appendChild(nameSpan);
+                header.appendChild(statusSpan);
+                const tcBody = document.createElement('div');
+                tcBody.className = 'tool-call-body';
+                // Tabs
+                const tabs = document.createElement('div');
+                tabs.className = 'tc-tabs';
+                const tabIn = document.createElement('div');
+                tabIn.className = 'tc-tab' + (inputText ? ' active' : '');
+                tabIn.textContent = 'Input';
+                const tabOut = document.createElement('div');
+                tabOut.className = 'tc-tab' + (inputText ? '' : ' active');
+                tabOut.textContent = 'Output';
+                const jsonToggle = document.createElement('div');
+                jsonToggle.className = 'tc-json-toggle';
+                jsonToggle.textContent = 'JSON';
+                tabs.appendChild(tabIn);
+                tabs.appendChild(tabOut);
+                tabs.appendChild(jsonToggle);
+                // Input panel
+                const panelIn = document.createElement('div');
+                panelIn.className = 'tc-panel' + (inputText ? ' active' : '');
+                if (inputText) {
+                    try {
+                        const parsed = JSON.parse(inputText);
+                        for (const [k, v] of Object.entries(parsed)) {
+                            const row = document.createElement('div');
+                            row.className = 'tc-param';
+                            const key = document.createElement('div');
+                            key.className = 'tc-param-key';
+                            key.textContent = k;
+                            const val = document.createElement('div');
+                            val.className = 'tc-param-val';
+                            val.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                            row.appendChild(key);
+                            row.appendChild(val);
+                            panelIn.appendChild(row);
+                        }
+                    } catch(e) {
+                        panelIn.textContent = inputText;
+                    }
+                }
+                // Output panel
+                const panelOut = document.createElement('div');
+                panelOut.className = 'tc-panel' + (inputText ? '' : ' active');
+                const outBlock = document.createElement('div');
+                outBlock.className = 'tc-out-block';
+                outBlock.textContent = outputText;
+                panelOut.appendChild(outBlock);
+                // Raw panels
+                const rawIn = document.createElement('div');
+                rawIn.className = 'tc-raw';
+                rawIn.style.display = 'none';
+                rawIn.textContent = inputText || '(no input)';
+                const rawOut = document.createElement('div');
+                rawOut.className = 'tc-raw';
+                rawOut.style.display = 'none';
+                rawOut.textContent = outputText;
+                panelIn.appendChild(rawIn);
+                panelOut.appendChild(rawOut);
+                // State
+                const jsonMode = { input: false, output: false };
+                const prettyIn = panelIn.querySelector('.tc-param') || panelIn.firstChild;
+                const prettyOut = outBlock;
+                jsonToggle.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const active = panelIn.classList.contains('active') ? 'input' : 'output';
+                    jsonMode[active] = !jsonMode[active];
+                    jsonToggle.classList.toggle('active', jsonMode[active]);
+                    if (active === 'input') {
+                        Array.from(panelIn.children).forEach(c => { if (c !== rawIn) c.style.display = jsonMode.input ? 'none' : ''; });
+                        rawIn.style.display = jsonMode.input ? '' : 'none';
+                    } else {
+                        prettyOut.style.display = jsonMode.output ? 'none' : '';
+                        rawOut.style.display = jsonMode.output ? '' : 'none';
+                    }
+                });
+                tabIn.addEventListener('click', (e) => { e.stopPropagation(); tabIn.classList.add('active'); tabOut.classList.remove('active'); panelIn.classList.add('active'); panelOut.classList.remove('active'); jsonToggle.classList.toggle('active', jsonMode.input); });
+                tabOut.addEventListener('click', (e) => { e.stopPropagation(); tabOut.classList.add('active'); tabIn.classList.remove('active'); panelOut.classList.add('active'); panelIn.classList.remove('active'); jsonToggle.classList.toggle('active', jsonMode.output); });
+                header.addEventListener('click', () => { arrow.classList.toggle('open'); tcBody.classList.toggle('open'); });
+                tcBody.appendChild(tabs);
+                tcBody.appendChild(panelIn);
+                tcBody.appendChild(panelOut);
+                div.appendChild(header);
+                div.appendChild(tcBody);
+                el.appendChild(div);
+            } else if (part.trim()) {
+                const cleaned = part.replace(/^\n/, '');
+                if (!cleaned.trim()) continue;
+                const content = document.createElement('div');
+                content.className = 'msg-content';
+                content.style.whiteSpace = 'pre-wrap';
+                content.innerHTML = renderUserText(cleaned);
+                collapseCodeBlocks(content, 30);
+                highlightDiffs(content);
+                el.appendChild(content);
+            }
+        }
+    }
+
     function addUserMessage(text, collapsed) {
         const el = document.createElement('div');
         el.className = 'msg user';
@@ -913,22 +1086,10 @@
             if (parsed) {
                 renderFileChips(parsed.paths, el);
                 if (parsed.body.trim()) {
-                    const content = document.createElement('div');
-                    content.className = 'msg-content';
-                    content.style.whiteSpace = 'pre-wrap';
-                    content.innerHTML = renderUserText(parsed.body);
-                    collapseCodeBlocks(content, 30);
-                    highlightDiffs(content);
-                    el.appendChild(content);
+                    _renderUserBody(el, parsed.body);
                 }
             } else {
-                const content = document.createElement('div');
-                content.className = 'msg-content';
-                content.style.whiteSpace = 'pre-wrap';
-                content.innerHTML = renderUserText(text);
-                collapseCodeBlocks(content, 30);
-                highlightDiffs(content);
-                el.appendChild(content);
+                _renderUserBody(el, text);
             }
         }
         document.getElementById('messages').appendChild(el);
@@ -1289,6 +1450,276 @@
             }, 300);
         });
     })();
+
+    // --- Plus menu & Tool modal ---
+    let _mcpServers = null;
+    let _mcpToolsByServer = {}; // server -> tools[]
+    let _selectedTool = null;
+    let _toolResult = null;
+    let _toolArgs = null;
+
+    function togglePlusMenu(e) {
+        e.stopPropagation();
+        const menu = document.getElementById('plusMenu');
+        menu.classList.toggle('open');
+        if (menu.classList.contains('open')) {
+            document.addEventListener('click', _closePlusMenu, { once: true });
+        }
+    }
+    function _closePlusMenu() { document.getElementById('plusMenu').classList.remove('open'); }
+    function plusMenuAttach() {
+        _closePlusMenu();
+        document.getElementById('fileInput').click();
+    }
+    function plusMenuTool() {
+        _closePlusMenu();
+        openToolModal();
+    }
+
+    async function openToolModal() {
+        document.getElementById('toolModalOverlay').classList.add('open');
+        document.getElementById('toolPickerView').style.display = '';
+        document.getElementById('toolExecView').style.display = 'none';
+        document.getElementById('toolSearch').value = '';
+        const list = document.getElementById('toolList');
+        // Show cached servers instantly, refresh in background
+        if (!_mcpServers) {
+            try { _mcpServers = JSON.parse(localStorage.getItem('mcp_servers')); } catch(e) {}
+        }
+        if (_mcpServers) {
+            renderServerList();
+        } else {
+            list.innerHTML = '<div style="color:#666;font-size:12px;padding:10px">Loading servers...</div>';
+        }
+        try {
+            const res = await fetch('/api/mcp/servers?api_key=' + encodeURIComponent(apiKey));
+            const data = await res.json();
+            const fresh = data.servers || [];
+            if (fresh.length > 0) {
+                _mcpServers = fresh;
+                localStorage.setItem('mcp_servers', JSON.stringify(_mcpServers));
+                renderServerList();
+            }
+        } catch(e) {
+            if (!_mcpServers) list.innerHTML = '<div style="color:#f7768e;font-size:12px;padding:10px">Failed to load servers</div>';
+        }
+    }
+
+    function closeToolModal() {
+        document.getElementById('toolModalOverlay').classList.remove('open');
+    }
+
+    function renderServerList() {
+        const list = document.getElementById('toolList');
+        const q = document.getElementById('toolSearch').value.toLowerCase();
+        list.innerHTML = '';
+        for (const server of (_mcpServers || [])) {
+            if (q && !server.toLowerCase().includes(q)) {
+                // If searching, also check loaded tools
+                const tools = _mcpToolsByServer[server];
+                if (tools && !tools.some(t => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q))) continue;
+                else if (!tools) continue;
+            }
+            const section = document.createElement('div');
+            section.className = 'tool-server-section';
+            const header = document.createElement('div');
+            header.className = 'tool-server-header';
+            header.innerHTML = '<span class="tool-server-arrow">▶</span><span class="tool-server-name">' + escapeHtml(server) + '</span>';
+            const body = document.createElement('div');
+            body.className = 'tool-server-body';
+            body.style.display = 'none';
+
+            header.addEventListener('click', () => {
+                const open = body.style.display !== 'none';
+                body.style.display = open ? 'none' : '';
+                header.querySelector('.tool-server-arrow').classList.toggle('open', !open);
+                if (!open) loadServerTools(server, body);
+            });
+
+            section.appendChild(header);
+            section.appendChild(body);
+            list.appendChild(section);
+
+            // If searching and tools are loaded, auto-expand matching
+            if (q && _mcpToolsByServer[server]) {
+                body.style.display = '';
+                header.querySelector('.tool-server-arrow').classList.add('open');
+                renderServerTools(server, body, q);
+            }
+        }
+    }
+
+    async function loadServerTools(server, container) {
+        if (_mcpToolsByServer[server]) {
+            renderServerTools(server, container);
+            return;
+        }
+        // Try localStorage cache first
+        try {
+            const cached = localStorage.getItem('mcp_tools_' + server);
+            if (cached) {
+                _mcpToolsByServer[server] = JSON.parse(cached);
+                renderServerTools(server, container);
+                // Refresh in background
+                fetch('/api/mcp/tools?server=' + encodeURIComponent(server) + '&api_key=' + encodeURIComponent(apiKey))
+                    .then(r => r.json()).then(data => {
+                        _mcpToolsByServer[server] = data.tools || [];
+                        localStorage.setItem('mcp_tools_' + server, JSON.stringify(_mcpToolsByServer[server]));
+                    }).catch(() => {});
+                return;
+            }
+        } catch(e) {}
+        container.innerHTML = '<div style="color:#666;font-size:11px;padding:6px 10px">Loading...</div>';
+        try {
+            const res = await fetch('/api/mcp/tools?server=' + encodeURIComponent(server) + '&api_key=' + encodeURIComponent(apiKey));
+            const data = await res.json();
+            _mcpToolsByServer[server] = data.tools || [];
+            localStorage.setItem('mcp_tools_' + server, JSON.stringify(_mcpToolsByServer[server]));
+        } catch(e) {
+            container.innerHTML = '<div style="color:#f7768e;font-size:11px;padding:6px 10px">Failed to load</div>';
+            return;
+        }
+        renderServerTools(server, container);
+    }
+
+    function renderServerTools(server, container, filter) {
+        container.innerHTML = '';
+        let tools = _mcpToolsByServer[server] || [];
+        if (filter) tools = tools.filter(t => t.name.toLowerCase().includes(filter) || t.description.toLowerCase().includes(filter));
+        for (const t of tools) {
+            const item = document.createElement('div');
+            item.className = 'tool-list-item';
+            item.innerHTML = '<div class="tl-name">' + escapeHtml(t.name) + '</div>' +
+                (t.description ? '<div class="tl-desc">' + escapeHtml(t.description) + '</div>' : '');
+            item.addEventListener('click', () => selectTool(t));
+            container.appendChild(item);
+        }
+        if (tools.length === 0) {
+            container.innerHTML = '<div style="color:#555;font-size:11px;padding:6px 10px">No tools' + (filter ? ' matching' : '') + '</div>';
+        }
+    }
+
+    function filterTools() {
+        renderServerList();
+    }
+
+    function selectTool(tool) {
+        _selectedTool = tool;
+        _toolResult = null;
+        document.getElementById('toolPickerView').style.display = 'none';
+        document.getElementById('toolExecView').style.display = '';
+        document.getElementById('toolExecName').textContent = tool.name;
+        document.getElementById('toolExecDesc').textContent = tool.description || '';
+        document.getElementById('toolExecResult').style.display = 'none';
+        document.getElementById('toolAttachBtn').style.display = 'none';
+        document.getElementById('toolRunBtn').disabled = false;
+        // Build param form from schema
+        const paramsDiv = document.getElementById('toolExecParams');
+        paramsDiv.innerHTML = '';
+        const schema = tool.inputSchema || {};
+        const props = schema.properties || {};
+        const required = schema.required || [];
+        for (const [name, prop] of Object.entries(props)) {
+            const lbl = document.createElement('label');
+            lbl.setAttribute('for', 'tp_' + name);
+            lbl.innerHTML = escapeHtml(name) + (required.includes(name) ? '' : '<span class="param-optional">optional</span>');
+            paramsDiv.appendChild(lbl);
+            if (prop.type === 'string' && (prop.description || '').length > 80) {
+                const ta = document.createElement('textarea');
+                ta.id = 'tp_' + name;
+                ta.placeholder = prop.description || '';
+                ta.autocapitalize = 'off';
+                ta.spellcheck = true;
+                paramsDiv.appendChild(ta);
+            } else if (prop.enum) {
+                const sel = document.createElement('select');
+                sel.id = 'tp_' + name;
+                sel.style.cssText = 'width:100%;padding:6px 10px;border-radius:4px;border:1px solid #283d5b;background:#0d1a2e;color:#c0caf5;font-size:12px;outline:none';
+                if (!required.includes(name)) { const opt = document.createElement('option'); opt.value = ''; opt.textContent = '(none)'; sel.appendChild(opt); }
+                for (const v of prop.enum) { const opt = document.createElement('option'); opt.value = v; opt.textContent = v; sel.appendChild(opt); }
+                paramsDiv.appendChild(sel);
+            } else {
+                const inp = document.createElement('input');
+                inp.id = 'tp_' + name;
+                inp.type = prop.type === 'integer' || prop.type === 'number' ? 'number' : 'text';
+                inp.placeholder = prop.description || '';
+                inp.autocapitalize = 'off';
+                inp.spellcheck = true;
+                if (prop.default !== undefined) inp.value = prop.default;
+                paramsDiv.appendChild(inp);
+            }
+        }
+    }
+
+    function showToolPicker() {
+        document.getElementById('toolPickerView').style.display = '';
+        document.getElementById('toolExecView').style.display = 'none';
+    }
+
+    async function runSelectedTool() {
+        if (!_selectedTool) return;
+        const btn = document.getElementById('toolRunBtn');
+        btn.disabled = true;
+        btn.textContent = 'Running...';
+        // Gather params
+        const schema = _selectedTool.inputSchema || {};
+        const props = schema.properties || {};
+        const args = {};
+        for (const [name, prop] of Object.entries(props)) {
+            const el = document.getElementById('tp_' + name);
+            if (!el) continue;
+            const val = el.value.trim();
+            if (!val) continue;
+            if (prop.type === 'integer') args[name] = parseInt(val, 10);
+            else if (prop.type === 'number') args[name] = parseFloat(val);
+            else if (prop.type === 'boolean') args[name] = val === 'true';
+            else args[name] = val;
+        }
+        _toolArgs = args;
+        const _doCall = () => fetch('/api/mcp/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+            body: JSON.stringify({ server: _selectedTool.server, tool: _selectedTool.name, arguments: args })
+        });
+        try {
+            let res;
+            try { res = await _doCall(); } catch(e1) { res = await _doCall(); } // retry once on network error
+            const data = await res.json();
+            _toolResult = data;
+            const resultDiv = document.getElementById('toolExecResult');
+            const contentDiv = document.getElementById('toolResultContent');
+            resultDiv.style.display = '';
+            document.getElementById('toolAttachBtn').style.display = '';
+            const text = (data.content || []).map(c => c.text || '').join('\n');
+            contentDiv.textContent = text || JSON.stringify(data, null, 2);
+            contentDiv.className = 'tool-exec-result-content' + (data.isError ? ' error' : '');
+        } catch(e) {
+            const resultDiv = document.getElementById('toolExecResult');
+            const contentDiv = document.getElementById('toolResultContent');
+            resultDiv.style.display = '';
+            document.getElementById('toolAttachBtn').style.display = '';
+            contentDiv.textContent = 'Error: ' + e.message;
+            contentDiv.className = 'tool-exec-result-content error';
+            _toolResult = { content: [{ type: 'text', text: 'Error: ' + e.message }], isError: true };
+        }
+        btn.disabled = false;
+        btn.textContent = 'Run';
+    }
+
+    function attachToolResult() {
+        if (!_toolResult || !_selectedTool) return;
+        const text = (_toolResult.content || []).map(c => c.text || '').join('\n');
+        const argsStr = _toolArgs && Object.keys(_toolArgs).length ? JSON.stringify(_toolArgs, null, 2) : '';
+        let block = '[Tool result: ' + _selectedTool.server + '/' + _selectedTool.name + ']\n';
+        if (argsStr) block += 'Input:\n```\n' + argsStr + '\n```\n';
+        block += 'Output:\n```\n' + text + '\n```';
+        const input = document.getElementById('input');
+        const cur = input.value;
+        input.value = cur + (cur && !cur.endsWith('\n') ? '\n' : '') + block;
+        input.style.height = 'auto';
+        input.style.height = input.scrollHeight + 'px';
+        closeToolModal();
+    }
 </script>
 </body>
 </html>

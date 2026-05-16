@@ -105,6 +105,43 @@ def api_rename_chat():
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/mcp/tools")
+def api_mcp_tools():
+    """List all available MCP tools from configured servers."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.mcp_client import list_tools
+    server = request.args.get("server")
+    refresh = request.args.get("refresh") == "1"
+    tools = list_tools(server=server, force_refresh=refresh)
+    return json.dumps({"tools": tools}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/mcp/servers")
+def api_mcp_servers():
+    """List configured MCP server names (no spawning)."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.mcp_client import list_servers
+    return json.dumps({"servers": list_servers()}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/mcp/call", methods=["POST"])
+def api_mcp_call():
+    """Execute a tool call on an MCP server."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.mcp_client import call_tool
+    data = request.get_json(force=True)
+    server = data.get("server")
+    tool = data.get("tool")
+    arguments = data.get("arguments", {})
+    if not server or not tool:
+        return json.dumps({"error": "Missing server or tool"}), 400, {"Content-Type": "application/json"}
+    result = call_tool(server, tool, arguments)
+    return json.dumps(result), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/kasm/", defaults={"path": ""})
 @bp.route("/kasm/<path:path>")
 def kasm_proxy(path):
