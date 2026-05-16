@@ -103,21 +103,32 @@ body { display: flex; flex-direction: column; }
 .tool-call-header .tool-status.in_progress { color: #dcdcaa; }
 .tool-call-body {
     display: none;
-    padding: 6px 10px;
     border-top: 1px solid #143151;
-    white-space: pre-wrap;
-    max-height: 300px;
-    overflow-y: auto;
     color: #aaa;
     font-size: 11px;
 }
 .tool-call-body.open { display: block; }
+.tool-call-body .tc-tabs { display: flex; border-bottom: 1px solid #143151; }
+.tool-call-body .tc-tab { padding: 6px 14px; font-size: 11px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; }
+.tool-call-body .tc-tab.active { color: #7aa2f7; border-bottom-color: #7aa2f7; }
+.tool-call-body .tc-json-toggle { margin-left: auto; padding: 6px 10px; font-size: 10px; color: #555; cursor: pointer; border-bottom: 2px solid transparent; }
+.tool-call-body .tc-json-toggle:hover { color: #888; }
+.tool-call-body .tc-json-toggle.active { color: #e0af68; border-bottom-color: #e0af68; }
+.tool-call-body .tc-panel { display: none; padding: 10px; max-height: 300px; overflow-y: auto; }
+.tool-call-body .tc-panel.active { display: block; }
+.tool-call-body .tc-raw { white-space: pre-wrap; word-break: break-word; font-size: 11px; color: #888; }
+.tool-call-body .tc-param { padding: 6px 0; border-bottom: 1px solid #143151; }
+.tool-call-body .tc-param:last-child { border-bottom: none; }
+.tool-call-body .tc-param-key { color: #bb9af7; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.tool-call-body .tc-param-val { color: #c0caf5; font-size: 11px; word-break: break-word; }
+.tool-call-body .tc-out-label { font-size: 10px; color: #4ec9b0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; margin-top: 8px; }
+.tool-call-body .tc-out-label:first-child { margin-top: 0; }
+.tool-call-body .tc-out-block { background: #0d1a2e; border-radius: 3px; padding: 8px; font-size: 11px; word-break: break-word; color: #a9b1d6; max-height: 200px; overflow-y: auto; }
 .tool-call-images {
     border-top: 1px solid #143151;
     padding: 6px 10px;
 }
-.tool-toggle { color: #666; font-size: 10px; cursor: pointer; padding-bottom: 4px; }
-.tool-toggle:hover { color: #aaa; }
+
 
 .msg.system {
     align-self: center;

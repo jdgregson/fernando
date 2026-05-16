@@ -346,26 +346,104 @@
         const body = document.createElement('div');
         body.className = 'tool-call-body';
 
-        const toggle = document.createElement('div');
-        toggle.className = 'tool-toggle';
-        toggle.textContent = '▸ show input';
-        const tcState = { inputText: '', outputText: '', showingInput: false };
-        toggle.addEventListener('click', (e) => {
-            e.preventDefault();
+        const tcState = { rawInput: rawInput, rawOutput: null, jsonMode: { input: false, output: false } };
+
+        // Build tabs
+        const tabs = document.createElement('div');
+        tabs.className = 'tc-tabs';
+        const tabIn = document.createElement('div');
+        tabIn.className = 'tc-tab active';
+        tabIn.textContent = 'Input';
+        const tabOut = document.createElement('div');
+        tabOut.className = 'tc-tab';
+        tabOut.textContent = 'Output';
+        const jsonToggle = document.createElement('div');
+        jsonToggle.className = 'tc-json-toggle';
+        jsonToggle.textContent = 'JSON';
+        jsonToggle.title = 'Toggle raw JSON view';
+        tabs.appendChild(tabIn);
+        tabs.appendChild(tabOut);
+        tabs.appendChild(jsonToggle);
+
+        // Input panel - pretty view
+        const panelIn = document.createElement('div');
+        panelIn.className = 'tc-panel active';
+        const panelInPretty = document.createElement('div');
+        panelInPretty.className = 'tc-pretty';
+        const panelInRaw = document.createElement('div');
+        panelInRaw.className = 'tc-raw';
+        panelInRaw.style.display = 'none';
+        panelInRaw.textContent = rawInput ? JSON.stringify(rawInput, null, 2) : '(no input)';
+
+        if (rawInput && typeof rawInput === 'object') {
+            for (const [k, v] of Object.entries(rawInput)) {
+                const row = document.createElement('div');
+                row.className = 'tc-param';
+                const key = document.createElement('div');
+                key.className = 'tc-param-key';
+                key.textContent = k;
+                const val = document.createElement('div');
+                val.className = 'tc-param-val';
+                val.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                row.appendChild(key);
+                row.appendChild(val);
+                panelInPretty.appendChild(row);
+            }
+        } else if (rawInput) {
+            const row = document.createElement('div');
+            row.className = 'tc-param';
+            const val = document.createElement('div');
+            val.className = 'tc-param-val';
+            val.textContent = typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2);
+            row.appendChild(val);
+            panelInPretty.appendChild(row);
+        }
+        panelIn.appendChild(panelInPretty);
+        panelIn.appendChild(panelInRaw);
+
+        // Output panel
+        const panelOut = document.createElement('div');
+        panelOut.className = 'tc-panel';
+        const panelOutPretty = document.createElement('div');
+        panelOutPretty.className = 'tc-pretty';
+        const panelOutRaw = document.createElement('div');
+        panelOutRaw.className = 'tc-raw';
+        panelOutRaw.style.display = 'none';
+        panelOut.appendChild(panelOutPretty);
+        panelOut.appendChild(panelOutRaw);
+
+        // JSON toggle
+        jsonToggle.addEventListener('click', (e) => {
             e.stopPropagation();
-            tcState.showingInput = !tcState.showingInput;
-            toggle.textContent = tcState.showingInput ? '▸ show output' : '▸ show input';
-            bodyContent.textContent = tcState.showingInput ? (tcState.inputText || '(no input)') : (tcState.outputText || '(no output yet)');
+            const activePanel = panelIn.classList.contains('active') ? 'input' : 'output';
+            tcState.jsonMode[activePanel] = !tcState.jsonMode[activePanel];
+            jsonToggle.classList.toggle('active', tcState.jsonMode[activePanel]);
+            if (activePanel === 'input') {
+                panelInPretty.style.display = tcState.jsonMode.input ? 'none' : '';
+                panelInRaw.style.display = tcState.jsonMode.input ? '' : 'none';
+            } else {
+                panelOutPretty.style.display = tcState.jsonMode.output ? 'none' : '';
+                panelOutRaw.style.display = tcState.jsonMode.output ? '' : 'none';
+            }
         });
 
-        const bodyContent = document.createElement('div');
-        tcState.inputText = rawInput ? (typeof rawInput === 'string' ? rawInput : JSON.stringify(rawInput, null, 2)) : '';
-        if (tcState.inputText) {
-            bodyContent.textContent = tcState.inputText;
-        }
+        // Tab switching
+        tabIn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            tabIn.classList.add('active'); tabOut.classList.remove('active');
+            panelIn.classList.add('active'); panelOut.classList.remove('active');
+            jsonToggle.classList.toggle('active', tcState.jsonMode.input);
+        });
+        tabOut.addEventListener('click', (e) => {
+            e.stopPropagation();
+            tabOut.classList.add('active'); tabIn.classList.remove('active');
+            panelOut.classList.add('active'); panelIn.classList.remove('active');
+            jsonToggle.classList.toggle('active', tcState.jsonMode.output);
+        });
 
-        body.appendChild(toggle);
-        body.appendChild(bodyContent);
+        body.appendChild(tabs);
+        body.appendChild(panelIn);
+        body.appendChild(panelOut);
 
         header.addEventListener('click', () => {
             arrow.classList.toggle('open');
@@ -391,11 +469,100 @@
             }
         }
 
-        toolCalls[toolCallId] = { div, statusSpan, body, bodyContent, tcState, title: title || '', rawInput };
+        toolCalls[toolCallId] = { div, statusSpan, body, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
         scrollToBottom();
     }
 
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
+
+    function _renderOutPretty(container, obj, raw) {
+        // MCP tool results: { items: [{ Json: { content: [...], isError: bool } }] }
+        // OR direct fields: { items: [{ Json: { stdout: "...", stderr: "...", exit_status: "..." } }] }
+        if (obj && typeof obj === 'object' && Array.isArray(obj.items)) {
+            for (const item of obj.items) {
+                const json = item.Json || item.json || item;
+                const isError = json.isError === true;
+                const contentArr = json.content || json.Content;
+                if (Array.isArray(contentArr)) {
+                    // MCP standard format with content array
+                    for (const c of contentArr) {
+                        if (c.type === 'image' && c.data) {
+                            const img = document.createElement('img');
+                            img.src = 'data:' + (c.mimeType || 'image/png') + ';base64,' + c.data;
+                            img.style.cssText = 'max-width:100%;border-radius:3px;margin:4px 0';
+                            container.appendChild(img);
+                        } else {
+                            const txt = c.text || c.Text || '';
+                            if (!txt) continue;
+                            _renderTextField(container, txt, isError);
+                        }
+                    }
+                } else {
+                    // Direct fields on Json object (e.g. stdout, stderr, exit_status)
+                    for (const [k, v] of Object.entries(json)) {
+                        if (k === 'isError') continue;
+                        if (v === '' || v === null || v === undefined) continue;
+                        const label = document.createElement('div');
+                        label.className = 'tc-out-label';
+                        if (isError) label.style.color = '#f7768e';
+                        label.textContent = k;
+                        const block = document.createElement('div');
+                        block.className = 'tc-out-block';
+                        if (isError) block.style.color = '#f7768e';
+                        block.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                        container.appendChild(label);
+                        container.appendChild(block);
+                    }
+                }
+            }
+            return;
+        }
+        // Fallback: plain object or string
+        if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            for (const [k, v] of Object.entries(obj)) {
+                if (v === '' || v === null || v === undefined) continue;
+                const label = document.createElement('div');
+                label.className = 'tc-out-label';
+                label.textContent = k;
+                const block = document.createElement('div');
+                block.className = 'tc-out-block';
+                block.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                container.appendChild(label);
+                container.appendChild(block);
+            }
+        } else {
+            const block = document.createElement('div');
+            block.className = 'tc-out-block';
+            block.textContent = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+            container.appendChild(block);
+        }
+    }
+
+    function _renderTextField(container, txt, isError) {
+        let parsed = null;
+        try { parsed = JSON.parse(txt); } catch(e) {}
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            for (const [k, v] of Object.entries(parsed)) {
+                if (v === '' || v === null || v === undefined) continue;
+                const label = document.createElement('div');
+                label.className = 'tc-out-label';
+                if (isError) label.style.color = '#f7768e';
+                label.textContent = k;
+                const block = document.createElement('div');
+                block.className = 'tc-out-block';
+                if (isError) block.style.color = '#f7768e';
+                block.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                container.appendChild(label);
+                container.appendChild(block);
+            }
+        } else {
+            const block = document.createElement('div');
+            block.className = 'tc-out-block';
+            if (isError) block.style.color = '#f7768e';
+            block.textContent = txt;
+            container.appendChild(block);
+        }
+    }
 
     function updateToolCall(toolCallId, status, content, rawOutput) {
         const tc = toolCalls[toolCallId];
@@ -404,39 +571,26 @@
             tc.statusSpan.className = 'tool-status ' + status;
             tc.statusSpan.textContent = status;
         }
-        if (content) {
-            for (const c of content) {
-                if (c.type === 'content' && c.content) {
-                    if (c.content.type === 'text') {
-                        tc.bodyContent.appendChild(document.createTextNode(c.content.text + '\n'));
-                    }
-                }
-            }
-        }
         if (rawOutput) {
-            const text = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2);
-            tc.tcState.outputText = text;
-            if (!tc.tcState.showingInput) {
-                tc.bodyContent.textContent = text;
-            }
-        }
-        if (status === 'completed' && rawOutput) {
-            const hasImage = Array.isArray((rawOutput || {}).items) && rawOutput.items.some(i => i.Image);
-            if (hasImage) {
-                tc.bodyContent.textContent = '(image data)';
-                tc.tcState.outputText = '(image data)';
-            }
+            tc.tcState.rawOutput = rawOutput;
+            tc.panelOutPretty.innerHTML = '';
+            tc.panelOutRaw.textContent = typeof rawOutput === 'string' ? rawOutput : JSON.stringify(rawOutput, null, 2);
+            // Render structured output recursively
+            let obj = rawOutput;
+            if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(e) {} }
+            _renderOutPretty(tc.panelOutPretty, obj, rawOutput);
         }
         // Render attach_file output as a downloadable chip
         if (status === 'completed' && tc.title.includes('attach_file')) {
             try {
-                let jsonStr = tc.tcState.outputText || '';
-                try { const parsed = JSON.parse(jsonStr); jsonStr = parsed; } catch(e) {}
-                // Handle nested MCP structure or direct object
-                let out = jsonStr;
+                let obj = tc.tcState.rawOutput;
+                if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(e) {} }
+                let out = obj;
                 if (typeof out === 'object' && out.items) {
                     const first = (out.items[0] || {}).Json || {};
                     out = JSON.parse(((first.content || [])[0] || {}).text || '{}');
+                } else if (typeof out === 'object' && out.content && Array.isArray(out.content)) {
+                    out = JSON.parse((out.content[0] || {}).text || '{}');
                 } else if (typeof out === 'string') {
                     out = JSON.parse(out);
                 }
