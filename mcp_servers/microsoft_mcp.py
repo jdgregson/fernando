@@ -22,6 +22,7 @@ if _project_root not in sys.path:
 
 import asyncio
 import json
+import mimetypes
 import msal
 import requests
 from datetime import datetime, timezone
@@ -663,14 +664,15 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="microsoft_file_upload",
-            description="Upload/create a text file in OneDrive (max 4MB).",
+            description="Upload/create a file in OneDrive (max 4MB). Provide either 'content' for text or 'local_path' for binary files.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "Destination path (e.g. '/Documents/notes.txt')"},
-                    "content": {"type": "string", "description": "File content"},
+                    "path": {"type": "string", "description": "Destination path in OneDrive (e.g. '/Documents/notes.txt')"},
+                    "content": {"type": "string", "description": "File content as text (for text files)"},
+                    "local_path": {"type": "string", "description": "Local file path to upload (for binary files like images, PDFs)"},
                 },
-                "required": ["path", "content"],
+                "required": ["path"],
             },
         ),
         Tool(
@@ -800,7 +802,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             }
 
     elif name == "microsoft_mail_send":
-        import base64, os, mimetypes
+        import base64
         payload = {
             "message": {
                 "subject": arguments["subject"],
@@ -1380,18 +1382,42 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "microsoft_file_upload":
         path = arguments["path"].strip("/")
-        content = arguments["content"]
-        token, err = get_access_token()
-        if err:
-            result = {"error": err}
+        content_text = arguments.get("content")
+        local_path = arguments.get("local_path")
+        if not content_text and not local_path:
+            result = {"error": "Provide either 'content' (text) or 'local_path' (binary file)"}
+        elif content_text and local_path:
+            result = {"error": "Provide only one of 'content' or 'local_path', not both"}
         else:
-            headers = {"Authorization": f"Bearer {token}", "Content-Type": "text/plain"}
-            resp = requests.put(f"{GRAPH_BASE}/me/drive/root:/{path}:/content", headers=headers, data=content.encode("utf-8"), timeout=30)
-            if resp.status_code in (200, 201):
-                data = resp.json()
-                result = {"status": "uploaded", "name": data.get("name"), "size": data.get("size")}
+            token, err = get_access_token()
+            if err:
+                result = {"error": err}
             else:
-                result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
+                url = f"{GRAPH_BASE}/me/drive/root:/{path}:/content"
+                if local_path:
+                    if not os.path.isfile(local_path):
+                        result = {"error": f"File not found: {local_path}"}
+                    elif os.path.getsize(local_path) > 4 * 1024 * 1024:
+                        result = {"error": "File exceeds 4MB limit"}
+                    else:
+                        mime_type = mimetypes.guess_type(local_path)[0] or "application/octet-stream"
+                        with open(local_path, "rb") as f:
+                            data = f.read()
+                        headers = {"Authorization": f"Bearer {token}", "Content-Type": mime_type}
+                        resp = requests.put(url, headers=headers, data=data, timeout=60)
+                        if resp.status_code in (200, 201):
+                            info = resp.json()
+                            result = {"status": "uploaded", "name": info.get("name"), "size": info.get("size")}
+                        else:
+                            result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
+                else:
+                    headers = {"Authorization": f"Bearer {token}", "Content-Type": "text/plain"}
+                    resp = requests.put(url, headers=headers, data=content_text.encode("utf-8"), timeout=30)
+                    if resp.status_code in (200, 201):
+                        info = resp.json()
+                        result = {"status": "uploaded", "name": info.get("name"), "size": info.get("size")}
+                    else:
+                        result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
 
     elif name == "microsoft_file_delete":
         path = arguments["path"].strip("/")
