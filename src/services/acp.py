@@ -243,11 +243,14 @@ class ACPSession:
         except OSError:
             pass
 
-        resp = self._request("session/load", {
+        load_params = {
             "sessionId": acp_session_id,
             "cwd": os.path.expanduser("~/fernando"),
             "mcpServers": [],
-        }, timeout=120)
+        }
+        if self.model:
+            load_params["model"] = self.model
+        resp = self._request("session/load", load_params, timeout=120)
         if not resp:
             raise RuntimeError(f"session/load failed for {acp_session_id}")
         self._recording = True
@@ -649,6 +652,7 @@ class ACPManager:
 
     def change_model(self, session_id, new_model):
         """Change the model for a session by restarting the kiro-cli process."""
+        logger.info(f"change_model: session={session_id} new_model={new_model}")
         session = self.get_session(session_id)
         if not session or not session.acp_session_id:
             return False
@@ -670,7 +674,6 @@ class ACPManager:
             session.load(acp_id)
         except Exception:
             logger.info(f"change_model: session/load failed for {session_id}, falling back to session/new")
-            # Clean up the zombie process and flags left by the failed load()
             session.stop()
             session._recording = True
             session._broadcasting = True

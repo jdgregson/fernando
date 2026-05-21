@@ -569,7 +569,7 @@ def register_handlers(socketio):
                 # Tell client the actual history length and next live sequence number
                 next_seq = acp_event_seq.get(acp_sid, 0)
                 logger.info(f"acp_subscribe: sending sync_seq={next_seq} history_len={len(session.history)} ready={session.ready}")
-                emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": next_seq, "history_length": len(session.history)}})
+                emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": next_seq, "history_length": len(session.history), "model": session.model}})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
             else:

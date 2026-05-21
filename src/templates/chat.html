@@ -218,6 +218,7 @@
     socket.on('acp_model_changed', (data) => {
         if (data.session_id !== sessionId) return;
         if (data.ok) {
+            window._sessionModel = data.model;
             addSystemMessage('Model changed to ' + data.model + '. Reloading session...');
         } else {
             addSystemMessage('Failed to change model.');
@@ -1126,9 +1127,14 @@
             return;
         }
 
-        // Flag bare /model so the response gets rendered as a model picker
+        // Flag bare /model so we show the model picker directly (client-side)
         if (text === '/model') {
-            _modelListPending = true;
+            input.value = '';
+            input.style.height = 'auto';
+            localStorage.removeItem(draftKey);
+            const knownModels = ['claude-opus-4.6','claude-sonnet-4.6','claude-opus-4.5','claude-sonnet-4.5','claude-sonnet-4','claude-haiku-4.5','deepseek-3.2','minimax-m2.5','minimax-m2.1','glm-5','qwen3-coder-next'];
+            showModelModal(knownModels, window._sessionModel || 'claude-opus-4.6');
+            return;
         }
 
         if (attachedFiles.length > 0) {
@@ -1232,6 +1238,7 @@
             // Server tells us the next live seq to expect and actual history length
             console.log('[acp] sync_seq: expectedSeq=', evt.seq, 'history_length=', evt.history_length, 'buffered=', Object.keys(seqBuffer).length);
             expectedSeq = evt.seq;
+            if (evt.model) window._sessionModel = evt.model;
             if (evt.history_length !== undefined) historyOffset = evt.history_length;
             while (seqBuffer[expectedSeq]) {
                 processEvent(seqBuffer[expectedSeq]);
