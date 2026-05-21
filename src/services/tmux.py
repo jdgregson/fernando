@@ -53,7 +53,8 @@ class TmuxSession:
         return name
 
     def create_session_with_type(self, session_type):
-        kiro_model = "claude-opus-4.6"
+        from src.services.settings import get as get_setting
+        kiro_model = get_setting("default_model") or "claude-opus-4.6"
 
         if session_type == "shell":
             name = "Shell"

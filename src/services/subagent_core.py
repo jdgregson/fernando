@@ -6,7 +6,12 @@ import subprocess
 from datetime import datetime
 
 TMUX_CMD = ["tmux", "new-session", "-d", "-s"]
-KIRO_CMD = ["kiro-cli", "chat", "--legacy-ui", "--trust-all-tools", "--model claude-opus-4.6"]
+
+
+def _get_kiro_cmd():
+    from src.services.settings import get as get_setting
+    model = get_setting("default_model") or "claude-opus-4.6"
+    return ["kiro-cli", "chat", "--legacy-ui", "--trust-all-tools", "--model", model]
 
 SUBAGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "subagents")
 
@@ -175,7 +180,7 @@ def write_spawn_script(workspace, session_name, instructions_file):
 export PATH="$HOME/.local/bin:$PATH"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 SESSION_NAME="{session_name}-$TIMESTAMP"
-{' '.join(TMUX_CMD)} "$SESSION_NAME" {' '.join(KIRO_CMD)} "Read the instructions from {instructions_file} and execute the task described there."
+{' '.join(TMUX_CMD)} "$SESSION_NAME" {' '.join(_get_kiro_cmd())} "Read the instructions from {instructions_file} and execute the task described there."
 tmux set-option -t "$SESSION_NAME" mouse on
 tmux set-option -t "$SESSION_NAME" status-style "bg=blue,fg=white"
 tmux resize-window -t "$SESSION_NAME" -x 220 -y 50

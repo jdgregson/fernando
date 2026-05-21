@@ -36,7 +36,8 @@ class PTYSession:
 
     def create_session(self, session_type):
         """Create a new PTY session. Returns the session name."""
-        kiro_model = "claude-opus-4.6"
+        from src.services.settings import get as get_setting
+        kiro_model = get_setting("default_model") or "claude-opus-4.6"
         if session_type == "shell":
             name = "Shell"
             cmd = ["bash", "-l"]

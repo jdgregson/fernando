@@ -13,6 +13,38 @@ from mcp.client.stdio import stdio_client
 logger = logging.getLogger(__name__)
 
 MCP_CONFIG_PATH = os.path.expanduser("~/.kiro/settings/mcp.json")
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_MCP_DIR = os.path.join(_REPO_DIR, "mcp_servers")
+
+# Registry of Fernando-bundled MCP servers.
+# "default_enabled" means setup will enable them on fresh install.
+BUNDLED_SERVERS = {
+    "desktop": {
+        "description": "Kasm desktop automation (screenshots, mouse, keyboard, browser)",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "desktop_mcp.py")],
+        "default_enabled": True,
+    },
+    "fernando": {
+        "description": "Subagent management, self-mutation, reboot, notes, automation",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "fernando_mcp.py")],
+        "default_enabled": True,
+    },
+    "microsoft": {
+        "description": "Microsoft 365: mail, calendar, contacts, OneDrive, OneNote, To Do",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "microsoft_mcp.py")],
+        "default_enabled": True,
+    },
+    "govee": {
+        "description": "Govee smart home device control (lights, sensors)",
+        "command": "python3",
+        "args": [os.path.expanduser("~/projects/govee-mcp/govee_mcp.py")],
+        "default_enabled": False,
+    },
+}
+
 _tools_cache = {}  # server_name -> tools_list (in-memory)
 _CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "mcp_tools_cache.json")
 
@@ -52,6 +84,36 @@ def _load_server_configs():
 def list_servers():
     """Return list of configured MCP server names."""
     return list(_load_server_configs().keys())
+
+
+def list_bundled_servers():
+    """Return Fernando-bundled servers with their enabled state."""
+    enabled = set(_load_server_configs().keys())
+    result = []
+    for name, info in BUNDLED_SERVERS.items():
+        result.append({
+            "name": name,
+            "description": info["description"],
+            "enabled": name in enabled,
+        })
+    return result
+
+
+def set_server_enabled(name, enabled):
+    """Enable or disable a bundled MCP server in the Kiro CLI config."""
+    if name not in BUNDLED_SERVERS:
+        return {"error": f"Unknown bundled server: {name}"}
+    with open(MCP_CONFIG_PATH) as f:
+        cfg = json.load(f)
+    servers = cfg.setdefault("mcpServers", {})
+    if enabled:
+        info = BUNDLED_SERVERS[name]
+        servers[name] = {"command": info["command"], "args": info["args"]}
+    else:
+        servers.pop(name, None)
+    with open(MCP_CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)
+    return {"ok": True, "name": name, "enabled": enabled}
 
 
 async def _list_tools_from_server(name, config):

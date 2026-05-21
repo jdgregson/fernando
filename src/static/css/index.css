@@ -36,12 +36,14 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     cursor: pointer;
     border-radius: 6px;
     font-size: 12px;
+    line-height: 12px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .top-bar button:hover {
     background: #143151;
 }
+#settingsBtn svg { vertical-align: middle; }
 
 #kbdBtn { display: none; }
 #resizeBtn { display: none; }
@@ -449,8 +451,7 @@ button.notebook-delete-btn {
     flex-shrink: 0;
 }
 .sa-tab {
-    flex: 1;
-    padding: 10px;
+    padding: 10px 14px;
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
@@ -467,6 +468,21 @@ button.notebook-delete-btn {
 .auto-tab.active { color: #3465a3; border-bottom-color: #3465a3; }
 .auto-tab-content { display: none; }
 .auto-tab-content.active { display: block; }
+.settings-tab-content { display: none; }
+.settings-tab-content.active { display: block; }
+.mcp-server-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #143151; }
+.mcp-server-item:last-child { border-bottom: none; }
+.mcp-server-item label { cursor: pointer; flex: 1; }
+.mcp-server-name { color: #d4d4d4; font-size: 13px; font-weight: 500; }
+.mcp-server-desc { color: #6a7a8a; font-size: 12px; margin-top: 2px; }
+#settingsModal input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid #3465a3; border-radius: 3px; background: #091d35; cursor: pointer; vertical-align: middle; position: relative; flex-shrink: 0; }
+#settingsModal input[type="checkbox"]:checked { background: #3465a3; }
+#settingsModal input[type="checkbox"]:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; position: absolute; top: 0px; left: 4px; transform: rotate(45deg); }
+.settings-row { margin-bottom: 16px; }
+.settings-row:first-of-type { padding-top: 10px; }
+.settings-label { display: block; font-size: 12px; color: #8899aa; margin-bottom: 6px; }
+.settings-select { width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid #283d5b; background: #091d35; color: #d4d4d4; font-size: 13px; font-family: inherit; outline: none; }
+.settings-select:focus { border-color: #3465a3; }
 .sa-panel input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid #3465a3; border-radius: 3px; background: #091d35; cursor: pointer; vertical-align: middle; position: relative; }
 .sa-panel input[type="checkbox"]:checked { background: #3465a3; }
 .sa-panel input[type="checkbox"]:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; position: absolute; top: 0px; left: 4px; transform: rotate(45deg); }

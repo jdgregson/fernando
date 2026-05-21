@@ -113,7 +113,8 @@ class ACPSession:
         self.proc = None
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
-        self.model = self.DEFAULT_MODEL
+        from src.services.settings import get as get_setting
+        self.model = get_setting("default_model") or self.DEFAULT_MODEL
         self._reader_thread = None
         self._stderr_thread = None
         self._next_id = 0

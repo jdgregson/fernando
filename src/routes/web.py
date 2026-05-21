@@ -126,6 +126,56 @@ def api_mcp_servers():
     return json.dumps({"servers": list_servers()}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/mcp/bundled")
+def api_mcp_bundled():
+    """List Fernando-bundled MCP servers with enabled state."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.mcp_client import list_bundled_servers
+    return json.dumps({"servers": list_bundled_servers()}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/mcp/toggle", methods=["POST"])
+def api_mcp_toggle():
+    """Enable or disable a bundled MCP server."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.mcp_client import set_server_enabled
+    data = request.get_json(force=True)
+    name = data.get("name")
+    enabled = data.get("enabled")
+    if not name or enabled is None:
+        return json.dumps({"error": "Missing name or enabled"}), 400, {"Content-Type": "application/json"}
+    result = set_server_enabled(name, bool(enabled))
+    if "error" in result:
+        return json.dumps(result), 400, {"Content-Type": "application/json"}
+    return json.dumps(result), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/settings")
+def api_settings_get():
+    """Get all Fernando settings."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.settings import get_all
+    return json.dumps(get_all()), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/settings", methods=["POST"])
+def api_settings_set():
+    """Update a Fernando setting."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src.services.settings import set as set_setting
+    data = request.get_json(force=True)
+    key = data.get("key")
+    value = data.get("value")
+    if not key:
+        return json.dumps({"error": "Missing key"}), 400, {"Content-Type": "application/json"}
+    set_setting(key, value)
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/mcp/call", methods=["POST"])
 def api_mcp_call():
     """Execute a tool call on an MCP server."""

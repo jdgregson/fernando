@@ -121,3 +121,68 @@ socket.io.on('reconnect', () => {
     }
     document.getElementById('mutateOverlay').classList.remove('open');
 });
+
+function openSettings() {
+    document.getElementById('settingsModal').classList.add('open');
+    loadSettings();
+    loadMcpServers();
+}
+function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+function switchSettingsTab(tab, btn) {
+    document.querySelectorAll('#settingsModal .sa-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('settingsTab' + tab.charAt(0).toUpperCase() + tab.slice(1)).classList.add('active');
+}
+
+
+function loadSettings() {
+    fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+        .then(r => r.json())
+        .then(data => {
+            const sel = document.getElementById('settingsModel');
+            if (sel && data.default_model) sel.value = data.default_model;
+        }).catch(() => {});
+}
+
+function saveDefaultModel(value) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key: 'default_model', value})
+    }).catch(() => {});
+}
+
+function loadMcpServers() {
+    fetch('/api/mcp/bundled?api_key=' + window.FERNANDO_API_KEY)
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('mcpServerList');
+            if (!data.servers || !data.servers.length) {
+                container.textContent = 'No bundled MCP servers found.';
+                return;
+            }
+            container.innerHTML = data.servers.map(s =>
+                `<div class="mcp-server-item">
+                    <input type="checkbox" id="mcp_${s.name}" ${s.enabled ? 'checked' : ''} onchange="toggleMcpServer('${s.name}', this.checked)">
+                    <label for="mcp_${s.name}"><div class="mcp-server-name">${s.name}</div><div class="mcp-server-desc">${s.description}</div></label>
+                </div>`
+            ).join('');
+        })
+        .catch(() => {
+            document.getElementById('mcpServerList').textContent = 'Failed to load MCP servers.';
+        });
+}
+
+function toggleMcpServer(name, enabled) {
+    fetch('/api/mcp/toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({name, enabled})
+    }).then(r => r.json()).then(data => {
+        if (data.error) {
+            alert('Error: ' + data.error);
+            loadMcpServers();
+        }
+    }).catch(() => { loadMcpServers(); });
+}
