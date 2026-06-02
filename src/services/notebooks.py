@@ -216,9 +216,7 @@ def start_notebook(name):
 def stop_notebook(name):
     with _lock:
         info = _running.pop(name, None)
-        if not info:
-            return
-        container = info["container"]
+        container = info["container"] if info else _container_name(name)
         subprocess.run(["docker", "rm", "-f", container],
                        capture_output=True, timeout=10)
         logger.info(f"Stopped notebook '{name}'")

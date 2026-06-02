@@ -256,7 +256,7 @@ body { display: flex; flex-direction: column; }
 .canvas-tab.active { background: #143151; color: #d4d4d4; }
 .canvas-copy { margin-left: auto; padding: 2px 8px; border-radius: 3px; cursor: pointer; color: #569cd6; font-size: 11px; }
 .canvas-copy:hover { background: #143151; }
-.canvas-iframe { width: 100%; border: none; background: #0c213c; height: 200px; display: block; }
+.canvas-iframe { width: 100%; border: none; background: #0c213c; height: 400px; display: block; }
 .canvas-code { margin: 0; padding: 10px; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; color: #d4d4d4; white-space: pre-wrap; overflow-x: auto; max-height: 400px; overflow-y: auto; }
 
 /* Diff syntax highlighting */

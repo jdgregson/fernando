@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>STL Viewer</title>
+<style>
+body { margin: 0; overflow: hidden; background: #1a1a2e; }
+canvas { display: block; }
+#info { position: absolute; bottom: 8px; left: 8px; color: #888; font: 12px monospace; }
+#dl { position: absolute; top: 8px; right: 8px; background: #143151; border: 1px solid #2a5a8a; color: #4488cc; font: 12px monospace; padding: 6px 12px; border-radius: 4px; cursor: pointer; text-decoration: none; }
+#dl:hover { background: #1a4a6a; color: #6ab0f0; }
+#loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #4488cc; font: 14px monospace; }
+</style>
+</head>
+<body>
+<div id="loading">Loading STL...</div>
+<a id="dl" href="{{ stl_url | safe }}" download="{{ filename }}">Download STL</a>
+<div id="info">Drag to rotate · Scroll to zoom · Right-drag to pan</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script>
+const stlUrl = '{{ stl_url | safe }}';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0x404040, 0.5));
+const dl1 = new THREE.DirectionalLight(0xffffff, 0.8); dl1.position.set(1, 1, 1); scene.add(dl1);
+const dl2 = new THREE.DirectionalLight(0x4488ff, 0.3); dl2.position.set(-1, -0.5, -1); scene.add(dl2);
+
+const grid = new THREE.GridHelper(60, 30, 0x333355, 0x222244);
+grid.rotation.x = Math.PI / 2;
+scene.add(grid);
+
+const loader = new THREE.STLLoader();
+loader.load(stlUrl, function(geometry) {
+    document.getElementById('loading').remove();
+    const material = new THREE.MeshPhongMaterial({ color: 0x4488cc, specular: 0x222222, shininess: 40 });
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    geometry.computeBoundingBox();
+    const center = new THREE.Vector3();
+    geometry.boundingBox.getCenter(center);
+    mesh.position.sub(center);
+    const size = new THREE.Vector3();
+    geometry.boundingBox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    camera.position.set(maxDim * 1.2, maxDim * 0.8, maxDim * 1.5);
+    controls.update();
+});
+
+function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+animate();
+window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); });
+</script>
+</body>
+</html>

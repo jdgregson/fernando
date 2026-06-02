@@ -911,3 +911,48 @@ def auth_callback():
     else:
         error = result.get("error_description", result.get("error", "Unknown error"))
         return _auth_page("Authentication failed", error), 400
+
+
+@bp.route("/api/stl-viewer")
+def stl_viewer():
+    """Serve the Three.js STL viewer page. Requires API key and a file path."""
+    if not _check_api_key():
+        return "Unauthorized", 401
+    filepath = request.args.get("file", "")
+    if not filepath:
+        return "Missing 'file' parameter", 400
+    full_path = os.path.realpath(filepath)
+    allowed = ["/tmp"]
+    home = os.path.realpath(os.path.expanduser("~"))
+    allowed += [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/file_cache")]
+    if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
+        return "Forbidden", 403
+    if not os.path.isfile(full_path):
+        return "Not found", 404
+    try:
+        with open("/tmp/fernando-api-key") as f:
+            api_key = f.read().strip()
+    except:
+        api_key = ""
+    stl_url = f"/api/stl-file?file={full_path}&api_key={api_key}"
+    return render_template("stl_viewer.html", stl_url=stl_url, filename=os.path.basename(full_path))
+
+
+@bp.route("/api/stl-file")
+def stl_file():
+    """Serve raw STL file bytes. Requires API key."""
+    from flask import send_file as _send_file
+    if not _check_api_key():
+        return "Unauthorized", 401
+    filepath = request.args.get("file", "")
+    if not filepath:
+        return "Missing 'file' parameter", 400
+    full_path = os.path.realpath(filepath)
+    allowed = ["/tmp"]
+    home = os.path.realpath(os.path.expanduser("~"))
+    allowed += [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/file_cache")]
+    if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
+        return "Forbidden", 403
+    if not os.path.isfile(full_path):
+        return "Not found", 404
+    return _send_file(full_path, mimetype="application/octet-stream")

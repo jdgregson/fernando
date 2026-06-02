@@ -146,7 +146,6 @@
             btn.style.background = '#a03030';
             btn.style.borderColor = '#511414';
         } else if (state === 'error') {
-            input.disabled = true;
             btn.classList.add('disabled');
             btn.textContent = 'Send';
             btn.onclick = sendMessage;
@@ -646,11 +645,13 @@
     }
 
     let _canvasTimer = null;
-    function _activateCanvases() {
-        if (!currentContentDiv) return;
-        currentContentDiv.querySelectorAll('code.language-html-canvas').forEach(code => {
+    function _activateCanvases(container) {
+        const target = container || currentContentDiv;
+        if (!target) return;
+        target.querySelectorAll('code.language-html-canvas, code.language-stl-viewer').forEach(code => {
             const pre = code.parentElement;
             const src = code.textContent;
+            const isStl = code.classList.contains('language-stl-viewer');
 
             const wrap = document.createElement('div');
             wrap.className = 'canvas-wrap';
@@ -659,30 +660,44 @@
             bar.className = 'canvas-bar';
             const tabR = document.createElement('span');
             tabR.className = 'canvas-tab active';
-            tabR.textContent = 'Rendered';
-            const tabC = document.createElement('span');
-            tabC.className = 'canvas-tab';
-            tabC.textContent = 'Code';
-            const copyBtn = document.createElement('span');
-            copyBtn.className = 'canvas-copy';
-            copyBtn.textContent = 'Copy';
-            copyBtn.onclick = () => { navigator.clipboard.writeText(src); copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy', 1500); };
-            bar.append(tabR, tabC, copyBtn);
+            tabR.textContent = isStl ? 'STL Preview' : 'Rendered';
+            bar.append(tabR);
+
+            if (!isStl) {
+                const tabC = document.createElement('span');
+                tabC.className = 'canvas-tab';
+                tabC.textContent = 'Code';
+                const copyBtn = document.createElement('span');
+                copyBtn.className = 'canvas-copy';
+                copyBtn.textContent = 'Copy';
+                copyBtn.onclick = () => { navigator.clipboard.writeText(src); copyBtn.textContent = 'Copied!'; setTimeout(() => copyBtn.textContent = 'Copy', 1500); };
+                bar.append(tabC, copyBtn);
+                var codeView = document.createElement('pre');
+                codeView.className = 'canvas-code';
+                codeView.textContent = src;
+                codeView.style.display = 'none';
+                tabR.onclick = () => { tabR.classList.add('active'); tabC.classList.remove('active'); iframe.style.display = ''; codeView.style.display = 'none'; };
+                tabC.onclick = () => { tabC.classList.add('active'); tabR.classList.remove('active'); iframe.style.display = 'none'; codeView.style.display = ''; };
+            }
 
             const iframe = document.createElement('iframe');
-            iframe.sandbox = 'allow-scripts';
             iframe.className = 'canvas-iframe';
-            iframe.srcdoc = src;
+            if (isStl) {
+                iframe.style.height = '500px';
+                iframe.src = '/api/stl-viewer?file=' + encodeURIComponent(src.trim()) + '&api_key=' + encodeURIComponent('{{ api_key }}');
+            } else {
+                iframe.sandbox = 'allow-scripts';
+                iframe.srcdoc = src;
+                window.addEventListener('message', function(e) {
+                    if (e.source !== iframe.contentWindow) return;
+                    if (e.data && typeof e.data.canvasHeight === 'number') {
+                        iframe.style.height = Math.min(Math.max(e.data.canvasHeight, 100), 800) + 'px';
+                    }
+                });
+            }
 
-            const codeView = document.createElement('pre');
-            codeView.className = 'canvas-code';
-            codeView.textContent = src;
-            codeView.style.display = 'none';
-
-            tabR.onclick = () => { tabR.classList.add('active'); tabC.classList.remove('active'); iframe.style.display = ''; codeView.style.display = 'none'; };
-            tabC.onclick = () => { tabC.classList.add('active'); tabR.classList.remove('active'); iframe.style.display = 'none'; codeView.style.display = ''; };
-
-            wrap.append(bar, iframe, codeView);
+            wrap.append(bar, iframe);
+            if (!isStl) wrap.append(codeView);
             pre.replaceWith(wrap);
         });
     }
@@ -1043,6 +1058,7 @@
                 content.innerHTML = renderUserText(cleaned);
                 collapseCodeBlocks(content, 30);
                 highlightDiffs(content);
+                _activateCanvases(content);
                 el.appendChild(content);
             }
         }
