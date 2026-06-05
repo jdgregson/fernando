@@ -1140,8 +1140,15 @@
             input.value = '';
             input.style.height = 'auto';
             localStorage.removeItem(draftKey);
-            const knownModels = ['claude-opus-4.6','claude-sonnet-4.6','claude-opus-4.5','claude-sonnet-4.5','claude-sonnet-4','claude-haiku-4.5','deepseek-3.2','minimax-m2.5','minimax-m2.1','glm-5','qwen3-coder-next'];
-            showModelModal(knownModels, window._sessionModel || 'claude-opus-4.6');
+            fetch('/api/models', {headers: {'X-API-Key': apiKey}})
+                .then(r => r.json())
+                .then(data => {
+                    const models = (data.models || []).map(m => m.model_id);
+                    showModelModal(models, window._sessionModel || 'claude-opus-4.6');
+                })
+                .catch(() => {
+                    showModelModal(['claude-opus-4.6','claude-sonnet-4.6'], window._sessionModel || 'claude-opus-4.6');
+                });
             return;
         }
 

@@ -65,6 +65,34 @@ def api_auth_check():
     return "", 401
 
 
+_models_cache = {"data": None, "ts": 0}
+
+
+@bp.route("/api/models")
+def api_models():
+    """Return available models from kiro-cli, cached for 5 minutes."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    import time, subprocess
+    now = time.time()
+    if _models_cache["data"] and now - _models_cache["ts"] < 300:
+        return _models_cache["data"], 200, {"Content-Type": "application/json"}
+    try:
+        result = subprocess.run(
+            ["/home/fernando/.local/bin/kiro-cli", "chat", "--list-models", "--format", "json"],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            _models_cache["data"] = result.stdout.strip()
+            _models_cache["ts"] = now
+            return _models_cache["data"], 200, {"Content-Type": "application/json"}
+    except Exception:
+        pass
+    if _models_cache["data"]:
+        return _models_cache["data"], 200, {"Content-Type": "application/json"}
+    return json.dumps({"error": "Could not fetch models"}), 500, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/spawn_subagent", methods=["POST"])
 def api_spawn_subagent():
     """Create an ACP chat session and send a task as the first prompt."""

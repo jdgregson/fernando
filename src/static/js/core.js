@@ -141,7 +141,22 @@ function loadSettings() {
         .then(r => r.json())
         .then(data => {
             const sel = document.getElementById('settingsModel');
-            if (sel && data.default_model) sel.value = data.default_model;
+            const currentModel = data.default_model || '';
+            // Populate model dropdown from API
+            fetch('/api/models?api_key=' + window.FERNANDO_API_KEY)
+                .then(r => r.json())
+                .then(mdata => {
+                    if (mdata.models && sel) {
+                        sel.innerHTML = '';
+                        mdata.models.forEach(m => {
+                            const opt = document.createElement('option');
+                            opt.value = m.model_id;
+                            opt.textContent = m.model_name;
+                            sel.appendChild(opt);
+                        });
+                        if (currentModel) sel.value = currentModel;
+                    }
+                }).catch(() => {});
         }).catch(() => {});
 }
 

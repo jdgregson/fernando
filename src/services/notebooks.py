@@ -60,7 +60,7 @@ def _allocate_port():
 
 
 def _sync_notebook_config(nb_dir):
-    """Copy SETTINGS.md and STYLES.md from the canonical repo copies, overwriting any existing."""
+    """Copy SETTINGS.md, STYLES.md, and Library from the canonical repo copies."""
     import shutil
     for fname in ("SETTINGS.md", "STYLES.md"):
         dest = os.path.join(nb_dir, fname)
@@ -70,6 +70,17 @@ def _sync_notebook_config(nb_dir):
             if os.path.lexists(dest):
                 os.remove(dest)
             shutil.copy2(src, dest)
+    # Sync Library directory (merge, overwriting existing files)
+    repo_lib = os.path.join(_project_root, "silverbullet", "Library")
+    if os.path.exists(repo_lib):
+        nb_lib = os.path.join(nb_dir, "Library")
+        os.makedirs(nb_lib, exist_ok=True)
+        for root, dirs, files in os.walk(repo_lib):
+            rel = os.path.relpath(root, repo_lib)
+            dest_dir = os.path.join(nb_lib, rel) if rel != "." else nb_lib
+            os.makedirs(dest_dir, exist_ok=True)
+            for f in files:
+                shutil.copy2(os.path.join(root, f), os.path.join(dest_dir, f))
 
 
 def _init_notebook_dir(notebook):
