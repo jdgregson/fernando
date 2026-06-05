@@ -1018,7 +1018,20 @@ function closeSession(event, sessionName) {
         if (result) emitWithCsrf('close_session', { session: sessionName });
     });
 }
-function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    if (window.innerWidth <= 500) {
+        sidebar.classList.toggle('open');
+    } else {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('fernando_sidebar_collapsed', sidebar.classList.contains('collapsed') ? '1' : '');
+    }
+}
+
+// Restore sidebar state on desktop
+if (window.innerWidth > 500 && localStorage.getItem('fernando_sidebar_collapsed') === '1') {
+    document.getElementById('sidebar').classList.add('collapsed');
+}
 
 // Close sidebar on outside click (mobile)
 document.addEventListener('click', (e) => {

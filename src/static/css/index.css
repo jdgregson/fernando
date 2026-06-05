@@ -75,14 +75,24 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 .sidebar-toggle {
-    display: none;
+    display: block;
 }
+.sidebar-toggle svg { vertical-align: middle; }
 
 .sidebar-overlay {
     display: none;
     position: fixed;
     inset: 0;
     z-index: 1001;
+}
+
+.sidebar.collapsed {
+    position: fixed;
+    left: 0;
+    top: calc(35px + env(safe-area-inset-top));
+    bottom: 0;
+    z-index: 1002;
+    transform: translateX(-100%);
 }
 
 @media (max-width: 500px) {
@@ -100,10 +110,6 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     }
 
     .sidebar.open ~ .sidebar-overlay {
-        display: block;
-    }
-
-    .sidebar-toggle {
         display: block;
     }
 }
