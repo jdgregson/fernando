@@ -43,7 +43,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .top-bar button:hover {
     background: #143151;
 }
-#settingsBtn svg { vertical-align: middle; }
+#settingsBtn svg { vertical-align: middle; pointer-events: none; }
 
 #kbdBtn { display: none; }
 #resizeBtn { display: none; }
@@ -77,7 +77,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .sidebar-toggle {
     display: block;
 }
-.sidebar-toggle svg { vertical-align: middle; }
+.sidebar-toggle svg { vertical-align: middle; pointer-events: none; }
 
 .sidebar-overlay {
     display: none;
