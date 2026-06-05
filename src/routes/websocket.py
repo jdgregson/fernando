@@ -31,6 +31,14 @@ _open_jupyter = set()
 _jupyter_cmd_origins = {}
 _jupyter_cmd_origins_lock = threading.Lock()
 
+# Module-level reference to acp_subscribers (set by register_handlers)
+_acp_subscribers_ref = {}
+
+
+def get_acp_subscribers(session_id):
+    """Return set of socket sids subscribed to a given ACP session."""
+    return set(_acp_subscribers_ref.get(session_id, set()))
+
 
 def register_handlers(socketio):
     @socketio.on("connect")
@@ -512,7 +520,7 @@ def register_handlers(socketio):
 
     # --- ACP Chat handlers ---
 
-    acp_subscribers = {}  # fernando_session_id -> set of socket sids
+    acp_subscribers = _acp_subscribers_ref  # use module-level dict so web.py can access it
 
     acp_event_seq = {}  # session_id -> sequence counter
 

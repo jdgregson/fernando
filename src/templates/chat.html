@@ -206,6 +206,97 @@
         addSystemMessage('Current model: ' + (data.model || 'unknown'));
     });
 
+    // --- Pipeline / run_steps progress ---
+    const _pipelines = {};  // pipeline_id -> DOM element
+    const _pwIcons = {
+        succeeded: '<svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 8 7 12 13 4"/></svg>',
+        failed: '<svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round"><line x1="4" y1="4" x2="12" y2="12"/><line x1="12" y1="4" x2="4" y2="12"/></svg>',
+        running: '<svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round"><path d="M8 2a6 6 0 1 1-6 6"/></svg>',
+        pending: '<svg viewBox="0 0 16 16" fill="none" stroke-width="2"><circle cx="8" cy="8" r="5"/></svg>',
+        skipped: '<svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round"><line x1="4" y1="8" x2="12" y2="8"/></svg>',
+        cancelled: '<svg viewBox="0 0 16 16" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="8" r="5"/><line x1="5.5" y1="5.5" x2="10.5" y2="10.5"/></svg>',
+    };
+
+    socket.on('step_progress', (data) => { handleStepProgress(data); });
+
+    function handleStepProgress(data) {
+        if (data.session_id !== sessionId) return;
+        const pid = data.pipeline_id;
+        let widget = _pipelines[pid];
+        if (!widget) {
+            ensureAssistantMsg();
+            if (_chunkRenderPending) _renderCurrentChunk();
+            widget = document.createElement('div');
+            widget.className = 'pipeline-widget';
+            widget.dataset.pipelineId = pid;
+            currentAssistantMsg.appendChild(widget);
+            _pipelines[pid] = widget;
+            widget._expanded = {};
+        }
+        const steps = data.steps || [];
+        const commands = data.commands || [];
+        const results = data.results || [];
+        const running = data.running_index;
+        widget._commands = commands;
+        let html = '';
+        for (let i = 0; i < steps.length; i++) {
+            const r = results[i];
+            let status = 'pending', icon = _pwIcons.pending, duration = '';
+            if (r) {
+                status = r.status;
+                icon = _pwIcons[status] || _pwIcons.pending;
+                if (r.duration) duration = r.duration + 's';
+            } else if (i === running) {
+                status = 'running';
+                icon = _pwIcons.running;
+            }
+            const iconWrap = status === 'running' ? '<span class="pw-spinner">' + icon + '</span>' : icon;
+            const expanded = widget._expanded[i];
+            const arrowCls = expanded ? 'pw-arrow open' : 'pw-arrow';
+            html += `<div class="pw-step ${status}"><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
+            if (expanded && commands[i]) {
+                html += `<div class="pw-detail"><code>${DOMPurify.sanitize(commands[i])}</code></div>`;
+            }
+            html += `</div>`;
+        }
+        const isRunning = running >= 0 && results.length < steps.length;
+        if (isRunning) {
+            html += `<button class="pw-cancel" onclick="cancelPipeline('${pid}')">Cancel</button>`;
+        }
+        widget.innerHTML = html;
+        scrollToBottom();
+    }
+
+    function togglePwStep(pipelineId, index) {
+        const widget = _pipelines[pipelineId];
+        if (!widget) return;
+        widget._expanded[index] = !widget._expanded[index];
+        const step = widget.querySelectorAll('.pw-step')[index];
+        if (!step) return;
+        const arrow = step.querySelector('.pw-arrow');
+        if (widget._expanded[index]) {
+            if (arrow) arrow.classList.add('open');
+            const d = document.createElement('div');
+            d.className = 'pw-detail';
+            const code = document.createElement('code');
+            code.textContent = (widget._commands || [])[index] || '';
+            d.appendChild(code);
+            step.appendChild(d);
+        } else {
+            if (arrow) arrow.classList.remove('open');
+            const detail = step.querySelector('.pw-detail');
+            if (detail) detail.remove();
+        }
+    }
+
+    function cancelPipeline(pipelineId) {
+        fetch('/api/cancel_pipeline', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+            body: JSON.stringify({ pipeline_id: pipelineId }),
+        });
+    }
+
     socket.on('acp_model_changed', (data) => {
         if (data.session_id !== sessionId) return;
         if (data.ok) {
@@ -1282,6 +1373,12 @@
                 const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
                 addUserMessage(display);
             }
+            return;
+        }
+
+        // Replay step_progress from history
+        if (evt.type === 'step_progress') {
+            handleStepProgress(evt.data || evt);
             return;
         }
 

@@ -119,6 +119,29 @@ def _get_config(key, default=None):
     return default
 
 
+def _step_progress_emit(api_key, session_id, pipeline_id, steps, results, running_index):
+    """POST step progress to Flask for broadcast to chat UI."""
+    if not session_id:
+        return
+    payload = json.dumps({
+        "session_id": session_id,
+        "pipeline_id": pipeline_id,
+        "steps": [s["label"] for s in steps],
+        "commands": [s["command"] for s in steps],
+        "results": results,
+        "running_index": running_index,
+    }).encode()
+    try:
+        req = urllib.request.Request(
+            "http://localhost:5000/api/step_progress",
+            data=payload,
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        urllib.request.urlopen(req, timeout=5)
+    except Exception:
+        pass
+
+
 def _brave_search(query, count=10):
     api_key = _get_config("BRAVE_SEARCH_API_KEY")
     if not api_key:
@@ -722,6 +745,29 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="run_steps",
+            description="Run a sequence of shell commands with live progress updates in the chat UI. Each step runs sequentially; if one fails (non-zero exit), subsequent steps are skipped. The chat shows a live-updating step list with status, duration, and a cancel button. Use this instead of multiple sequential shell calls when you want the user to see progress.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string", "description": "Human-readable description of the step"},
+                                "command": {"type": "string", "description": "Shell command to execute"},
+                                "timeout": {"type": "integer", "description": "Optional timeout in seconds for this step. No timeout if omitted."},
+                            },
+                            "required": ["label", "command"],
+                        },
+                        "description": "List of steps to run in order",
+                    },
+                },
+                "required": ["steps"],
+            },
+        ),
+        Tool(
             name="mutate",
             description="Restart Fernando to apply code changes. Returns immediately, then the restart triggers in the background within seconds. MCP server changes require the user to manually restart the Kiro CLI session. IMPORTANT: This call will kill the active conversation within seconds. Do NOT write any response after calling this tool. Put ALL follow-up information in the continuation message.",
             inputSchema={
@@ -1120,7 +1166,6 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         )
         proc.wait()
         # Find the actual daemon PID (child of the bash -c)
-        import time
         time.sleep(0.5)
         try:
             ps = subprocess.run(
@@ -1131,6 +1176,63 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"status": "started", "command": cmd, "pids": pids, "working_dir": cwd}
         except Exception:
             result = {"status": "started", "command": cmd, "working_dir": cwd}
+    elif name == "run_steps":
+        steps = arguments["steps"]
+        session_id = _find_my_session_id() or ""
+        api_key = ""
+        try:
+            api_key = open("/tmp/fernando-api-key").read().strip()
+        except Exception:
+            pass
+        pipeline_id = secrets.token_hex(8)
+        results = []
+        cancelled = False
+        # Send initial state
+        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, -1)
+        for i, step in enumerate(steps):
+            # Check cancel flag
+            cancel_path = f"/tmp/fernando-pipeline-{pipeline_id}.cancel"
+            if os.path.exists(cancel_path):
+                cancelled = True
+                results.append({"label": step["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                # Mark remaining as cancelled
+                for j in range(i + 1, len(steps)):
+                    results.append({"label": steps[j]["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                break
+            # Mark step as running
+            _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+            start_t = time.time()
+            try:
+                timeout = step.get("timeout")
+                proc = subprocess.run(
+                    ["bash", "-c", step["command"]],
+                    capture_output=True, text=True, timeout=timeout,
+                )
+                duration = round(time.time() - start_t, 1)
+                status = "succeeded" if proc.returncode == 0 else "failed"
+                results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": proc.stdout[-4000:] if proc.stdout else "", "stderr": proc.stderr[-2000:] if proc.stderr else "", "duration": duration})
+            except subprocess.TimeoutExpired:
+                duration = round(time.time() - start_t, 1)
+                results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": f"Timed out after {step['timeout']}s", "duration": duration})
+            except Exception as e:
+                duration = round(time.time() - start_t, 1)
+                results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": str(e), "duration": duration})
+            _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+            # Stop on failure
+            if results[-1]["status"] == "failed":
+                for j in range(i + 1, len(steps)):
+                    results.append({"label": steps[j]["label"], "status": "skipped", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                break
+        # Clean up cancel file if it exists
+        try:
+            os.unlink(f"/tmp/fernando-pipeline-{pipeline_id}.cancel")
+        except OSError:
+            pass
+        # Send final state
+        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, -2)
+        result = {"pipeline_id": pipeline_id, "cancelled": cancelled, "steps": results}
     elif name == "mutate":
         _save_continuation(arguments.get("continuation"))
         subprocess.Popen(

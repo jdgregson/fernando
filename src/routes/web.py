@@ -984,3 +984,43 @@ def stl_file():
     if not os.path.isfile(full_path):
         return "Not found", 404
     return _send_file(full_path, mimetype="application/octet-stream")
+
+
+@bp.route("/api/step_progress", methods=["POST"])
+def api_step_progress():
+    """Receive step progress from MCP run_steps tool and broadcast to chat subscribers."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    from src import socketio
+    from src.routes.websocket import get_acp_subscribers
+    from src.services.acp import acp_manager
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    if not session_id:
+        return json.dumps({"error": "missing session_id"}), 400, {"Content-Type": "application/json"}
+    # Persist only the final state in session history for replay on reconnect
+    session = acp_manager.get_session(session_id)
+    if session and data.get("running_index") == -2:
+        evt = {"type": "step_progress", "data": data}
+        session.history.append(evt)
+    # Broadcast to subscribers
+    sids = get_acp_subscribers(session_id)
+    for sid in sids:
+        socketio.emit("step_progress", data, room=sid)
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/cancel_pipeline", methods=["POST"])
+def api_cancel_pipeline():
+    """Create the cancel flag file for a running pipeline."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    pipeline_id = data.get("pipeline_id", "")
+    # Validate pipeline_id is a hex string to prevent path traversal
+    if not pipeline_id or not all(c in "0123456789abcdef" for c in pipeline_id):
+        return json.dumps({"error": "invalid pipeline_id"}), 400, {"Content-Type": "application/json"}
+    cancel_path = f"/tmp/fernando-pipeline-{pipeline_id}.cancel"
+    with open(cancel_path, "w") as f:
+        f.write("1")
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
