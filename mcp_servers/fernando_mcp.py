@@ -491,18 +491,23 @@ def _jupyter_execute(code):
         return {"error": str(e)}
 
 
-def _jupyter_insert_and_run(code, position="bottom"):
+def _jupyter_insert_and_run(code, notebook, position="bottom"):
     """Insert a cell into the open notebook and execute it (live in UI)."""
-    return _jupyter_cmd("insert_and_run", source=code, position=position)
+    return _jupyter_cmd("insert_and_run", notebook=notebook, source=code, position=position)
 
 
-def _jupyter_cmd(action, **kwargs):
-    """Send a command to the Jupyter iframe via WebSocket, return error if no notebook is open."""
+def _jupyter_cmd(action, notebook=None, **kwargs):
+    """Send a command to a specific Jupyter notebook open in the browser."""
+    if not notebook:
+        return {"error": "The 'notebook' parameter is required. Specify which notebook to target by name (e.g. 'Untitled4')."}
     try:
         api_key = open("/tmp/fernando-api-key").read().strip()
         import socketio as _sio
         import uuid as _uuid
+        import threading as _threading
         sio = _sio.Client()
+        csrf_event = _threading.Event()
+        result_event = _threading.Event()
         csrf = [None]
         result = [None]
         cmd_id = str(_uuid.uuid4())
@@ -510,41 +515,35 @@ def _jupyter_cmd(action, **kwargs):
         @sio.on("connected")
         def on_conn(data):
             csrf[0] = data.get("csrf_token")
+            csrf_event.set()
 
         @sio.on("jupyter_cmd_result")
         def on_result(data):
             if data.get("id") == cmd_id:
                 result[0] = data
+                result_event.set()
 
         sio.connect(f"http://localhost:5000?api_key={api_key}")
-        for _ in range(20):
-            if csrf[0]:
-                break
-            time.sleep(0.1)
-        if not csrf[0]:
+        if not csrf_event.wait(timeout=3):
             sio.disconnect()
             return {"error": "Could not get CSRF token"}
         sio.emit("jupyter_cmd", {
             "action": action,
             "id": cmd_id,
             "csrf_token": csrf[0],
+            "notebook": notebook,
             **kwargs,
         })
         # Wait for result from Flask (relayed from browser ack)
-        for _ in range(30):
-            time.sleep(0.1)
-            if result[0]:
-                count = result[0].get("receivers", 0)
-                sio.disconnect()
-                return {
-                    "status": "ok",
-                    "action": action,
-                    "receivers": count,
-                    "warning": "Command delivered to multiple notebooks" if count > 1 else None,
-                }
+        if result_event.wait(timeout=5):
+            count = result[0].get("receivers", 0)
+            sio.disconnect()
+            if count == 0:
+                return {"error": f"Notebook '{notebook}' is not open in the browser. Open it and retry.", "action": action}
+            return {"status": "ok", "action": action, "notebook": notebook, "receivers": count}
         sio.disconnect()
         return {
-            "error": "No Jupyter notebook is open in the browser. Open a notebook and retry.",
+            "error": f"No response from browser. Is notebook '{notebook}' open?",
             "action": action,
         }
     except Exception as e:
@@ -1047,9 +1046,10 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "code": {"type": "string", "description": "Python code for the new cell"},
+                    "notebook": {"type": "string", "description": "Notebook name to target (e.g. 'Untitled4')"},
                     "position": {"description": "Where to insert the cell: 'top', 'bottom' (default), or a cell index to insert after"},
                 },
-                "required": ["code"],
+                "required": ["code", "notebook"],
             },
         ),
         Tool(
@@ -1059,8 +1059,9 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "index": {"type": "integer", "description": "Cell index (0-based)"},
+                    "notebook": {"type": "string", "description": "Notebook name to target (e.g. 'Untitled4')"},
                 },
-                "required": ["index"],
+                "required": ["index", "notebook"],
             },
         ),
         Tool(
@@ -1068,7 +1069,10 @@ async def list_tools() -> list[Tool]:
             description="Run all cells in the open Jupyter notebook sequentially. Executes live in the user's browser.",
             inputSchema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "notebook": {"type": "string", "description": "Notebook name to target (e.g. 'Untitled4')"},
+                },
+                "required": ["notebook"],
             },
         ),
         Tool(
@@ -1079,8 +1083,9 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "index": {"type": "integer", "description": "Cell index (0-based)"},
                     "source": {"type": "string", "description": "New cell source code"},
+                    "notebook": {"type": "string", "description": "Notebook name to target (e.g. 'Untitled4')"},
                 },
-                "required": ["index", "source"],
+                "required": ["index", "source", "notebook"],
             },
         ),
     ]
@@ -1291,13 +1296,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "jupyter_execute":
         result = _jupyter_execute(arguments["code"])
     elif name == "jupyter_insert_and_run":
-        result = _jupyter_insert_and_run(arguments["code"], arguments.get("position", "bottom"))
+        result = _jupyter_insert_and_run(arguments["code"], arguments["notebook"], arguments.get("position", "bottom"))
     elif name == "jupyter_run_cell":
-        result = _jupyter_cmd("run_cell", index=arguments["index"])
+        result = _jupyter_cmd("run_cell", notebook=arguments["notebook"], index=arguments["index"])
     elif name == "jupyter_run_all":
-        result = _jupyter_cmd("run_all")
+        result = _jupyter_cmd("run_all", notebook=arguments["notebook"])
     elif name == "jupyter_edit_cell":
-        result = _jupyter_cmd("edit_cell", index=arguments["index"], source=arguments["source"])
+        result = _jupyter_cmd("edit_cell", notebook=arguments["notebook"], index=arguments["index"], source=arguments["source"])
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

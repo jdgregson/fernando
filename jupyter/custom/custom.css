@@ -450,3 +450,26 @@ div.output_subarea.output_text.output_error {
 .output_subarea {
     border-left: 1px solid #143151;
 }
+
+/* Cell index numbers */
+#notebook-container {
+    counter-reset: cell-counter -1;
+}
+
+div.cell {
+    counter-increment: cell-counter;
+    position: relative;
+}
+
+div.cell .input::before {
+    content: counter(cell-counter);
+    position: absolute;
+    top: -2px;
+    left: 11px;
+    font-size: 10px;
+    color: #3465a3;
+    opacity: 0.6;
+    font-family: ui-monospace, monospace;
+    pointer-events: none;
+    z-index: 1;
+}

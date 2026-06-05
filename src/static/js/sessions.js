@@ -327,9 +327,14 @@ socket.on('notebooks_list', (data) => {
 // Forward Jupyter commands from websocket to the Jupyter iframe
 socket.on('jupyter_cmd', (data) => {
     const receivers = [];
+    const target = (data.notebook || '').replace(/\.ipynb$/i, '');
     for (const pn of [1, 2]) {
         const iframe = document.querySelector(`#browser${pn} iframe`);
         if (iframe && iframe.src && iframe.src.includes('/jupyter/') && iframe.contentWindow) {
+            // Extract notebook name from iframe URL (e.g. /jupyter/notebooks/Untitled4.ipynb)
+            const m = iframe.src.match(/\/notebooks\/([^/?#]+)\.ipynb/);
+            const iframeName = m ? decodeURIComponent(m[1]) : '';
+            if (target && iframeName !== target) continue;
             iframe.contentWindow.postMessage({type: 'jupyter-cmd', ...data}, '*');
             receivers.push(pn);
         }

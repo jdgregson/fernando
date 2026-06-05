@@ -322,7 +322,7 @@ def register_handlers(socketio):
         if cmd_id:
             with _jupyter_cmd_origins_lock:
                 _jupyter_cmd_origins[cmd_id] = request.sid
-        # Broadcast to all clients — the frontend will forward to the Jupyter iframe
+        # Broadcast to all clients — the frontend will forward to the matching Jupyter iframe
         socketio.emit("jupyter_cmd", {
             "action": data.get("action"),
             "source": data.get("source", ""),
@@ -330,6 +330,7 @@ def register_handlers(socketio):
             "id": cmd_id,
             "index": data.get("index", 0),
             "position": data.get("position", "bottom"),
+            "notebook": data.get("notebook", ""),
         })
 
     @socketio.on("jupyter_cmd_ack")
@@ -340,6 +341,10 @@ def register_handlers(socketio):
         cmd_id = data.get("id", "")
         receivers = int(data.get("receivers", 0) or 0)
         if not cmd_id:
+            return
+        # Only relay acks that report at least one receiver — ignore zero-receiver acks
+        # from clients that don't have the target notebook open
+        if receivers == 0:
             return
         with _jupyter_cmd_origins_lock:
             origin_sid = _jupyter_cmd_origins.pop(cmd_id, None)
