@@ -17,16 +17,26 @@ app = create_app()
 pty_service.restore_all()
 
 
+_reaped_pids = []
+
+
 def _reap_children():
-    """Reap any zombie child processes."""
+    """Reap any zombie child processes. Signal-safe (no I/O)."""
     while True:
         try:
             pid, _ = os.waitpid(-1, os.WNOHANG)
             if pid == 0:
                 break
-            logger.info(f"Reaped zombie child pid={pid}")
+            _reaped_pids.append(pid)
         except ChildProcessError:
             break
+
+
+def _log_reaped():
+    """Log reaped PIDs outside of signal context. Call from main thread."""
+    while _reaped_pids:
+        pid = _reaped_pids.pop(0)
+        logger.info(f"Reaped zombie child pid={pid}")
 
 
 def _shutdown(signum, frame):
@@ -53,6 +63,16 @@ signal.signal(signal.SIGINT, _shutdown)
 if __name__ == "__main__":
     env = os.environ.get("FLASK_ENV", "development")
     cfg = config[env]
+
+    # Periodically drain reaped PID log outside signal context
+    import threading
+    def _reap_logger():
+        while True:
+            _log_reaped()
+            import time
+            time.sleep(5)
+    threading.Thread(target=_reap_logger, daemon=True).start()
+
     socketio.run(
         app,
         host=cfg.HOST,

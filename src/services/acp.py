@@ -192,11 +192,15 @@ class ACPSession:
             kind = obj.get("kind", "")
             if kind == "ToolResults":
                 for c in obj.get("data", {}).get("content", []):
+                    if not isinstance(c, dict):
+                        continue
                     tid = c.get("data", {}).get("toolUseId")
                     if tid:
                         has_result_for.add(tid)
             if kind == "AssistantMessage":
                 for c in obj.get("data", {}).get("content", []):
+                    if not isinstance(c, dict):
+                        continue
                     if c.get("kind") == "toolUse" and c.get("data", {}).get("name") in ("mutate", "reboot"):
                         tid = c["data"]["toolUseId"]
                         if tid not in has_result_for:
