@@ -29,7 +29,7 @@ def _auth_page(title, message):
     from html import escape
     t, m = escape(str(title)), escape(str(message))
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>body{{background:#252526;color:#3465a3;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}}
+<style>body{{background:#26364b;color:#d4d4d4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}}
 .c{{text-align:center}}h2{{font-weight:400}}</style></head>
 <body><div class="c"><h2>{t}</h2><p>{m}</p></div></body></html>"""
 

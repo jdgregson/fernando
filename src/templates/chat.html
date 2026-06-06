@@ -433,6 +433,20 @@
         return server ? '@' + server + '/' + title : title;
     }
 
+    function createCopyBtn(value) {
+        const btn = document.createElement('span');
+        btn.className = 'tc-copy-btn';
+        btn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+        btn.title = 'Copy value';
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            navigator.clipboard.writeText(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+            btn.classList.add('copied');
+            setTimeout(() => btn.classList.remove('copied'), 1000);
+        });
+        return btn;
+    }
+
     function addToolCall(toolCallId, title, status, rawInput) {
         ensureAssistantMsg();
         // Flush any pending text before sealing
@@ -501,6 +515,7 @@
                 const key = document.createElement('div');
                 key.className = 'tc-param-key';
                 key.textContent = k;
+                key.appendChild(createCopyBtn(v));
                 const val = document.createElement('div');
                 val.className = 'tc-param-val';
                 val.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
@@ -625,6 +640,7 @@
                         label.className = 'tc-out-label';
                         if (isError) label.style.color = '#f7768e';
                         label.textContent = k;
+                        label.appendChild(createCopyBtn(v));
                         const block = document.createElement('div');
                         block.className = 'tc-out-block';
                         if (isError) block.style.color = '#f7768e';
@@ -643,6 +659,7 @@
                 const label = document.createElement('div');
                 label.className = 'tc-out-label';
                 label.textContent = k;
+                label.appendChild(createCopyBtn(v));
                 const block = document.createElement('div');
                 block.className = 'tc-out-block';
                 block.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
@@ -667,6 +684,7 @@
                 label.className = 'tc-out-label';
                 if (isError) label.style.color = '#f7768e';
                 label.textContent = k;
+                label.appendChild(createCopyBtn(v));
                 const block = document.createElement('div');
                 block.className = 'tc-out-block';
                 if (isError) block.style.color = '#f7768e';
@@ -1085,6 +1103,7 @@
                             const key = document.createElement('div');
                             key.className = 'tc-param-key';
                             key.textContent = k;
+                            key.appendChild(createCopyBtn(v));
                             const val = document.createElement('div');
                             val.className = 'tc-param-val';
                             val.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);

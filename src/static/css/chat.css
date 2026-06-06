@@ -119,9 +119,19 @@ body { display: flex; flex-direction: column; }
 .tool-call-body .tc-raw { white-space: pre-wrap; word-break: break-word; font-size: 11px; color: #888; }
 .tool-call-body .tc-param { padding: 6px 0; border-bottom: 1px solid #143151; }
 .tool-call-body .tc-param:last-child { border-bottom: none; }
-.tool-call-body .tc-param-key { color: #bb9af7; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+.tool-call-body .tc-param-key { color: #bb9af7; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+.tool-call-body .tc-param-key .tc-copy-btn { opacity: 0; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0; }
+.tool-call-body .tc-param-key .tc-copy-btn svg { width: 11px; height: 11px; fill: none; stroke: #bb9af7; stroke-width: 2; }
+.tool-call-body .tc-param:hover .tc-copy-btn { opacity: 0.7; }
+.tool-call-body .tc-param-key .tc-copy-btn:hover { opacity: 1; }
+.tool-call-body .tc-param-key .tc-copy-btn.copied svg { stroke: #4ec9b0; }
 .tool-call-body .tc-param-val { color: #c0caf5; font-size: 11px; word-break: break-word; }
-.tool-call-body .tc-out-label { font-size: 10px; color: #4ec9b0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; margin-top: 8px; }
+.tool-call-body .tc-out-label { font-size: 10px; color: #4ec9b0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; margin-top: 8px; display: flex; align-items: center; gap: 4px; }
+.tool-call-body .tc-out-label .tc-copy-btn { opacity: 0; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0; }
+.tool-call-body .tc-out-label .tc-copy-btn svg { width: 11px; height: 11px; fill: none; stroke: #4ec9b0; stroke-width: 2; }
+.tool-call-body .tc-out-label:hover .tc-copy-btn { opacity: 0.7; }
+.tool-call-body .tc-out-label .tc-copy-btn:hover { opacity: 1; }
+.tool-call-body .tc-out-label .tc-copy-btn.copied svg { stroke: #bb9af7; }
 .tool-call-body .tc-out-label:first-child { margin-top: 0; }
 .tool-call-body .tc-out-block { background: #0d1a2e; border-radius: 3px; padding: 8px; font-size: 11px; word-break: break-word; color: #a9b1d6; max-height: 200px; overflow-y: auto; }
 .tool-call-images {

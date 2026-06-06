@@ -37,20 +37,39 @@ TOKEN_FILE = os.path.join(CONFIG_DIR, "tokens.json")
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
+# Cache mapping shared notebook IDs to their site-based API path
+# Populated by microsoft_onenote_notebooks, used by sections/pages handlers
+_shared_notebook_urls = {}  # {notebook_id: "https://graph.microsoft.com/v1.0/sites/.../onenote/notebooks/{id}"}
+_shared_notebook_drive_info = {}  # {notebook_id: {"drive_id": ..., "item_id": ...}}
+
 SCOPES = [
     "User.Read",
     "Mail.Read",
+    "Mail.ReadBasic",
     "Mail.ReadWrite",
     "Mail.Send",
+    "Mail.Read.Shared",
+    "Mail.ReadBasic.Shared",
     "Mail.ReadWrite.Shared",
     "Mail.Send.Shared",
+    "Calendars.Read",
+    "Calendars.ReadBasic",
     "Calendars.ReadWrite",
+    "Calendars.Read.Shared",
     "Calendars.ReadWrite.Shared",
     "Contacts.Read",
     "Contacts.ReadWrite",
+    "Tasks.Read",
     "Tasks.ReadWrite",
+    "Tasks.Read.Shared",
+    "Tasks.ReadWrite.Shared",
     "Notes.ReadWrite",
+    "Notes.ReadWrite.All",
+    "Files.Read",
     "Files.ReadWrite",
+    "Files.Read.All",
+    "Files.ReadWrite.All",
+    "Files.ReadWrite.AppFolder",
 ]
 
 
@@ -136,6 +155,19 @@ def graph_request(method, path, **kwargs):
         return resp.json()
     except Exception:
         return {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
+
+
+def _get_shared_onenote_base():
+    """Get the site-based OneNote base URL for shared notebooks, e.g.
+    'https://graph.microsoft.com/v1.0/sites/{siteId}/onenote'
+    Returns the base URL or None if no shared notebooks are cached."""
+    for self_url in _shared_notebook_urls.values():
+        # self_url looks like: https://graph.microsoft.com/v1.0/sites/.../onenote/notebooks/{id}
+        # We want: https://graph.microsoft.com/v1.0/sites/.../onenote
+        parts = self_url.split("/onenote/")
+        if len(parts) >= 2:
+            return parts[0] + "/onenote"
+    return None
 
 
 @app.list_tools()
@@ -396,11 +428,11 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "calendar_id": {"type": "string", "description": "Calendar ID (get from microsoft_calendars_list)"},
+                    "microsoft_calendar_id": {"type": "string", "description": "Calendar ID (get from microsoft_calendars_list)"},
                     "days": {"type": "integer", "description": "Days ahead to look (default 7)"},
                     "count": {"type": "integer", "description": "Max events (default 20)"},
                 },
-                "required": ["calendar_id"],
+                "required": ["microsoft_calendar_id"],
             },
         ),
         # --- Shared mailbox ---
@@ -464,9 +496,9 @@ async def list_tools() -> list[Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "contact_id": {"type": "string", "description": "Contact ID to delete"},
+                    "microsoft_contact_id": {"type": "string", "description": "Contact ID to delete"},
                 },
-                "required": ["contact_id"],
+                "required": ["microsoft_contact_id"],
             },
         ),
         # --- Tasks (To Do) ---
@@ -509,13 +541,13 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "list_id": {"type": "string", "description": "Task list ID"},
-                    "task_id": {"type": "string", "description": "Task ID"},
+                    "microsoft_task_id": {"type": "string", "description": "Task ID"},
                     "title": {"type": "string", "description": "New title (optional)"},
                     "status": {"type": "string", "description": "Status: 'notStarted', 'inProgress', 'completed'"},
                     "due_date": {"type": "string", "description": "Due date YYYY-MM-DD (optional)"},
                     "body": {"type": "string", "description": "Task notes/body (optional)"},
                 },
-                "required": ["list_id", "task_id"],
+                "required": ["list_id", "microsoft_task_id"],
             },
         ),
         Tool(
@@ -525,19 +557,19 @@ async def list_tools() -> list[Tool]:
                 "type": "object",
                 "properties": {
                     "list_id": {"type": "string", "description": "Task list ID"},
-                    "task_id": {"type": "string", "description": "Task ID"},
+                    "microsoft_task_id": {"type": "string", "description": "Task ID"},
                 },
-                "required": ["list_id", "task_id"],
+                "required": ["list_id", "microsoft_task_id"],
             },
         ),
         # --- OneNote ---
         Tool(
-            name="microsoft_onenote_notebooks",
+            name="onenote_notebooks_list",
             description="List OneNote notebooks.",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
-            name="microsoft_onenote_notebook_create",
+            name="onenote_notebook_create",
             description="Create a new OneNote notebook.",
             inputSchema={
                 "type": "object",
@@ -548,7 +580,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_sections",
+            name="onenote_sections",
             description="List sections in a OneNote notebook.",
             inputSchema={
                 "type": "object",
@@ -559,7 +591,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_section_create",
+            name="onenote_section_create",
             description="Create a new section in a OneNote notebook.",
             inputSchema={
                 "type": "object",
@@ -571,7 +603,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_pages",
+            name="onenote_pages",
             description="List pages in a OneNote section.",
             inputSchema={
                 "type": "object",
@@ -583,7 +615,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_page_read",
+            name="onenote_page_read",
             description="Read the content of a OneNote page.",
             inputSchema={
                 "type": "object",
@@ -594,7 +626,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_page_create",
+            name="onenote_page_create",
             description="Create a new page in a OneNote section.",
             inputSchema={
                 "type": "object",
@@ -607,7 +639,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_notebook_delete",
+            name="onenote_notebook_delete",
             description="Delete a OneNote notebook.",
             inputSchema={
                 "type": "object",
@@ -618,7 +650,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_section_delete",
+            name="onenote_section_delete",
             description="Delete a section from a OneNote notebook.",
             inputSchema={
                 "type": "object",
@@ -629,7 +661,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_onenote_page_delete",
+            name="onenote_page_delete",
             description="Delete a page from a OneNote section.",
             inputSchema={
                 "type": "object",
@@ -641,7 +673,7 @@ async def list_tools() -> list[Tool]:
         ),
         # --- OneDrive ---
         Tool(
-            name="microsoft_files_list",
+            name="onedrive_files_list",
             description="List files and folders in OneDrive. Omit path for root.",
             inputSchema={
                 "type": "object",
@@ -652,7 +684,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_file_read",
+            name="onedrive_file_read",
             description="Read a text file from OneDrive (returns content for text files, download URL for others).",
             inputSchema={
                 "type": "object",
@@ -663,7 +695,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_file_upload",
+            name="onedrive_file_upload",
             description="Upload/create a file in OneDrive (max 4MB). Provide either 'content' for text or 'local_path' for binary files.",
             inputSchema={
                 "type": "object",
@@ -676,7 +708,7 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="microsoft_file_delete",
+            name="onedrive_file_delete",
             description="Delete a file or folder from OneDrive.",
             inputSchema={
                 "type": "object",
@@ -1033,7 +1065,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "microsoft_calendar_shared_events":
         from datetime import timedelta
-        cal_id = arguments["calendar_id"]
+        cal_id = arguments["microsoft_calendar_id"]
         days = arguments.get("days", 7)
         count = arguments.get("count", 20)
         now = datetime.now(timezone.utc)
@@ -1144,7 +1176,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if "error" in data:
             result = data
         else:
-            result = {"status": "deleted", "contact_id": arguments["contact_id"]}
+            result = {"status": "deleted", "microsoft_contact_id": arguments["microsoft_contact_id"]}
 
     # --- Tasks (To Do) ---
     elif name == "microsoft_task_lists":
@@ -1192,7 +1224,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "microsoft_task_update":
         list_id = arguments["list_id"]
-        task_id = arguments["task_id"]
+        task_id = arguments["microsoft_task_id"]
         payload = {}
         if arguments.get("title"):
             payload["title"] = arguments["title"]
@@ -1210,25 +1242,58 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "microsoft_task_delete":
         list_id = arguments["list_id"]
-        task_id = arguments["task_id"]
+        task_id = arguments["microsoft_task_id"]
         data = graph_request("DELETE", f"/me/todo/lists/{list_id}/tasks/{task_id}")
         if "error" in data:
             result = data
         else:
-            result = {"status": "deleted", "task_id": task_id}
+            result = {"status": "deleted", "microsoft_task_id": task_id}
 
     # --- OneNote ---
-    elif name == "microsoft_onenote_notebooks":
+    elif name == "onenote_notebooks_list":
         data = graph_request("GET", "/me/onenote/notebooks?$select=id,displayName,lastModifiedDateTime")
-        if "error" in data:
-            result = data
-        else:
-            result = {"notebooks": [
-                {"id": n["id"], "name": n.get("displayName"), "modified": n.get("lastModifiedDateTime")}
-                for n in data.get("value", [])
-            ]}
+        own_notebooks = []
+        own_ids = set()
+        if "error" not in data:
+            for n in data.get("value", []):
+                own_notebooks.append({"id": n["id"], "name": n.get("displayName"), "modified": n.get("lastModifiedDateTime")})
+                own_ids.add(n["id"])
 
-    elif name == "microsoft_onenote_notebook_create":
+        # Discover shared notebooks via getRecentNotebooks
+        shared_notebooks = []
+        recent = graph_request("GET", "/me/onenote/notebooks/getRecentNotebooks(includePersonalNotebooks=true)")
+        if "error" not in recent:
+            for nb in recent.get("value", []):
+                web_url = nb.get("links", {}).get("oneNoteWebUrl", {}).get("href")
+                if not web_url:
+                    continue
+                # Resolve the URL to a notebook object with ID
+                resolved = graph_request("POST", "/me/onenote/notebooks/GetNotebookFromWebUrl", json={"webUrl": web_url})
+                if "error" in resolved:
+                    continue
+                nb_id = resolved.get("id", "")
+                if nb_id and nb_id not in own_ids:
+                    self_url = resolved.get("self", "")
+                    _shared_notebook_urls[nb_id] = self_url
+                    # Get drive info via shares endpoint for fallback section listing
+                    import base64 as _b64
+                    encoded = _b64.urlsafe_b64encode(web_url.encode()).decode().rstrip("=")
+                    share_item = graph_request("GET", f"https://graph.microsoft.com/v1.0/shares/u!{encoded}/driveItem?$select=id,parentReference")
+                    if "error" not in share_item:
+                        _shared_notebook_drive_info[nb_id] = {
+                            "drive_id": share_item.get("parentReference", {}).get("driveId", ""),
+                            "item_id": share_item.get("id", ""),
+                        }
+                    shared_notebooks.append({
+                        "id": nb_id,
+                        "name": resolved.get("name", nb.get("displayName")),
+                        "modified": resolved.get("lastModifiedTime"),
+                        "shared": True,
+                    })
+
+        result = {"notebooks": own_notebooks + shared_notebooks}
+
+    elif name == "onenote_notebook_create":
         nb_name = arguments["name"]
         data = graph_request("POST", "/me/onenote/notebooks", json={"displayName": nb_name})
         if "error" in data:
@@ -1236,10 +1301,45 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             result = {"id": data.get("id"), "name": data.get("displayName")}
 
-    elif name == "microsoft_onenote_sections":
+    elif name == "onenote_sections":
         nb_id = arguments["notebook_id"]
-        data = graph_request("GET", f"/me/onenote/notebooks/{nb_id}/sections?$select=id,displayName")
-        if "error" in data:
+        # Check if this is a known shared notebook with a site-based URL
+        if nb_id in _shared_notebook_urls:
+            self_url = _shared_notebook_urls[nb_id]
+            data = graph_request("GET", f"{self_url}/sections?$select=id,displayName")
+        else:
+            data = graph_request("GET", f"/me/onenote/notebooks/{nb_id}/sections?$select=id,displayName")
+            if isinstance(data, dict) and "error" in data:
+                # Cache miss — try resolving via getRecentNotebooks
+                recent = graph_request("GET", "/me/onenote/notebooks/getRecentNotebooks(includePersonalNotebooks=true)")
+                if "error" not in recent:
+                    for nb in recent.get("value", []):
+                        web_url = nb.get("links", {}).get("oneNoteWebUrl", {}).get("href")
+                        if not web_url:
+                            continue
+                        resolved = graph_request("POST", "/me/onenote/notebooks/GetNotebookFromWebUrl", json={"webUrl": web_url})
+                        if "error" not in resolved and resolved.get("id") == nb_id:
+                            self_url = resolved.get("self", "")
+                            _shared_notebook_urls[nb_id] = self_url
+                            data = graph_request("GET", f"{self_url}/sections?$select=id,displayName")
+                            break
+        # Fallback: if OneNote API fails with 10008 (5000-item limit), use drive API
+        if isinstance(data, dict) and "error" in data and data.get("error", {}).get("code") == "10008":
+            drive_info = _shared_notebook_drive_info.get(nb_id)
+            if drive_info:
+                import re as _re
+                children = graph_request("GET", f"/drives/{drive_info['drive_id']}/items/{drive_info['item_id']}/children?$select=name,webUrl")
+                if "error" not in children:
+                    sections = []
+                    for item in children.get("value", []):
+                        fname = item.get("name", "")
+                        if fname.endswith(".one") and "RecycleBin" not in fname:
+                            web_url = item.get("webUrl", "")
+                            match = _re.search(r"sourcedoc=%7B([^%]+)%7D", web_url)
+                            if match:
+                                sections.append({"id": f"1-{match.group(1).lower()}", "name": fname[:-4]})
+                    data = {"value": [{"id": s["id"], "displayName": s["name"]} for s in sections]}
+        if isinstance(data, dict) and "error" in data:
             result = data
         else:
             result = {"sections": [
@@ -1247,19 +1347,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 for s in data.get("value", [])
             ]}
 
-    elif name == "microsoft_onenote_section_create":
+    elif name == "onenote_section_create":
         nb_id = arguments["notebook_id"]
         section_name = arguments["name"]
-        data = graph_request("POST", f"/me/onenote/notebooks/{nb_id}/sections", json={"displayName": section_name})
+        if nb_id in _shared_notebook_urls:
+            self_url = _shared_notebook_urls[nb_id]
+            data = graph_request("POST", f"{self_url}/sections", json={"displayName": section_name})
+        else:
+            data = graph_request("POST", f"/me/onenote/notebooks/{nb_id}/sections", json={"displayName": section_name})
         if "error" in data:
             result = data
         else:
             result = {"id": data.get("id"), "name": data.get("displayName")}
 
-    elif name == "microsoft_onenote_pages":
+    elif name == "onenote_pages":
         section_id = arguments["section_id"]
         count = arguments.get("count", 20)
         data = graph_request("GET", f"/me/onenote/sections/{section_id}/pages?$top={count}&$select=id,title,createdDateTime,lastModifiedDateTime")
+        if "error" in data:
+            # Try site-based path for shared notebook sections
+            base = _get_shared_onenote_base()
+            if base:
+                data = graph_request("GET", f"{base}/sections/{section_id}/pages?$top={count}&$select=id,title,createdDateTime,lastModifiedDateTime")
         if "error" in data:
             result = data
         else:
@@ -1268,7 +1377,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 for p in data.get("value", [])
             ]}
 
-    elif name == "microsoft_onenote_page_read":
+    elif name == "onenote_page_read":
         page_id = arguments["page_id"]
         token, err = get_access_token()
         if err:
@@ -1276,12 +1385,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             headers = {"Authorization": f"Bearer {token}"}
             resp = requests.get(f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content", headers=headers, timeout=30)
+            if resp.status_code != 200:
+                # Try site-based path for shared notebook pages
+                base = _get_shared_onenote_base()
+                if base:
+                    resp = requests.get(f"{base}/pages/{page_id}/content", headers=headers, timeout=30)
             if resp.status_code == 200:
                 result = {"content": resp.text[:10000]}
             else:
                 result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
 
-    elif name == "microsoft_onenote_page_create":
+    elif name == "onenote_page_create":
         section_id = arguments["section_id"]
         html = f"<!DOCTYPE html><html><head><title>{arguments['title']}</title></head><body><p>{arguments['content']}</p></body></html>"
         token, err = get_access_token()
@@ -1290,13 +1404,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "text/html"}
             resp = requests.post(f"{GRAPH_BASE}/me/onenote/sections/{section_id}/pages", headers=headers, data=html, timeout=30)
+            if resp.status_code not in (200, 201):
+                # Try site-based path for shared notebook sections
+                base = _get_shared_onenote_base()
+                if base:
+                    resp = requests.post(f"{base}/sections/{section_id}/pages", headers=headers, data=html, timeout=30)
             if resp.status_code in (200, 201):
                 data = resp.json()
                 result = {"status": "created", "id": data.get("id"), "title": data.get("title")}
             else:
                 result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
 
-    elif name == "microsoft_onenote_notebook_delete":
+    elif name == "onenote_notebook_delete":
         # OneNote API doesn't support direct delete; remove the OneDrive folder instead
         nb_id = arguments["notebook_id"]
         nb = graph_request("GET", f"/me/onenote/notebooks/{nb_id}?$select=displayName")
@@ -1310,7 +1429,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             else:
                 result = {"status": "deleted", "notebook_id": nb_id}
 
-    elif name == "microsoft_onenote_section_delete":
+    elif name == "onenote_section_delete":
         # OneNote API doesn't support direct section delete; delete the underlying OneDrive item
         section_id = arguments["section_id"]
         section = graph_request("GET", f"/me/onenote/sections/{section_id}?$expand=parentNotebook($select=id,displayName)")
@@ -1329,7 +1448,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             else:
                 result = {"error": f"Could not resolve names. section={section_name!r}, notebook={nb_name!r}"}
 
-    elif name == "microsoft_onenote_page_delete":
+    elif name == "onenote_page_delete":
         page_id = arguments["page_id"]
         data = graph_request("DELETE", f"/me/onenote/pages/{page_id}")
         if isinstance(data, dict) and "error" in data:
@@ -1338,7 +1457,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"status": "deleted", "page_id": page_id}
 
     # --- OneDrive ---
-    elif name == "microsoft_files_list":
+    elif name == "onedrive_files_list":
         path = arguments.get("path", "")
         count = arguments.get("count", 20)
         if path and path != "/":
@@ -1361,7 +1480,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 for i in data.get("value", [])
             ]}
 
-    elif name == "microsoft_file_read":
+    elif name == "onedrive_file_read":
         path = arguments["path"].strip("/")
         # Get file metadata + download URL
         data = graph_request("GET", f"/me/drive/root:/{path}")
@@ -1380,7 +1499,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             else:
                 result = {"error": "Could not get download URL"}
 
-    elif name == "microsoft_file_upload":
+    elif name == "onedrive_file_upload":
         path = arguments["path"].strip("/")
         content_text = arguments.get("content")
         local_path = arguments.get("local_path")
@@ -1419,7 +1538,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     else:
                         result = {"error": f"HTTP {resp.status_code}: {resp.text[:500]}"}
 
-    elif name == "microsoft_file_delete":
+    elif name == "onedrive_file_delete":
         path = arguments["path"].strip("/")
         data = graph_request("DELETE", f"/me/drive/root:/{path}")
         if "error" in data:
