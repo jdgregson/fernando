@@ -78,8 +78,10 @@ def api_models():
     if _models_cache["data"] and now - _models_cache["ts"] < 300:
         return _models_cache["data"], 200, {"Content-Type": "application/json"}
     try:
+        import shutil
+        kiro_cli = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
         result = subprocess.run(
-            ["/home/fernando/.local/bin/kiro-cli", "chat", "--list-models", "--format", "json"],
+            [kiro_cli, "chat", "--list-models", "--format", "json"],
             capture_output=True, text=True, timeout=15
         )
         if result.returncode == 0 and result.stdout.strip():
