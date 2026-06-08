@@ -583,6 +583,15 @@ def register_handlers(socketio):
                 next_seq = acp_event_seq.get(acp_sid, 0)
                 logger.info(f"acp_subscribe: sending sync_seq={next_seq} history_len={len(session.history)} ready={session.ready}")
                 emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": next_seq, "history_length": len(session.history), "model": session.model}})
+                # On reconnect, re-send latest step_progress per pipeline to catch up stale widgets
+                if offset > 0:
+                    seen_pids = set()
+                    for evt in reversed(session.history):
+                        if evt.get("type") == "step_progress":
+                            pid = (evt.get("data") or {}).get("pipeline_id")
+                            if pid and pid not in seen_pids:
+                                seen_pids.add(pid)
+                                emit("acp_event", {"session_id": acp_sid, "event": evt})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
             else:

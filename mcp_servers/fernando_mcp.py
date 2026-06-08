@@ -746,7 +746,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="run_steps",
-            description="Run a sequence of shell commands with live progress updates in the chat UI. Each step runs sequentially; if one fails (non-zero exit), subsequent steps are skipped. The chat shows a live-updating step list with status, duration, and a cancel button. Use this instead of multiple sequential shell calls when you want the user to see progress.",
+            description="Run a sequence of shell commands with live progress updates in the chat UI. Each step runs sequentially; if one fails (non-zero exit code), subsequent steps are skipped. A non-zero exit code is treated as failure — if a command is expected to return non-zero, wrap it to coerce the exit code (e.g. 'grep pattern file || true'). The chat shows a live-updating step list with status, duration, and a cancel button. Use this instead of multiple sequential shell calls when you want the user to see progress.",
             inputSchema={
                 "type": "object",
                 "properties": {

@@ -991,22 +991,25 @@ def api_step_progress():
     """Receive step progress from MCP run_steps tool and broadcast to chat subscribers."""
     if not _check_api_key():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
-    from src import socketio
-    from src.routes.websocket import get_acp_subscribers
     from src.services.acp import acp_manager
     data = request.get_json(force=True)
     session_id = data.get("session_id")
     if not session_id:
         return json.dumps({"error": "missing session_id"}), 400, {"Content-Type": "application/json"}
-    # Persist only the final state in session history for replay on reconnect
+    # Persist and broadcast via the ACP event system.
+    # Only persist initial (creates widget at correct position) and final (shows completed state).
+    # Broadcast all events live so connected clients see real-time progress.
     session = acp_manager.get_session(session_id)
-    if session and data.get("running_index") == -2:
+    if session:
         evt = {"type": "step_progress", "data": data}
-        session.history.append(evt)
-    # Broadcast to subscribers
-    sids = get_acp_subscribers(session_id)
-    for sid in sids:
-        socketio.emit("step_progress", data, room=sid)
+        running_index = data.get("running_index")
+        # running_index: -1 = initial, >= 0 = in progress, -2 = final
+        if running_index == -1 or running_index == -2:
+            session.history.append(evt)
+            session._save_history()
+        # Broadcast via normal ACP event channel (gets sequenced, subscribers see it)
+        if hasattr(acp_manager, 'default_on_event') and acp_manager.default_on_event:
+            acp_manager.default_on_event(session_id, evt)
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 
