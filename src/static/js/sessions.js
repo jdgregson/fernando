@@ -331,9 +331,9 @@ socket.on('jupyter_cmd', (data) => {
     for (const pn of [1, 2]) {
         const iframe = document.querySelector(`#browser${pn} iframe`);
         if (iframe && iframe.src && iframe.src.includes('/jupyter/') && iframe.contentWindow) {
-            // Extract notebook name from iframe URL (e.g. /jupyter/notebooks/Untitled4.ipynb)
-            const m = iframe.src.match(/\/notebooks\/([^/?#]+)\.ipynb/);
-            const iframeName = m ? decodeURIComponent(m[1]) : '';
+            // Extract notebook name from iframe URL (e.g. /jupyter/notebooks/Untitled4.ipynb or /jupyter/notebooks/sub/dir/ee44.ipynb)
+            const m = iframe.src.match(/\/notebooks\/(.+?)\.ipynb/);
+            const iframeName = m ? decodeURIComponent(m[1]).split('/').pop() : '';
             if (target && iframeName !== target) continue;
             iframe.contentWindow.postMessage({type: 'jupyter-cmd', ...data}, '*');
             receivers.push(pn);
