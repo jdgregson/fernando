@@ -469,27 +469,38 @@ def _jupyter_read_notebook(path):
     return {"path": path, "cells": cells}
 
 
+_agent_km = None  # Dedicated agent kernel manager
+_agent_kc = None  # Dedicated agent kernel client
+
+
+def _get_agent_kernel():
+    """Get or lazily start the dedicated agent kernel."""
+    global _agent_km, _agent_kc
+    # Check if existing kernel is still alive
+    if _agent_km is not None and _agent_kc is not None:
+        if _agent_km.is_alive():
+            return _agent_kc
+        # Kernel died, clean up
+        try:
+            _agent_kc.stop_channels()
+        except Exception:
+            pass
+        _agent_km = None
+        _agent_kc = None
+    # Start a new dedicated kernel
+    from jupyter_client import KernelManager
+    _agent_km = KernelManager(kernel_name='python3')
+    _agent_km.start_kernel()
+    _agent_kc = _agent_km.blocking_client()
+    _agent_kc.start_channels()
+    _agent_kc.wait_for_ready(timeout=30)
+    return _agent_kc
+
+
 def _jupyter_execute(code):
-    """Execute code on a running kernel and return the output."""
-    import glob as _glob
-    candidates = [
-        os.path.expanduser("~/Library/Jupyter/runtime"),
-        os.path.expanduser("~/.local/share/jupyter/runtime"),
-        os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "jupyter/runtime"),
-    ]
-    files = []
-    for runtime_dir in candidates:
-        files = sorted(_glob.glob(os.path.join(runtime_dir, "kernel-*.json")), key=os.path.getmtime, reverse=True)
-        if files:
-            break
-    if not files:
-        return {"error": "No running kernel found. Open a notebook in the UI first."}
-    conn_file = files[0]
+    """Execute code on the agent's dedicated kernel. Does not touch notebook kernels."""
     try:
-        from jupyter_client import BlockingKernelClient
-        kc = BlockingKernelClient()
-        kc.load_connection_file(conn_file)
-        kc.start_channels()
+        kc = _get_agent_kernel()
         msg_id = kc.execute(code)
         outputs = []
         while True:
@@ -508,7 +519,6 @@ def _jupyter_execute(code):
                     break
             except Exception:
                 break
-        kc.stop_channels()
         return {"status": "ok", "outputs": outputs}
     except Exception as e:
         return {"error": str(e)}
@@ -1076,7 +1086,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="jupyter_execute",
-            description="Execute Python code on a running Jupyter kernel. Returns output. Does NOT show in the notebook UI — use jupyter_insert_and_run for that.",
+            description="Execute Python code on a dedicated agent kernel (separate from notebook kernels). Returns output. Does NOT show in the notebook UI — use jupyter_insert_and_run for that.",
             inputSchema={
                 "type": "object",
                 "properties": {
