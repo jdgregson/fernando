@@ -78,7 +78,13 @@ socket.on('mutating', () => {
 socket.on('connected', (data) => {
     csrfToken = data.csrf_token;
     console.log('Connected with CSRF token');
+    socket.emit('request_git_status');
     setTimeout(() => onSocketConnected(), 0);
+});
+
+socket.on('git_dirty', (data) => {
+    const dot = document.getElementById('gitDirtyDot');
+    if (dot) dot.style.display = data.dirty ? 'inline' : 'none';
 });
 
 socket.on('disconnect', () => {

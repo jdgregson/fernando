@@ -752,3 +752,33 @@ def register_handlers(socketio):
             record_history(rule, message, action, result)
 
     automation_manager.start(on_dispatch=_automation_dispatch)
+
+    # --- Git dirty indicator ---
+    _last_dirty = [None]
+    _git_check_started = [False]
+
+    def _git_dirty_check():
+        import time
+        repo_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        while True:
+            try:
+                result = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=repo_dir, capture_output=True, text=True, timeout=5
+                )
+                dirty = bool(result.stdout.strip())
+                if dirty != _last_dirty[0]:
+                    _last_dirty[0] = dirty
+                    socketio.emit("git_dirty", {"dirty": dirty})
+            except Exception:
+                pass
+            time.sleep(15)
+
+    @socketio.on("request_git_status")
+    def handle_git_status_request(data=None):
+        if not _git_check_started[0]:
+            _git_check_started[0] = True
+            socketio.start_background_task(_git_dirty_check)
+        # Send current state immediately to requesting client
+        if _last_dirty[0] is not None:
+            emit("git_dirty", {"dirty": _last_dirty[0]})
