@@ -372,6 +372,7 @@ class ACPSession:
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             msg.setdefault("ts", time.time())
+            msg.setdefault("model", self.model)
             self.history.append(msg)
             is_turn_end = bool(msg.get("result", {}).get("stopReason"))
             self._save_history(index_rag=is_turn_end)

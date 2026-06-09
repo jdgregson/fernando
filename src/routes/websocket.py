@@ -566,26 +566,34 @@ def register_handlers(socketio):
                 collapsed = []
                 text_buf = ""
                 text_buf_ts = None
+                text_buf_model = None
                 for evt in history:
                     su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                     content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                     if su == "agent_message_chunk" and content.get("type") == "text":
                         if not text_buf_ts and evt.get("ts"):
                             text_buf_ts = evt["ts"]
+                        if not text_buf_model and evt.get("model"):
+                            text_buf_model = evt["model"]
                         text_buf += content["text"]
                     else:
                         if text_buf:
                             entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
                             if text_buf_ts:
                                 entry["ts"] = text_buf_ts
+                            if text_buf_model:
+                                entry["model"] = text_buf_model
                             collapsed.append(entry)
                             text_buf = ""
                             text_buf_ts = None
+                            text_buf_model = None
                         collapsed.append(evt)
                 if text_buf:
                     entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
                     if text_buf_ts:
                         entry["ts"] = text_buf_ts
+                    if text_buf_model:
+                        entry["model"] = text_buf_model
                     collapsed.append(entry)
                 for evt in collapsed:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
@@ -612,26 +620,34 @@ def register_handlers(socketio):
                     collapsed = []
                     text_buf = ""
                     text_buf_ts = None
+                    text_buf_model = None
                     for evt in history:
                         su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                         content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                         if su == "agent_message_chunk" and content.get("type") == "text":
                             if not text_buf_ts and evt.get("ts"):
                                 text_buf_ts = evt["ts"]
+                            if not text_buf_model and evt.get("model"):
+                                text_buf_model = evt["model"]
                             text_buf += content["text"]
                         else:
                             if text_buf:
                                 entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
                                 if text_buf_ts:
                                     entry["ts"] = text_buf_ts
+                                if text_buf_model:
+                                    entry["model"] = text_buf_model
                                 collapsed.append(entry)
                                 text_buf = ""
                                 text_buf_ts = None
+                                text_buf_model = None
                             collapsed.append(evt)
                     if text_buf:
                         entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
                         if text_buf_ts:
                             entry["ts"] = text_buf_ts
+                        if text_buf_model:
+                            entry["model"] = text_buf_model
                         collapsed.append(entry)
                     for evt in collapsed:
                         emit("acp_event", {"session_id": acp_sid, "event": evt})

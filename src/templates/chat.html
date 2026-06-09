@@ -320,6 +320,7 @@
     let currentText = '';
     let currentContentDiv = null;
     let currentTurnTs = null;
+    let currentTurnModel = null;
     let toolCalls = {};
     let userMsgCount = 0;
     let historyOffset = 0;
@@ -330,6 +331,7 @@
     function ensureAssistantMsg(ts) {
         if (!currentAssistantMsg) {
             const msgTs = ts || currentTurnTs;
+            const msgModel = currentTurnModel || window._sessionModel;
             currentText = '';
             currentContentDiv = null;
             currentAssistantMsg = document.createElement('div');
@@ -338,7 +340,7 @@
             const label = document.createElement('div');
             label.className = 'msg-label';
             label.textContent = 'Fernando';
-            if (msgTs) _addTimestampSpan(label, msgTs);
+            if (msgTs) _addTimestampSpan(label, msgTs, msgModel);
             currentAssistantMsg.appendChild(label);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }
@@ -854,6 +856,7 @@
 
     function finishTurn() {
         currentTurnTs = null;
+        currentTurnModel = null;
         if (_chunkRenderPending) _renderCurrentChunk();
         if (_canvasTimer) { clearTimeout(_canvasTimer); _canvasTimer = null; }
         _activateCanvases();
@@ -1181,13 +1184,23 @@
         }
     }
 
-    function _addTimestampSpan(label, ts) {
+    function _addTimestampSpan(label, ts, model) {
         const span = document.createElement('span');
         span.className = 'msg-ts';
         const d = new Date(ts * 1000);
+        const now = new Date();
         const h = String(d.getHours()).padStart(2, '0');
         const m = String(d.getMinutes()).padStart(2, '0');
-        span.textContent = '· ' + h + ':' + m;
+        let text = '· ';
+        if (d.toDateString() === now.toDateString()) {
+            text += h + ':' + m;
+        } else if (d.getFullYear() === now.getFullYear()) {
+            text += d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + h + ':' + m;
+        } else {
+            text += d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0') + ' ' + h + ':' + m;
+        }
+        if (model) text += ' · ' + model;
+        span.textContent = text;
         label.appendChild(span);
     }
 
@@ -1433,8 +1446,9 @@
         const update = (evt.params || {}).update || {};
         const su = update.sessionUpdate;
 
-        // Capture timestamp for this assistant turn from the first event
+        // Capture timestamp and model for this assistant turn from the first event
         if (!currentTurnTs && evt.ts) currentTurnTs = evt.ts;
+        if (!currentTurnModel && evt.model) currentTurnModel = evt.model;
 
         // user_message_chunk from session/load replay
         if (su === 'user_message_chunk') {
@@ -1611,18 +1625,68 @@
         });
     })();
 
-    // Touch toggle for message timestamps on mobile
+    // Timestamp reveal: 1.5s hover on a message then sticky, mobile long-press
     (function() {
         const msgs = document.querySelector('.messages');
-        if (!msgs || !('ontouchstart' in window)) return;
-        let activeTs = null;
-        msgs.addEventListener('touchstart', (e) => {
-            const msg = e.target.closest('.msg');
-            const tsSpan = msg && msg.querySelector('.msg-ts');
-            if (activeTs && activeTs !== tsSpan) activeTs.classList.remove('visible');
-            if (tsSpan) { tsSpan.classList.toggle('visible'); activeTs = tsSpan; }
-            else if (activeTs) { activeTs.classList.remove('visible'); activeTs = null; }
-        });
+        if (!msgs) return;
+        let hoverTimer = null;
+        let hoverMsg = null;
+        let tsVisible = false;
+
+        function showAll() {
+            tsVisible = true;
+            msgs.querySelectorAll('.msg-ts').forEach(s => s.classList.add('visible'));
+        }
+        function hideAll() {
+            tsVisible = false;
+            msgs.querySelectorAll('.msg-ts').forEach(s => s.classList.remove('visible'));
+        }
+
+        // Observe new messages and auto-show their timestamps if already in visible mode
+        const obs = new MutationObserver(() => { if (tsVisible) showAll(); });
+        obs.observe(msgs, { childList: true, subtree: true });
+
+        if ('ontouchstart' in window) {
+            // Mobile: long-press 500ms to reveal, tap elsewhere to dismiss
+            let pressTimer = null;
+            msgs.addEventListener('touchstart', (e) => {
+                const msg = e.target.closest('.msg');
+                if (!msg) return;
+                pressTimer = setTimeout(() => { pressTimer = null; showAll(); }, 500);
+            });
+            msgs.addEventListener('touchend', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+            msgs.addEventListener('touchmove', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });
+            document.addEventListener('touchstart', (e) => { if (tsVisible && !e.target.closest('.messages')) hideAll(); });
+        } else {
+            // Desktop: 1.5s hover on a specific message, then show all until mouseout from messages area
+            msgs.addEventListener('mouseover', (e) => {
+                const msg = e.target.closest('.msg');
+                if (tsVisible) return;
+                if (msg && msg !== hoverMsg) {
+                    if (hoverTimer) clearTimeout(hoverTimer);
+                    hoverMsg = msg;
+                    hoverTimer = setTimeout(showAll, 1500);
+                }
+            });
+            msgs.addEventListener('mouseout', (e) => {
+                const msg = e.target.closest('.msg');
+                const related = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.msg');
+                // Left the hovered message without entering another — reset timer
+                if (!tsVisible && msg === hoverMsg && related !== hoverMsg) {
+                    if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+                    hoverMsg = null;
+                }
+            });
+            msgs.addEventListener('mouseleave', () => {
+                if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+                hoverMsg = null;
+                if (tsVisible) hideAll();
+            });
+            msgs.addEventListener('scroll', () => {
+                if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+                hoverMsg = null;
+            });
+        }
     })();
 
     // --- Plus menu & Tool modal ---
