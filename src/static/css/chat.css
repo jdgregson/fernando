@@ -50,6 +50,19 @@ body { display: flex; flex-direction: column; }
     margin-bottom: 6px;
     opacity: 0.6;
 }
+.msg .msg-label .msg-ts {
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+    margin-left: 6px;
+    color: #888;
+}
+.msg:hover .msg-label .msg-ts,
+.msg .msg-label .msg-ts.visible {
+    opacity: 1;
+}
 .msg.user {
     background: #102d50;
 }

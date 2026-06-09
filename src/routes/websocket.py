@@ -565,18 +565,28 @@ def register_handlers(socketio):
                 # Collapse consecutive agent_message_chunk text events into single events
                 collapsed = []
                 text_buf = ""
+                text_buf_ts = None
                 for evt in history:
                     su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                     content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                     if su == "agent_message_chunk" and content.get("type") == "text":
+                        if not text_buf_ts and evt.get("ts"):
+                            text_buf_ts = evt["ts"]
                         text_buf += content["text"]
                     else:
                         if text_buf:
-                            collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                            entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
+                            if text_buf_ts:
+                                entry["ts"] = text_buf_ts
+                            collapsed.append(entry)
                             text_buf = ""
+                            text_buf_ts = None
                         collapsed.append(evt)
                 if text_buf:
-                    collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                    entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
+                    if text_buf_ts:
+                        entry["ts"] = text_buf_ts
+                    collapsed.append(entry)
                 for evt in collapsed:
                     emit("acp_event", {"session_id": acp_sid, "event": evt})
                 # Tell client the actual history length and next live sequence number
@@ -601,18 +611,28 @@ def register_handlers(socketio):
                 if history:
                     collapsed = []
                     text_buf = ""
+                    text_buf_ts = None
                     for evt in history:
                         su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                         content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                         if su == "agent_message_chunk" and content.get("type") == "text":
+                            if not text_buf_ts and evt.get("ts"):
+                                text_buf_ts = evt["ts"]
                             text_buf += content["text"]
                         else:
                             if text_buf:
-                                collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                                entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
+                                if text_buf_ts:
+                                    entry["ts"] = text_buf_ts
+                                collapsed.append(entry)
                                 text_buf = ""
+                                text_buf_ts = None
                             collapsed.append(evt)
                     if text_buf:
-                        collapsed.append({"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}})
+                        entry = {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text_buf}}}}
+                        if text_buf_ts:
+                            entry["ts"] = text_buf_ts
+                        collapsed.append(entry)
                     for evt in collapsed:
                         emit("acp_event", {"session_id": acp_sid, "event": evt})
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": 0, "history_length": len(history)}})

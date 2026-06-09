@@ -271,7 +271,7 @@ class ACPSession:
             time.sleep(0.5)
         self._is_prompting = True
         self._last_activity = time.time()
-        self.history.append({"type": "user_prompt", "text": text})
+        self.history.append({"type": "user_prompt", "text": text, "ts": time.time()})
         self._save_history()
         self._send({
             "jsonrpc": "2.0",
@@ -291,7 +291,7 @@ class ACPSession:
         self._is_prompting = True
         self._last_activity = time.time()
         prefixed = "[CONTINUATION] " + text
-        evt = {"type": "continuation", "text": prefixed}
+        evt = {"type": "continuation", "text": prefixed, "ts": time.time()}
         self.history.append(evt)
         self._save_history()
         if self.on_event:
@@ -371,6 +371,7 @@ class ACPSession:
             return
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
+            msg.setdefault("ts", time.time())
             self.history.append(msg)
             is_turn_end = bool(msg.get("result", {}).get("stopReason"))
             self._save_history(index_rag=is_turn_end)

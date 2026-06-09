@@ -319,6 +319,7 @@
     let currentAssistantMsg = null;
     let currentText = '';
     let currentContentDiv = null;
+    let currentTurnTs = null;
     let toolCalls = {};
     let userMsgCount = 0;
     let historyOffset = 0;
@@ -326,15 +327,18 @@
     let seqBuffer = {};    // seq -> data, for out-of-order events
     let _modelListPending = false;  // true when we're collecting a model list response
 
-    function ensureAssistantMsg() {
+    function ensureAssistantMsg(ts) {
         if (!currentAssistantMsg) {
+            const msgTs = ts || currentTurnTs;
             currentText = '';
             currentContentDiv = null;
             currentAssistantMsg = document.createElement('div');
             currentAssistantMsg.className = 'msg assistant';
+            if (msgTs) currentAssistantMsg.dataset.ts = msgTs;
             const label = document.createElement('div');
             label.className = 'msg-label';
             label.textContent = 'Fernando';
+            if (msgTs) _addTimestampSpan(label, msgTs);
             currentAssistantMsg.appendChild(label);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }
@@ -849,6 +853,7 @@
     }
 
     function finishTurn() {
+        currentTurnTs = null;
         if (_chunkRenderPending) _renderCurrentChunk();
         if (_canvasTimer) { clearTimeout(_canvasTimer); _canvasTimer = null; }
         _activateCanvases();
@@ -1176,12 +1181,24 @@
         }
     }
 
-    function addUserMessage(text, collapsed) {
+    function _addTimestampSpan(label, ts) {
+        const span = document.createElement('span');
+        span.className = 'msg-ts';
+        const d = new Date(ts * 1000);
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        span.textContent = '· ' + h + ':' + m;
+        label.appendChild(span);
+    }
+
+    function addUserMessage(text, collapsed, ts) {
         const el = document.createElement('div');
         el.className = 'msg user';
+        if (ts) el.dataset.ts = ts;
         const label = document.createElement('div');
         label.className = 'msg-label';
         label.textContent = 'You';
+        if (ts) _addTimestampSpan(label, ts);
         el.appendChild(label);
         if (collapsed) {
             const preview = document.createElement('span');
@@ -1272,7 +1289,7 @@
             renderAttached();
         }
 
-        addUserMessage(text);
+        addUserMessage(text, false, Date.now() / 1000);
         _userScrolledUp = false;
 
         input.value = '';
@@ -1392,7 +1409,7 @@
                 addSystemMessage(evt.text.slice(15), 'continuation');
             } else {
                 const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
-                addUserMessage(display);
+                addUserMessage(display, false, evt.ts);
             }
             return;
         }
@@ -1415,6 +1432,9 @@
 
         const update = (evt.params || {}).update || {};
         const su = update.sessionUpdate;
+
+        // Capture timestamp for this assistant turn from the first event
+        if (!currentTurnTs && evt.ts) currentTurnTs = evt.ts;
 
         // user_message_chunk from session/load replay
         if (su === 'user_message_chunk') {
@@ -1588,6 +1608,20 @@
                     if (rafId) cancelAnimationFrame(rafId);
                 }
             }, 300);
+        });
+    })();
+
+    // Touch toggle for message timestamps on mobile
+    (function() {
+        const msgs = document.querySelector('.messages');
+        if (!msgs || !('ontouchstart' in window)) return;
+        let activeTs = null;
+        msgs.addEventListener('touchstart', (e) => {
+            const msg = e.target.closest('.msg');
+            const tsSpan = msg && msg.querySelector('.msg-ts');
+            if (activeTs && activeTs !== tsSpan) activeTs.classList.remove('visible');
+            if (tsSpan) { tsSpan.classList.toggle('visible'); activeTs = tsSpan; }
+            else if (activeTs) { activeTs.classList.remove('visible'); activeTs = null; }
         });
     })();
 
