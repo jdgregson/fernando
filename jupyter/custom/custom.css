@@ -473,3 +473,11 @@ div.cell .input::before {
     pointer-events: none;
     z-index: 1;
 }
+
+.rendered_html tbody tr:nth-child(odd) {
+    background: #112d50 !important;
+}
+
+.rendered_html table {
+    color: #799ec4 !important;
+}
