@@ -999,16 +999,13 @@ def api_step_progress():
     if not session_id:
         return json.dumps({"error": "missing session_id"}), 400, {"Content-Type": "application/json"}
     # Persist and broadcast via the ACP event system.
-    # Only persist initial (creates widget at correct position) and final (shows completed state).
-    # Broadcast all events live so connected clients see real-time progress.
+    # Persist every progress event so on reload the latest state is always visible,
+    # even if the pipeline hung mid-way (bounded: ~2 events per step).
     session = acp_manager.get_session(session_id)
     if session:
         evt = {"type": "step_progress", "data": data}
-        running_index = data.get("running_index")
-        # running_index: -1 = initial, >= 0 = in progress, -2 = final
-        if running_index == -1 or running_index == -2:
-            session.history.append(evt)
-            session._save_history()
+        session.history.append(evt)
+        session._save_history()
         # Broadcast via normal ACP event channel (gets sequenced, subscribers see it)
         if hasattr(acp_manager, 'default_on_event') and acp_manager.default_on_event:
             acp_manager.default_on_event(session_id, evt)

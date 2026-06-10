@@ -225,7 +225,9 @@
         const pid = data.pipeline_id;
         let widget = _pipelines[pid];
         if (!widget) {
-            ensureAssistantMsg();
+            // Don't create a new assistant message for step_progress — if the turn
+            // was already finished (cancelled/ended), this is a stale late-arriving event.
+            if (!currentAssistantMsg) return;
             if (_chunkRenderPending) _renderCurrentChunk();
             widget = document.createElement('div');
             widget.className = 'pipeline-widget';
@@ -1434,8 +1436,7 @@
         }
 
         if (evt.type === 'session_ready') {
-            const hasActiveTool = Object.values(toolCalls).some(tc => tc.statusSpan && tc.statusSpan.textContent !== 'completed');
-            if (!hasActiveTool) { finishTurn(); setStatus('ready', 'Ready'); }
+            finishTurn(); setStatus('ready', 'Ready');
             return;
         }
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }

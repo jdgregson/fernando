@@ -3,6 +3,7 @@ from flask_socketio import emit
 import os
 import ssl
 import subprocess
+import time
 import websocket as ws_client
 from src.services.pty_service import pty_service
 from src.services.docker import docker_service
@@ -612,6 +613,16 @@ def register_handlers(socketio):
                                 emit("acp_event", {"session_id": acp_sid, "event": evt})
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                elif session.proc is None or session.proc.poll() is not None:
+                    # Process is dead but session wasn't marked ready — it's stuck/crashed
+                    logger.info(f"acp_subscribe: session {acp_sid} proc dead, sending session_ready")
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                elif not session._is_prompting and (time.time() - session._last_activity) > 60:
+                    # Process alive but idle for >60s without being in a prompt — stalled
+                    logger.info(f"acp_subscribe: session {acp_sid} stalled (idle {time.time() - session._last_activity:.0f}s), sending session_ready")
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                else:
+                    logger.info(f"acp_subscribe: session {acp_sid} not ready. ready={session.ready} proc={session.proc is not None} poll={session.proc.poll() if session.proc else 'N/A'} prompting={session._is_prompting} idle={time.time() - session._last_activity:.0f}s")
             else:
                 # Archived session — replay from history file as read-only preview
                 from src.services.acp import load_history_file

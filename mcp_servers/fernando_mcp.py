@@ -19,6 +19,7 @@ import json
 import re
 import secrets
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -756,7 +757,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="run_steps",
-            description="Run a sequence of shell commands with live progress updates in the chat UI. Each step runs sequentially; if one fails (non-zero exit code), subsequent steps are skipped. A non-zero exit code is treated as failure — if a command is expected to return non-zero, wrap it to coerce the exit code (e.g. 'grep pattern file || true'). The chat shows a live-updating step list with status, duration, and a cancel button. Use this instead of multiple sequential shell calls when you want the user to see progress.",
+            description="Run a sequence of shell commands with live progress updates in the chat UI. Each step runs sequentially; if one fails (non-zero exit code), subsequent steps are skipped. A non-zero exit code is treated as failure — if a command is expected to return non-zero, wrap it to coerce the exit code (e.g. 'grep pattern file || true'). The chat shows a live-updating step list with status, duration, and a cancel button. Use this instead of multiple sequential shell calls when you want the user to see progress. SSH + background processes: When starting a persistent process on a remote host via SSH, you MUST redirect all three file descriptors (stdin, stdout, stderr) to /dev/null AND background with & INSIDE the remote shell's command string. The tool waits for all child FDs to close — SSH won't exit until the remote process's inherited FDs close. Correct: ssh host 'bash -c \"cmd > /dev/null 2>&1 < /dev/null & disown\"'. Wrong: nohup, setsid, or & outside the SSH quotes. Note: disown is a bash builtin — always use bash -c on the remote side since the remote user's shell may be sh.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -767,7 +768,7 @@ async def list_tools() -> list[Tool]:
                             "properties": {
                                 "label": {"type": "string", "description": "Human-readable description of the step"},
                                 "command": {"type": "string", "description": "Shell command to execute"},
-                                "timeout": {"type": "integer", "description": "Optional timeout in seconds for this step. No timeout if omitted."},
+                                "timeout": {"type": "integer", "description": "Optional timeout in seconds for this step (default: 30). Set higher for long-running commands."},
                             },
                             "required": ["label", "command"],
                         },
@@ -1214,17 +1215,54 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
             start_t = time.time()
             try:
-                timeout = step.get("timeout")
-                proc = subprocess.run(
+                timeout = step.get("timeout", 30)
+                proc = subprocess.Popen(
                     ["bash", "-c", step["command"]],
-                    capture_output=True, text=True, timeout=timeout,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, start_new_session=True,
                 )
+                # Start cancel watchdog that kills the process group if cancel file appears
+                _cancel_flag = [False]
+                def _watchdog(p, path, flag):
+                    while p.poll() is None:
+                        if os.path.exists(path):
+                            flag[0] = True
+                            try:
+                                os.killpg(p.pid, 9)
+                            except OSError:
+                                pass
+                            return
+                        time.sleep(0.5)
+                wdog = threading.Thread(target=_watchdog, args=(proc, cancel_path, _cancel_flag), daemon=True)
+                wdog.start()
+                try:
+                    stdout, stderr = proc.communicate(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    # Kill the entire process group (bash + all children)
+                    try:
+                        os.killpg(proc.pid, 9)
+                    except OSError:
+                        pass
+                    proc.wait()
+                    duration = round(time.time() - start_t, 1)
+                    results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": f"Timed out after {timeout}s", "duration": duration})
+                    _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                    for j in range(i + 1, len(steps)):
+                        results.append({"label": steps[j]["label"], "status": "skipped", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                    _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                    break
+                wdog.join(timeout=1)
+                if _cancel_flag[0]:
+                    cancelled = True
+                    duration = round(time.time() - start_t, 1)
+                    results.append({"label": step["label"], "status": "cancelled", "exit_code": -1, "stdout": "", "stderr": "Cancelled by user", "duration": duration})
+                    _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                    for j in range(i + 1, len(steps)):
+                        results.append({"label": steps[j]["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                    break
                 duration = round(time.time() - start_t, 1)
                 status = "succeeded" if proc.returncode == 0 else "failed"
-                results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": proc.stdout[-4000:] if proc.stdout else "", "stderr": proc.stderr[-2000:] if proc.stderr else "", "duration": duration})
-            except subprocess.TimeoutExpired:
-                duration = round(time.time() - start_t, 1)
-                results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": f"Timed out after {step['timeout']}s", "duration": duration})
+                results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": stdout[-4000:] if stdout else "", "stderr": stderr[-2000:] if stderr else "", "duration": duration})
             except Exception as e:
                 duration = round(time.time() - start_t, 1)
                 results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": str(e), "duration": duration})
