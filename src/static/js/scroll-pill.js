@@ -21,7 +21,7 @@
             const ratio = el.clientHeight / el.scrollHeight;
             const pillHeight = Math.max(24, ratio * el.clientHeight);
             const scrollRatio = el.scrollTop / (el.scrollHeight - el.clientHeight);
-            const pillTop = scrollRatio * (el.clientHeight - pillHeight);
+            const pillTop = el.offsetTop + scrollRatio * (el.clientHeight - pillHeight);
             pill.style.height = pillHeight + 'px';
             pill.style.top = pillTop + 'px';
             pill.classList.add('visible');
@@ -72,6 +72,7 @@
 
     function scanScrollables() {
         document.querySelectorAll('*').forEach(el => {
+            if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT' || el.closest('.textarea-wrap')) return;
             const style = getComputedStyle(el);
             if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
                 attachScrollPill(el);
