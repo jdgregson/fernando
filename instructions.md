@@ -166,8 +166,10 @@ Every SilverBullet notebook has a page called `index` that is loaded by default 
 
 ## Command Execution
 
-When you need to run multiple sequential shell commands (3+), prefer the `run_steps` MCP tool over chaining individual shell calls. This gives the user live visibility into progress and the ability to cancel. Use this instead of multiple sequential shell calls when you want the user to see progress.
+MANDATORY: Never use the built-in shell tool (the Kiro CLI `shell` tool). It hangs silently ~30% of the time with no timeout, wasting minutes until the user notices and kills it. Use these MCP tools instead:
 
-`run_steps` is only for predictable sequences where the commands are known upfront and you don't need to reason about intermediate output to decide the next step. If you need to read output and adapt (investigative debugging, parsing results to decide what to do next), use individual shell calls as normal. The tradeoff: `run_steps` gives the user progress visibility but you lose the ability to inspect intermediate output and change course. Use it when the user only cares about the final result but wants to see progress along the way.
+- `@fernando/run_command` — Single command execution with a **required** timeout. Use this for all individual commands. You must specify how long the command should take; if it exceeds that, the process group is killed and you get an error back immediately. This is the default tool for running any command.
+- `@fernando/run_steps` — Multi-command pipeline with live progress UI and per-step timeouts. Use when running 3+ sequential commands where the user should see progress. Only for predictable sequences where commands are known upfront.
+- `@fernando/run_daemon` — Fire-and-forget for long-lived background processes (servers, watchers). Returns immediately with PID.
 
 `run_steps` treats any non-zero exit code as a failure and halts the pipeline. If a command is expected to return non-zero (e.g. `grep` finding no matches), wrap it to coerce the exit code: `grep pattern file || true`.

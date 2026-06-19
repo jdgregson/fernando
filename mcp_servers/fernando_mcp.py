@@ -738,6 +738,28 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="run_command",
+            description="Run a shell command with a mandatory timeout. Returns stdout, stderr, and exit code. The process group is killed if the timeout is exceeded. Use this for all command execution — it guarantees the call will never hang indefinitely.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Shell command to execute",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Maximum seconds the command may run before being killed (required)",
+                    },
+                    "working_dir": {
+                        "type": "string",
+                        "description": "Working directory (optional, defaults to project root)",
+                    },
+                },
+                "required": ["command", "timeout"],
+            },
+        ),
+        Tool(
             name="run_daemon",
             description="Launch a long-lived background process (server, watcher, etc.) that persists after this tool returns. Returns immediately with the PID. Use this instead of the shell tool for any process that should keep running (e.g., dev servers, jupyter, file watchers). The process is fully detached and will not block the session.",
             inputSchema={
@@ -1165,6 +1187,56 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = list_subagents()
     elif name == "terminate_subagent":
         result = terminate_subagent(arguments["task_id"])
+    elif name == "run_command":
+        cmd = arguments["command"]
+        timeout_secs = arguments["timeout"]
+        cwd = arguments.get("working_dir", _project_root)
+
+        def _exec():
+            start_t = time.time()
+            try:
+                proc = subprocess.Popen(
+                    ["bash", "-c", cmd],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, cwd=cwd, start_new_session=True,
+                )
+                try:
+                    stdout, stderr = proc.communicate(timeout=timeout_secs)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(proc.pid, 9)
+                    except OSError:
+                        pass
+                    proc.wait()
+                    return {"status": "timeout", "exit_code": -1, "stdout": "", "stderr": f"Killed: exceeded {timeout_secs}s timeout", "duration": round(time.time() - start_t, 1)}
+                duration = round(time.time() - start_t, 1)
+                # Truncate large output, spill full content to file
+                stdout_out = stdout or ""
+                stderr_out = stderr or ""
+                stdout_file = None
+                stderr_file = None
+                if len(stdout_out) > 16000:
+                    stdout_file = f"/tmp/run_cmd_stdout_{os.getpid()}_{int(start_t)}.txt"
+                    with open(stdout_file, "w") as f:
+                        f.write(stdout_out)
+                    stdout_out = stdout_out[:16000]
+                if len(stderr_out) > 4000:
+                    stderr_file = f"/tmp/run_cmd_stderr_{os.getpid()}_{int(start_t)}.txt"
+                    with open(stderr_file, "w") as f:
+                        f.write(stderr_out)
+                    stderr_out = stderr_out[:4000]
+                r = {"exit_code": proc.returncode, "stdout": stdout_out, "stderr": stderr_out, "duration": duration}
+                if stdout_file:
+                    r["stdout_truncated"] = True
+                    r["stdout_file"] = stdout_file
+                if stderr_file:
+                    r["stderr_truncated"] = True
+                    r["stderr_file"] = stderr_file
+                return r
+            except Exception as e:
+                return {"exit_code": -1, "stdout": "", "stderr": str(e), "duration": round(time.time() - start_t, 1)}
+
+        result = await asyncio.to_thread(_exec)
     elif name == "run_daemon":
         cmd = arguments["command"]
         cwd = arguments.get("working_dir", _project_root)

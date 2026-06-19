@@ -462,8 +462,40 @@ class ACPSession:
                 for line in chunk.decode(errors="replace").splitlines():
                     if line.strip():
                         logger.warning(f"[{self.id}] kiro-cli stderr: {line.rstrip()}")
+                        if "Transport" in line and "closed" in line:
+                            logger.error(f"[{self.id}] MCP transport crash detected, scheduling auto-reload")
+                            threading.Thread(target=self._auto_reload, daemon=True).start()
         except Exception:
             pass
+
+    def _auto_reload(self):
+        """Reload the session after MCP transport crash."""
+        # Wait for current turn to end
+        for _ in range(30):
+            if not self._is_prompting:
+                break
+            time.sleep(1)
+        acp_id = self.acp_session_id
+        if not acp_id or not self._alive:
+            return
+        logger.info(f"[{self.id}] Auto-reloading session after MCP crash")
+        # Notify user
+        if self.on_event:
+            self.on_event(self.id, {"type": "system_message", "text": "MCP server connection lost. Reloading session..."})
+        self.stop()
+        try:
+            self._recording = True
+            self._broadcasting = True
+            self._alive = True
+            self.load(acp_id)
+            self.ready = True
+            if self.on_event:
+                self.on_event(self.id, {"type": "session_ready"})
+                self.on_event(self.id, {"type": "system_message", "text": "Session reloaded. MCP tools restored."})
+        except Exception as e:
+            logger.error(f"[{self.id}] Auto-reload failed: {e}")
+            if self.on_event:
+                self.on_event(self.id, {"type": "system_message", "text": f"Auto-reload failed: {e}"})
 
     def _dispatch(self, msg):
         msg_id = msg.get("id")
@@ -496,9 +528,14 @@ class ACPSession:
             err = msg.get("error", {})
             logger.warning(f"[{self.id}] ACP error: {err}")
             self._is_prompting = False
+            # Detect MCP transport crash and auto-reload
+            err_text = str(err.get("data") or err.get("message", ""))
+            if "Transport" in err_text and "closed" in err_text:
+                logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
+                threading.Thread(target=self._auto_reload, daemon=True).start()
             if self.on_event and self._broadcasting:
                 try:
-                    self.on_event(self.id, {"type": "acp_error", "error": err.get("data") or err.get("message", "Unknown error")})
+                    self.on_event(self.id, {"type": "acp_error", "error": err_text or "Unknown error"})
                 except Exception:
                     pass
             return

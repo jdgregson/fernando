@@ -20,6 +20,7 @@
         <div class="input-row">
             <div class="textarea-wrap">
                 <textarea id="input" placeholder="Message Fernando..." rows="1" spellcheck="true"></textarea>
+                <div id="slashMenu" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;background:#1e2030;border:1px solid #333a50;border-radius:6px;padding:4px 0;z-index:100;min-width:160px;box-shadow:0 2px 8px rgba(0,0,0,0.3);font-size:13px;"></div>
                 <div class="attach-btn" id="attachBtn" onclick="togglePlusMenu(event)"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg>
                     <div class="plus-menu" id="plusMenu">
                         <div class="plus-menu-item" onclick="plusMenuAttach()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>File or image</div>
@@ -307,6 +308,15 @@
             addSystemMessage('Model changed to ' + data.model + '. Reloading session...');
         } else {
             addSystemMessage('Failed to change model.');
+            isWorking = false;
+            setStatus('ready', 'Ready');
+        }
+    });
+
+    socket.on('acp_restarted', (data) => {
+        if (data.session_id !== sessionId) return;
+        if (!data.ok) {
+            addSystemMessage('Failed to restart session.');
             isWorking = false;
             setStatus('ready', 'Ready');
         }
@@ -1261,6 +1271,8 @@
 
     function sendMessage() {
         document.getElementById('sendBtn').blur();
+        document.getElementById('slashMenu').style.display = 'none';
+        slashIdx = -1;
         const input = document.getElementById('input');
         let text = input.value.trim();
         if ((!text && attachedFiles.length === 0) || isWorking) return;
@@ -1276,6 +1288,18 @@
             isWorking = true;
             setStatus('working', 'Switching model...');
             socket.emit('acp_change_model', { csrf_token: csrfToken, session_id: sessionId, model: newModel });
+            return;
+        }
+
+        // Intercept /restart to reload the agent session
+        if (text === '/restart') {
+            input.value = '';
+            input.style.height = 'auto';
+            localStorage.removeItem(draftKey);
+            addSystemMessage('Restarting agent session...');
+            isWorking = true;
+            setStatus('working', 'Restarting...');
+            socket.emit('acp_restart', { csrf_token: csrfToken, session_id: sessionId });
             return;
         }
 
@@ -1437,8 +1461,10 @@
 
         if (evt.type === 'session_ready') {
             finishTurn(); setStatus('ready', 'Ready');
+            addSystemMessage('Session ready.');
             return;
         }
+        if (evt.type === 'system_message') { addSystemMessage(evt.text); return; }
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
         if (evt.type === 'archived_preview') { finishTurn(); setStatus('archived', 'Archived — read-only preview'); document.getElementById('input').disabled = true; document.getElementById('sendBtn').disabled = true; return; }
@@ -1497,6 +1523,29 @@
         else localStorage.removeItem(draftKey);
     }
     let resizeRaf = null;
+    const slashCommands = [
+        {cmd: '/model', desc: 'Switch AI model'},
+        {cmd: '/restart', desc: 'Restart agent session'},
+    ];
+    let slashIdx = -1;
+
+    function showSlashMenu(filter) {
+        const menu = document.getElementById('slashMenu');
+        const matches = slashCommands.filter(c => c.cmd.startsWith(filter));
+        if (!matches.length || filter === '') { menu.style.display = 'none'; slashIdx = -1; return; }
+        menu.innerHTML = matches.map((c, i) =>
+            `<div class="slash-item${i === slashIdx ? ' active' : ''}" data-cmd="${c.cmd}" style="padding:6px 12px;cursor:pointer;display:flex;justify-content:space-between;gap:12px;${i === slashIdx ? 'background:#2a2f45;' : ''}" onmousedown="completeSlash('${c.cmd}')"><span style="color:#e0e0e0">${c.cmd}</span><span style="color:#666;font-size:12px">${c.desc}</span></div>`
+        ).join('');
+        menu.style.display = 'block';
+    }
+
+    window.completeSlash = function(cmd) {
+        input.value = cmd;
+        document.getElementById('slashMenu').style.display = 'none';
+        slashIdx = -1;
+        input.focus();
+    };
+
     input.addEventListener('input', () => {
         if (!resizeRaf) {
             resizeRaf = requestAnimationFrame(() => {
@@ -1507,6 +1556,14 @@
         }
         clearTimeout(draftTimer);
         draftTimer = setTimeout(saveDraft, 2000);
+        // Slash command autocomplete
+        const val = input.value;
+        if (val.startsWith('/') && !val.includes(' ') && !val.includes('\n')) {
+            showSlashMenu(val);
+        } else {
+            document.getElementById('slashMenu').style.display = 'none';
+            slashIdx = -1;
+        }
     });
     // Restore draft on load
     const saved = localStorage.getItem(draftKey);
@@ -1517,6 +1574,25 @@
     }
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     input.addEventListener('keydown', (e) => {
+        const menu = document.getElementById('slashMenu');
+        if (menu.style.display !== 'none') {
+            const items = menu.querySelectorAll('.slash-item');
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                slashIdx = e.key === 'ArrowDown'
+                    ? Math.min(slashIdx + 1, items.length - 1)
+                    : Math.max(slashIdx - 1, 0);
+                items.forEach((el, i) => { el.style.background = i === slashIdx ? '#2a2f45' : ''; });
+                return;
+            }
+            if ((e.key === 'Tab' || e.key === 'Enter') && slashIdx >= 0) {
+                e.preventDefault();
+                const cmd = items[slashIdx]?.dataset.cmd;
+                if (cmd) completeSlash(cmd);
+                return;
+            }
+            if (e.key === 'Escape') { menu.style.display = 'none'; slashIdx = -1; return; }
+        }
         if (e.key === 'Enter' && !isIOS && !e.shiftKey) {
             e.preventDefault();
             sendMessage();

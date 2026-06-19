@@ -128,8 +128,8 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="run_command",
-            description="Run a shell command in the Kasm desktop",
+            name="desktop_shell",
+            description="Run a shell command in the Kasm desktop container",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -141,6 +141,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["command"],
             },
         ),
+
         Tool(
             name="screenshot",
             description="Take a screenshot of the Kasm desktop",
@@ -406,7 +407,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = exec_in_kasm(["bash", "-c", 'nohup "$1" &>/dev/null & sleep 1', "_", app_name], env=_e)
         return [TextContent(type="text", text=f"Opened: {app_name}\n{result}")]
 
-    elif name == "run_command":
+    elif name == "desktop_shell":
         cmd = arguments["command"]
         result = exec_in_kasm(f"DISPLAY=:1 {cmd}", shell=True)
         return [TextContent(type="text", text=f"Command output:\n{result}")]

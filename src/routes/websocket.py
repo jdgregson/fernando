@@ -720,6 +720,37 @@ def register_handlers(socketio):
         ok = acp_manager.change_model(sid, model)
         emit("acp_model_changed", {"session_id": sid, "model": model, "ok": ok})
 
+    @socketio.on("acp_restart")
+    def acp_restart(data):
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        if not sid:
+            return
+        session = acp_manager.get_session(sid)
+        if not session or not session.acp_session_id:
+            emit("acp_restarted", {"session_id": sid, "ok": False})
+            return
+        acp_id = session.acp_session_id
+        session.stop()
+        def _reload():
+            try:
+                session._recording = True
+                session._broadcasting = True
+                session._alive = True
+                session.load(acp_id)
+                session.ready = True
+                acp_manager._save_pid_map()
+                if session.on_event:
+                    session.on_event(sid, {"type": "session_ready"})
+            except Exception as e:
+                logger.error(f"acp_restart failed for {sid}: {e}")
+                if session.on_event:
+                    session.on_event(sid, {"type": "session_error", "error": str(e)})
+        import threading
+        threading.Thread(target=_reload, daemon=True).start()
+        emit("acp_restarted", {"session_id": sid, "ok": True})
+
     @socketio.on("acp_get_model")
     def acp_get_model(data):
         if not validate_csrf(data):
