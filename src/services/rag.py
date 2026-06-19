@@ -4,8 +4,6 @@ import json
 import logging
 import os
 
-import chromadb
-
 logger = logging.getLogger(__name__)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
@@ -15,6 +13,7 @@ COLLECTION_NAME = "chat_history"
 
 
 def _get_collection():
+    import chromadb
     client = chromadb.PersistentClient(path=CHROMA_DIR)
     return client.get_or_create_collection(COLLECTION_NAME)
 
