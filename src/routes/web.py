@@ -1026,3 +1026,140 @@ def api_cancel_pipeline():
     with open(cancel_path, "w") as f:
         f.write("1")
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/authorization/request", methods=["POST"])
+def api_authorization_request():
+    """MCP server calls this to emit an auth prompt to the chat UI."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    auth_id = data.get("auth_id")
+    action = data.get("action")
+    reason = data.get("reason", "")
+    description = data.get("description", action)
+    if not session_id or not action:
+        return json.dumps({"error": "Missing session_id or action"}), 400, {"Content-Type": "application/json"}
+    # Emit to the chat UI via socketio
+    from src import socketio
+    socketio.emit("authorization_request", {
+        "session_id": session_id,
+        "auth_id": auth_id,
+        "action": action,
+        "reason": reason,
+        "description": description,
+    }, namespace="/")
+    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/authorization/grant", methods=["POST"])
+def api_authorization_grant():
+    """Chat UI calls this to approve an authorization."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    action = data.get("action")
+    approved = data.get("approved", False)
+    if not session_id or not action:
+        return json.dumps({"error": "Missing session_id or action"}), 400, {"Content-Type": "application/json"}
+    if approved:
+        import time as _time
+        auth_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "authorization.json")
+        try:
+            with open(auth_config_path) as f:
+                config = json.load(f).get("authorizations", {})
+        except (OSError, json.JSONDecodeError):
+            config = {}
+        auth = config.get(action, {})
+        auth_dir = os.path.join("/tmp/agent_authorization", session_id)
+        os.makedirs(auth_dir, exist_ok=True)
+        grant = {
+            "granted_at": _time.time(),
+            "expires_at": _time.time() + auth.get("timeout_seconds", 300),
+        }
+        with open(os.path.join(auth_dir, action), "w") as f:
+            json.dump(grant, f)
+    else:
+        # Write denial file so the polling authorize tool detects it instantly
+        import time as _time
+        auth_dir = os.path.join("/tmp/agent_authorization", session_id)
+        os.makedirs(auth_dir, exist_ok=True)
+        denial = {"denied": True, "reason": data.get("deny_reason", ""), "at": _time.time()}
+        with open(os.path.join(auth_dir, action + ".denied"), "w") as f:
+            json.dump(denial, f)
+    return json.dumps({"ok": True, "approved": approved}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/authorization/state")
+def api_authorization_state():
+    """Get current authorization grant state for a session."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    session_id = request.args.get("session_id", "")
+    if not session_id:
+        return json.dumps({"error": "Missing session_id"}), 400, {"Content-Type": "application/json"}
+    import time as _time
+    auth_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "authorization.json")
+    try:
+        with open(auth_config_path) as f:
+            config = json.load(f).get("authorizations", {})
+    except (OSError, json.JSONDecodeError):
+        config = {}
+    auth_dir = os.path.join("/tmp/agent_authorization", session_id)
+    state = {}
+    for name, auth in config.items():
+        grant_file = os.path.join(auth_dir, name)
+        entry = {"description": auth.get("description", name), "expire_on_use": auth.get("expire_on_use", False), "timeout_seconds": auth.get("timeout_seconds", 300), "granted": False}
+        if os.path.exists(grant_file):
+            try:
+                with open(grant_file) as f:
+                    grant = json.load(f)
+                if grant.get("expires_at") and _time.time() > grant["expires_at"]:
+                    os.remove(grant_file)
+                else:
+                    entry["granted"] = True
+                    entry["expires_at"] = grant.get("expires_at")
+                    entry["granted_at"] = grant.get("granted_at")
+            except (OSError, json.JSONDecodeError):
+                pass
+        state[name] = entry
+    return json.dumps({"session_id": session_id, "authorizations": state}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/authorization/config", methods=["GET", "POST"])
+def api_authorization_config():
+    """View or update the authorization configuration."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    auth_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "authorization.json")
+    if request.method == "GET":
+        try:
+            with open(auth_config_path) as f:
+                return f.read(), 200, {"Content-Type": "application/json"}
+        except OSError:
+            return json.dumps({"authorizations": {}}), 200, {"Content-Type": "application/json"}
+    else:
+        data = request.get_json(force=True)
+        with open(auth_config_path, "w") as f:
+            json.dump(data, f, indent=2)
+        return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/authorization/revoke", methods=["POST"])
+def api_authorization_revoke():
+    """Revoke an active authorization grant."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    action = data.get("action")
+    if not session_id or not action:
+        return json.dumps({"error": "Missing session_id or action"}), 400, {"Content-Type": "application/json"}
+    grant_file = os.path.join("/tmp/agent_authorization", session_id, action)
+    try:
+        os.remove(grant_file)
+    except OSError:
+        pass
+    return json.dumps({"ok": True, "revoked": action}), 200, {"Content-Type": "application/json"}

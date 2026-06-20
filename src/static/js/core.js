@@ -132,6 +132,7 @@ function openSettings() {
     document.getElementById('settingsModal').classList.add('open');
     loadSettings();
     loadMcpServers();
+    loadAuthConfig();
 }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
 function switchSettingsTab(tab, btn) {
@@ -206,4 +207,111 @@ function toggleMcpServer(name, enabled) {
             loadMcpServers();
         }
     }).catch(() => { loadMcpServers(); });
+}
+
+function loadAuthConfig() {
+    fetch('/api/authorization/config?api_key=' + window.FERNANDO_API_KEY)
+        .then(r => r.json())
+        .then(config => {
+            const container = document.getElementById('authConfigArea');
+            const auths = config.authorizations || {};
+            const names = Object.keys(auths);
+            let html = '';
+            for (const name of names) {
+                const a = auths[name];
+                html += `<div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:6px;padding:10px 12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <div class="mcp-server-name">${name}</div>
+                        <button onclick="removeAuth('${name}')" style="background:transparent;color:#f44;border:none;cursor:pointer;font-size:11px;">Remove</button>
+                    </div>
+                    <div class="settings-row" style="margin:0;gap:8px;">
+                        <label class="settings-label" style="min-width:90px;">Description</label>
+                        <input type="text" class="settings-select" data-auth="${name}" data-field="description" value="${a.description || ''}" style="flex:1;">
+                    </div>
+                    <div class="settings-row" style="margin:0;gap:8px;">
+                        <label class="settings-label" style="min-width:90px;">Match command</label>
+                        <input type="text" class="settings-select" data-auth="${name}" data-field="match_command" value="${a.match_command || ''}" style="flex:1;">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+                        <label style="color:#8899aa;font-size:12px;">Timeout (sec)</label>
+                        <input type="number" class="settings-select" data-auth="${name}" data-field="timeout_seconds" value="${a.timeout_seconds || 300}" style="width:70px;">
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <input type="checkbox" data-auth="${name}" data-field="expire_on_use" ${a.expire_on_use ? 'checked' : ''}>
+                        <label style="color:#8899aa;font-size:12px;">Single-use</label>
+                    </div>
+                </div>`;
+            }
+            html += `<div style="margin-top:8px;display:flex;gap:8px;">
+                <input type="text" id="newAuthName" placeholder="New authorization name" class="settings-select" style="flex:1;">
+                <button onclick="addAuth()" style="background:#2d6b4f;color:#fff;border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;">Add</button>
+            </div>`;
+            html += `<button onclick="saveAuthConfigFromEditor()" style="margin-top:10px;background:#2d6b4f;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;">Save</button>`;
+            container.innerHTML = html;
+        })
+        .catch(() => {
+            document.getElementById('authConfigArea').textContent = 'Failed to load auth config.';
+        });
+}
+
+function removeAuth(name) {
+    const el = document.querySelector(`[data-auth="${name}"]`).closest('.mcp-server-item');
+    el.remove();
+}
+
+function addAuth() {
+    const nameInput = document.getElementById('newAuthName');
+    const name = nameInput.value.trim();
+    if (!name) return;
+    nameInput.value = '';
+    const container = document.getElementById('authConfigArea');
+    const addDiv = container.querySelector('div[style*="margin-top:8px"]');
+    const newItem = document.createElement('div');
+    newItem.className = 'mcp-server-item';
+    newItem.style.cssText = 'flex-direction:column;align-items:stretch;gap:6px;padding:10px 12px;';
+    newItem.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div class="mcp-server-name">${name}</div>
+            <button onclick="removeAuth('${name}')" style="background:transparent;color:#f44;border:none;cursor:pointer;font-size:11px;">Remove</button>
+        </div>
+        <div class="settings-row" style="margin:0;gap:8px;">
+            <label class="settings-label" style="min-width:90px;">Description</label>
+            <input type="text" class="settings-select" data-auth="${name}" data-field="description" value="" style="flex:1;">
+        </div>
+        <div class="settings-row" style="margin:0;gap:8px;">
+            <label class="settings-label" style="min-width:90px;">Match command</label>
+            <input type="text" class="settings-select" data-auth="${name}" data-field="match_command" value="" style="flex:1;">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+            <label style="color:#8899aa;font-size:12px;">Timeout (sec)</label>
+            <input type="number" class="settings-select" data-auth="${name}" data-field="timeout_seconds" value="300" style="width:70px;">
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" data-auth="${name}" data-field="expire_on_use" checked>
+            <label style="color:#8899aa;font-size:12px;">Single-use</label>
+        </div>
+    `;
+    container.insertBefore(newItem, addDiv);
+}
+
+function saveAuthConfigFromEditor() {
+    const auths = {};
+    const items = document.querySelectorAll('#authConfigArea .mcp-server-item');
+    items.forEach(item => {
+        const inputs = item.querySelectorAll('[data-auth]');
+        if (!inputs.length) return;
+        const name = inputs[0].dataset.auth;
+        auths[name] = {};
+        inputs.forEach(inp => {
+            const field = inp.dataset.field;
+            if (inp.type === 'checkbox') auths[name][field] = inp.checked;
+            else if (inp.type === 'number') auths[name][field] = parseInt(inp.value) || 0;
+            else auths[name][field] = inp.value;
+        });
+    });
+    fetch('/api/authorization/config', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({authorizations: auths}),
+    }).then(() => loadAuthConfig());
 }

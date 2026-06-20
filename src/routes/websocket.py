@@ -751,6 +751,20 @@ def register_handlers(socketio):
         threading.Thread(target=_reload, daemon=True).start()
         emit("acp_restarted", {"session_id": sid, "ok": True})
 
+    @socketio.on("acp_system_message")
+    def acp_system_message(data):
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        text = data.get("text", "")
+        if not sid or not text:
+            return
+        session = acp_manager.get_session(sid)
+        if session:
+            evt = {"type": "system_message", "text": text, "ts": __import__('time').time()}
+            session.history.append(evt)
+            session._save_history()
+
     @socketio.on("acp_get_model")
     def acp_get_model(data):
         if not validate_csrf(data):

@@ -322,6 +322,51 @@
         }
     });
 
+    socket.on('authorization_request', (data) => {
+        if (data.session_id !== sessionId) return;
+        // Remove any existing prompt for this action (prevent duplicates)
+        document.querySelectorAll('.auth-modal-overlay').forEach(el => el.remove());
+        const overlay = document.createElement('div');
+        overlay.className = 'auth-modal-overlay';
+        overlay.dataset.action = data.action;
+        overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.6);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;';
+        overlay.innerHTML = `
+            <div style="background:#1a2236;border:1px solid #2a3a5c;border-radius:10px;padding:24px;width:100%;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0ad4e" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                    <span style="color:#f0ad4e;font-size:14px;font-weight:600;">Authorization: ${data.action}</span>
+                </div>
+                <div style="color:#e0e0e0;font-size:14px;margin-bottom:4px;">${data.description}</div>
+                ${data.reason ? `<div style="color:#888;font-size:13px;margin-bottom:12px;">${data.reason}</div>` : '<div style="margin-bottom:12px;"></div>'}
+                <textarea class="auth-reason-input" placeholder="Reason / instructions (optional)" style="width:100%;min-height:60px;background:#0d1525;border:1px solid #2a3a5c;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:13px;outline:none;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
+                <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;">
+                    <button onclick="respondAuth('${data.session_id}','${data.action}',true,this)" style="width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 0;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
+                    <button onclick="respondAuth('${data.session_id}','${data.action}',false,this)" style="width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 0;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
+                </div>
+            </div>
+        `;
+        // Attach to the chat container so it overlays the messages area
+        const chatContainer = document.querySelector('.chat-container') || document.getElementById('messages').parentElement;
+        chatContainer.style.position = 'relative';
+        chatContainer.appendChild(overlay);
+    });
+
+    window.respondAuth = function(sid, action, approved, btn) {
+        const overlay = btn.closest('.auth-modal-overlay');
+        const reasonInput = overlay.querySelector('.auth-reason-input');
+        const reason = reasonInput ? reasonInput.value.trim() : '';
+        fetch('/api/authorization/grant', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
+            body: JSON.stringify({session_id: sid, action: action, approved: approved, deny_reason: reason}),
+        });
+        overlay.remove();
+        // Persist result in chat history
+        const text = (approved ? '\u2713 Approved' : '\u2717 Denied') + ': ' + action + (reason ? ' \u2014 ' + reason : '');
+        addSystemMessage(text);
+        socket.emit('acp_system_message', {csrf_token: csrfToken, session_id: sid, text: text});
+    };
+
     function forceUnstick() {
         if (!confirm("Kill the stuck kiro-cli process and reload the session? The agent's last partial response will be lost.")) return;
         setStatus('working', 'Restarting agent...');
@@ -834,6 +879,62 @@
         _canvasTimer = setTimeout(_activateCanvases, 1500);
     }
 
+    function showAuthorizationModal() {
+        fetch(`/api/authorization/state?session_id=${sessionId}`, {headers: {'X-API-Key': apiKey}})
+            .then(r => r.json())
+            .then(data => {
+                const auths = data.authorizations || {};
+                const overlay = document.createElement('div');
+                overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center';
+                overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+                const modal = document.createElement('div');
+                modal.style.cssText = 'background:#1e2030;border:1px solid #3b4261;border-radius:8px;padding:16px;min-width:300px;max-width:90vw;max-height:80vh;overflow-y:auto';
+                const title = document.createElement('div');
+                title.style.cssText = 'color:#c0caf5;font-size:14px;font-weight:600;margin-bottom:12px';
+                title.textContent = 'Authorization State';
+                modal.appendChild(title);
+                const names = Object.keys(auths);
+                if (!names.length) {
+                    const empty = document.createElement('div');
+                    empty.style.cssText = 'color:#666;font-size:13px;padding:8px 0';
+                    empty.textContent = 'No authorizations configured.';
+                    modal.appendChild(empty);
+                } else {
+                    for (const name of names) {
+                        const a = auths[name];
+                        const row = document.createElement('div');
+                        row.style.cssText = 'padding:10px 12px;margin:4px 0;border-radius:6px;background:#24283b;display:flex;justify-content:space-between;align-items:center;gap:12px';
+                        const left = document.createElement('div');
+                        left.innerHTML = `<div style="color:#e0e0e0;font-size:13px;font-weight:500">${name}</div><div style="color:#777;font-size:11px">${a.description}${a.expire_on_use ? ' · single-use' : ''} · ${a.timeout_seconds}s timeout</div>`;
+                        row.appendChild(left);
+                        const right = document.createElement('div');
+                        if (a.granted) {
+                            const remaining = Math.max(0, Math.round((a.expires_at || 0) - Date.now()/1000));
+                            right.innerHTML = `<span style="color:#4caf50;font-size:12px">Active (${remaining}s)</span> <button onclick="revokeAuth('${name}',this)" style="margin-left:6px;background:#6b2d2d;color:#fff;border:none;border-radius:3px;padding:3px 8px;cursor:pointer;font-size:11px">Revoke</button>`;
+                        } else {
+                            right.innerHTML = '<span style="color:#666;font-size:12px">Not granted</span>';
+                        }
+                        row.appendChild(right);
+                        modal.appendChild(row);
+                    }
+                }
+                overlay.appendChild(modal);
+                document.body.appendChild(overlay);
+                document.addEventListener('keydown', function _esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', _esc); } });
+            })
+            .catch(() => addSystemMessage('Failed to load authorization state.'));
+    }
+
+    window.revokeAuth = function(action, btn) {
+        fetch('/api/authorization/revoke', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
+            body: JSON.stringify({session_id: sessionId, action: action}),
+        }).then(() => {
+            btn.parentElement.innerHTML = '<span style="color:#ff7a70;font-size:12px">Revoked</span>';
+        });
+    };
+
     function showModelModal(models, currentModel) {
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center';
@@ -1262,7 +1363,7 @@
     function addSystemMessage(text, extraClass) {
         const el = document.createElement('div');
         el.className = 'msg system' + (extraClass ? ' ' + extraClass : '');
-        const prefix = extraClass === 'continuation' ? '⟳ Continuation: ' : '⟳ ';
+        const prefix = extraClass === 'continuation' ? '⟳ Continuation: ' : (text.startsWith('✓') || text.startsWith('✗') ? '' : '⟳ ');
         const display = text.length > 75 && extraClass === 'continuation' ? text.slice(0, 75) + '…' : text;
         el.textContent = prefix + display;
         document.getElementById('messages').appendChild(el);
@@ -1304,6 +1405,13 @@
         }
 
         // Flag bare /model so we show the model picker directly (client-side)
+        if (text === '/authorization') {
+            input.value = '';
+            input.style.height = 'auto';
+            localStorage.removeItem(draftKey);
+            showAuthorizationModal();
+            return;
+        }
         if (text === '/model') {
             input.value = '';
             input.style.height = 'auto';
@@ -1526,6 +1634,7 @@
     const slashCommands = [
         {cmd: '/model', desc: 'Switch AI model'},
         {cmd: '/restart', desc: 'Restart agent session'},
+        {cmd: '/authorization', desc: 'View/manage permissions'},
     ];
     let slashIdx = -1;
 

@@ -584,6 +584,72 @@ def _jupyter_cmd(action, notebook=None, **kwargs):
         return {"error": str(e)}
 
 
+# --- Authorization system ---
+
+_AUTH_CONFIG_PATH = os.path.join(_project_root, "data", "authorization.json")
+_AUTH_DIR = "/tmp/agent_authorization"
+
+
+def _load_auth_config():
+    try:
+        with open(_AUTH_CONFIG_PATH) as f:
+            return json.load(f).get("authorizations", {})
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _check_authorization(cmd, session_id):
+    """Check if cmd requires authorization. Returns (allowed, auth_name) tuple."""
+    config = _load_auth_config()
+    for auth_name, auth in config.items():
+        pattern = auth["match_command"]
+        # Match as a command invocation: at start, after &&, after ;, or after |
+        if re.search(r'(?:^|&&|;|\|)\s*' + re.escape(pattern), cmd):
+            auth_file = os.path.join(_AUTH_DIR, session_id, auth_name)
+            if not os.path.exists(auth_file):
+                return False, auth_name
+            # Check if expired
+            try:
+                with open(auth_file) as f:
+                    grant = json.load(f)
+                if grant.get("expires_at") and time.time() > grant["expires_at"]:
+                    os.remove(auth_file)
+                    return False, auth_name
+            except (OSError, json.JSONDecodeError):
+                return False, auth_name
+    return True, None
+
+
+def _consume_authorization(cmd, session_id):
+    """If the command matched an expire_on_use authorization, delete the grant file."""
+    config = _load_auth_config()
+    for auth_name, auth in config.items():
+        pattern = auth["match_command"]
+        if re.search(r'(?:^|&&|;|\|)\s*' + re.escape(pattern), cmd) and auth.get("expire_on_use"):
+            auth_file = os.path.join(_AUTH_DIR, session_id, auth_name)
+            try:
+                os.remove(auth_file)
+            except OSError:
+                pass
+
+
+def _grant_authorization(session_id, auth_name):
+    """Write the grant file with expiry."""
+    config = _load_auth_config()
+    auth = config.get(auth_name)
+    if not auth:
+        return False
+    auth_dir = os.path.join(_AUTH_DIR, session_id)
+    os.makedirs(auth_dir, exist_ok=True)
+    grant = {
+        "granted_at": time.time(),
+        "expires_at": time.time() + auth.get("timeout_seconds", 300),
+    }
+    with open(os.path.join(auth_dir, auth_name), "w") as f:
+        json.dump(grant, f)
+    return True
+
+
 app = Server("fernando")
 
 
@@ -757,6 +823,24 @@ async def list_tools() -> list[Tool]:
                     },
                 },
                 "required": ["command", "timeout"],
+            },
+        ),
+        Tool(
+            name="authorize",
+            description="Request authorization for a protected action (e.g. 'commit', 'push'). This prompts the user in the chat UI for approval. Returns success/denied. Call this BEFORE attempting git commit or git push — run_command will reject those commands without a valid authorization grant.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "The authorization name to request (e.g. 'commit', 'push')",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Brief explanation of what you intend to do (shown to user)",
+                    },
+                },
+                "required": ["action", "reason"],
             },
         ),
         Tool(
@@ -1192,6 +1276,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         timeout_secs = arguments["timeout"]
         cwd = arguments.get("working_dir", _project_root)
 
+        # Authorization check
+        session_id = _find_my_session_id() or "unknown"
+        allowed, needed_auth = _check_authorization(cmd, session_id)
+        if not allowed:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Authorization required: '{needed_auth}'. Use the authorize tool to request permission first.",
+                "authorization_needed": needed_auth,
+            }, indent=2))]
+
         def _exec():
             start_t = time.time()
             try:
@@ -1237,6 +1330,70 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 return {"exit_code": -1, "stdout": "", "stderr": str(e), "duration": round(time.time() - start_t, 1)}
 
         result = await asyncio.to_thread(_exec)
+        # Consume authorization on successful execution
+        if result.get("exit_code", -1) == 0:
+            _consume_authorization(cmd, session_id)
+    elif name == "authorize":
+        action = arguments["action"]
+        reason = arguments.get("reason", "")
+        session_id = _find_my_session_id() or "unknown"
+        config = _load_auth_config()
+        if action not in config:
+            result = {"error": f"Unknown authorization: '{action}'"}
+        else:
+            def _do_authorize():
+                # Emit authorization request to the chat UI via HTTP
+                auth_id = secrets.token_hex(8)
+                api_key = ""
+                try:
+                    api_key = open("/tmp/fernando-api-key").read().strip()
+                except Exception:
+                    pass
+                req_data = json.dumps({
+                    "session_id": session_id,
+                    "auth_id": auth_id,
+                    "action": action,
+                    "reason": reason,
+                    "description": config[action].get("description", action),
+                }).encode()
+                try:
+                    req = urllib.request.Request(
+                        "http://localhost:5000/api/authorization/request",
+                        data=req_data,
+                        headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                    )
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    resp.read()
+                except Exception as e:
+                    return {"error": f"Failed to emit authorization request: {e}"}
+                # Poll for the grant or denial file
+                auth_file = os.path.join(_AUTH_DIR, session_id, action)
+                deny_file = auth_file + ".denied"
+                granted = False
+                denied = False
+                deny_reason = ""
+                while True:
+                    if os.path.exists(auth_file):
+                        granted = True
+                        break
+                    if os.path.exists(deny_file):
+                        denied = True
+                        try:
+                            with open(deny_file) as f:
+                                d = json.load(f)
+                                deny_reason = d.get("reason", "")
+                            os.remove(deny_file)
+                        except (OSError, json.JSONDecodeError):
+                            pass
+                        break
+                    time.sleep(1)
+                if granted:
+                    return {"status": "authorized", "action": action}
+                r = {"status": "denied", "action": action}
+                if deny_reason:
+                    r["reason"] = deny_reason
+                return r
+            result = await asyncio.to_thread(_do_authorize)
     elif name == "run_daemon":
         cmd = arguments["command"]
         cwd = arguments.get("working_dir", _project_root)
