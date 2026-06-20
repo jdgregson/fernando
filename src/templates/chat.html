@@ -1569,7 +1569,6 @@
 
         if (evt.type === 'session_ready') {
             finishTurn(); setStatus('ready', 'Ready');
-            addSystemMessage('Session ready.');
             return;
         }
         if (evt.type === 'system_message') { addSystemMessage(evt.text); return; }
