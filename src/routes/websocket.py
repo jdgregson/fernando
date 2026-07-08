@@ -8,6 +8,7 @@ import websocket as ws_client
 from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
+from src.services.rag import search as rag_search
 from src.services.automation import (
     automation_manager, create_rule, update_rule, delete_rule, list_rules,
     get_history as get_automation_history, load_meta_policy, save_meta_policy,
@@ -787,6 +788,28 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         emit("acp_archived_list", {"sessions": acp_manager.list_archived()})
+
+    @socketio.on("acp_search_archived")
+    def acp_search_archived(data):
+        if not validate_csrf(data):
+            return
+        query = (data.get("query") or "").strip()
+        if not query:
+            emit("acp_archived_search_results", {"sessions": []})
+            return
+        # Get all archived sessions for title matching
+        archived = acp_manager.list_archived()
+        archived_ids = {s["id"] for s in archived}
+        # Title matches (substring, case-insensitive)
+        q_lower = query.lower()
+        title_matches = {s["id"] for s in archived if q_lower in s["name"].lower()}
+        # RAG matches (semantic search across all conversations, then filter to archived only)
+        rag_hits = rag_search(query, limit=20)
+        rag_matches = {h["session_id"] for h in rag_hits if h["session_id"] in archived_ids}
+        # Merge: title matches first, then RAG-only matches
+        all_match_ids = title_matches | rag_matches
+        results = [s for s in archived if s["id"] in all_match_ids]
+        emit("acp_archived_search_results", {"sessions": results})
 
     @socketio.on("acp_restore")
     def acp_restore(data):

@@ -58,11 +58,36 @@ function toggleArchivedInline() {
     else document.querySelectorAll('.archived-item').forEach(el => el.remove());
 }
 function filterArchived() {
-    const q = document.getElementById('archiveSearch').value.toLowerCase();
+    const q = document.getElementById('archiveSearch').value.trim();
+    if (!q) {
+        // Empty query: show all archived items
+        document.querySelectorAll('.archived-item').forEach(el => el.style.display = '');
+        return;
+    }
+    // Immediate client-side title filter for responsiveness
+    const qLower = q.toLowerCase();
     document.querySelectorAll('.archived-item').forEach(el => {
-        el.style.display = el.querySelector('.session-name').textContent.toLowerCase().includes(q) ? '' : 'none';
+        el.style.display = el.querySelector('.session-name').textContent.toLowerCase().includes(qLower) ? '' : 'none';
     });
+    // Debounced RAG search
+    clearTimeout(filterArchived._timer);
+    filterArchived._timer = setTimeout(() => {
+        emitWithCsrf('acp_search_archived', { query: q });
+    }, 300);
 }
+
+socket.on('acp_archived_search_results', (data) => {
+    if (!showArchived) return;
+    const q = document.getElementById('archiveSearch').value.trim();
+    if (!q) return; // User cleared search while request was in-flight
+    const sessions = data.sessions || [];
+    const matchIds = new Set(sessions.map(s => s.id));
+    // Show/hide existing items based on merged results
+    document.querySelectorAll('.archived-item').forEach(el => {
+        const id = el.dataset.sessionId;
+        el.style.display = matchIds.has(id) ? '' : 'none';
+    });
+});
 
 socket.on('acp_archived_list', (data) => {
     document.querySelectorAll('.archived-item').forEach(el => el.remove());
@@ -71,6 +96,7 @@ socket.on('acp_archived_list', (data) => {
     (data.sessions || []).forEach(s => {
         const item = document.createElement('div');
         item.className = 'session-item archived-item';
+        item.dataset.sessionId = s.id;
         const name = document.createElement('span');
         name.className = 'session-name';
         name.textContent = s.name;
