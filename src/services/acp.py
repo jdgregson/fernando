@@ -492,6 +492,8 @@ class ACPSession:
             if self.on_event:
                 self.on_event(self.id, {"type": "session_ready"})
                 self.on_event(self.id, {"type": "system_message", "text": "Session reloaded. MCP tools restored."})
+            # Auto-continue the agent so it resumes work
+            self.send_continuation("The MCP server connection was lost and has been automatically restored. All tools are available again. Continue where you left off.")
         except Exception as e:
             logger.error(f"[{self.id}] Auto-reload failed: {e}")
             if self.on_event:
