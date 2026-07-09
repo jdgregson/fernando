@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, Response, request, current_app, make_response
 import json
 import os
+import signal
 import threading
 import time
 import requests
@@ -1014,7 +1015,7 @@ def api_step_progress():
 
 @bp.route("/api/cancel_pipeline", methods=["POST"])
 def api_cancel_pipeline():
-    """Create the cancel flag file for a running pipeline."""
+    """Send SIGTERM to the running process group of a pipeline step."""
     if not _check_api_key():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     data = request.get_json(force=True)
@@ -1022,9 +1023,16 @@ def api_cancel_pipeline():
     # Validate pipeline_id is a hex string to prevent path traversal
     if not pipeline_id or not all(c in "0123456789abcdef" for c in pipeline_id):
         return json.dumps({"error": "invalid pipeline_id"}), 400, {"Content-Type": "application/json"}
-    cancel_path = f"/tmp/fernando-pipeline-{pipeline_id}.cancel"
-    with open(cancel_path, "w") as f:
-        f.write("1")
+    pid_path = f"/tmp/fernando-pipeline-{pipeline_id}.pid"
+    try:
+        with open(pid_path) as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return json.dumps({"error": "no active step or invalid PID file"}), 404, {"Content-Type": "application/json"}
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 

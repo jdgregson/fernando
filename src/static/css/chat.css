@@ -348,9 +348,15 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .tool-exec-attach:hover { background: #5ed4bb; }
 
 /* Pipeline / run_steps widget */
-.pipeline-widget { background: #0a1d35; border: 1px solid #3b73b938; border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
-.pipeline-widget .pw-step { display: flex; flex-direction: column; padding: 2px 0; color: #9cdcfe; }
-.pipeline-widget .pw-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 0; }
+.pipeline-widget { background: #0a1d35; border: 1px solid #3b73b938; border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; border-top-right-radius: 0; border-bottom-left-radius: 0; margin-top: -10px; border-top: 0; }
+.pipeline-widget .pw-step { display: flex; flex-direction: column; padding: 2px 0; color: #9cdcfe; position: relative; }
+.pipeline-widget .pw-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 4px; position: relative; z-index: 1; border-radius: 3px; overflow: hidden; }
+.pipeline-widget .pw-step-header::before { content: ''; position: absolute; inset: 0; background: #3465a338; width: 0%; z-index: -1; border-radius: 3px; }
+.pipeline-widget .pw-step.running .pw-step-header::before { animation: pw-progress linear forwards; animation-duration: var(--pw-timeout, 30s); width: 100%; }
+.pipeline-widget .pw-step.succeeded .pw-step-header::before { width: 100%; background: #3465a338; transition: width 0.3s ease-out; animation: none; }
+.pipeline-widget .pw-step.failed .pw-step-header::before { background: #f4474715; animation: none; }
+.pipeline-widget .pw-step.cancelled .pw-step-header::before { background: #a5427015; animation: none; }
+@keyframes pw-progress { from { width: 0%; } to { width: 100%; } }
 .pipeline-widget .pw-step-header:hover { opacity: 0.8; }
 .pipeline-widget .pw-arrow { width: 12px; height: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.15s; color: #565f89; }
 .pipeline-widget .pw-arrow svg { width: 10px; height: 10px; }
