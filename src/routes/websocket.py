@@ -597,13 +597,11 @@ def register_handlers(socketio):
                     if text_buf_model:
                         entry["model"] = text_buf_model
                     collapsed.append(entry)
-                for evt in collapsed:
-                    emit("acp_event", {"session_id": acp_sid, "event": evt})
-                # Tell client the actual history length and next live sequence number
+                # Send history as a single batch to avoid "replay" effect
                 next_seq = acp_event_seq.get(acp_sid, 0)
-                logger.info(f"acp_subscribe: sending sync_seq={next_seq} history_len={len(session.history)} ready={session.ready}")
-                emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": next_seq, "history_length": len(session.history), "model": session.model}})
-                # On reconnect, re-send latest step_progress per pipeline to catch up stale widgets
+                logger.info(f"acp_subscribe: sending history batch ({len(collapsed)} events) sync_seq={next_seq} history_len={len(session.history)} ready={session.ready}")
+                # Append step_progress catch-up events for reconnects
+                step_progress_events = []
                 if offset > 0:
                     seen_pids = set()
                     for evt in reversed(session.history):
@@ -611,7 +609,15 @@ def register_handlers(socketio):
                             pid = (evt.get("data") or {}).get("pipeline_id")
                             if pid and pid not in seen_pids:
                                 seen_pids.add(pid)
-                                emit("acp_event", {"session_id": acp_sid, "event": evt})
+                                step_progress_events.append(evt)
+                emit("acp_history_batch", {
+                    "session_id": acp_sid,
+                    "events": collapsed,
+                    "step_progress": step_progress_events,
+                    "sync_seq": next_seq,
+                    "history_length": len(session.history),
+                    "model": session.model,
+                })
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 elif session.proc is None or session.proc.poll() is not None:
@@ -661,10 +667,15 @@ def register_handlers(socketio):
                         if text_buf_model:
                             entry["model"] = text_buf_model
                         collapsed.append(entry)
-                    for evt in collapsed:
-                        emit("acp_event", {"session_id": acp_sid, "event": evt})
-                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "sync_seq", "seq": 0, "history_length": len(history)}})
-                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "archived_preview"}})
+                    emit("acp_history_batch", {
+                        "session_id": acp_sid,
+                        "events": collapsed,
+                        "step_progress": [],
+                        "sync_seq": 0,
+                        "history_length": len(history),
+                        "model": None,
+                        "archived": True,
+                    })
 
     @socketio.on("acp_prompt")
     def acp_prompt(data):
