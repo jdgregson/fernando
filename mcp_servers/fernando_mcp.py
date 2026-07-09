@@ -18,6 +18,7 @@ import http.cookiejar
 import json
 import re
 import secrets
+import signal
 import subprocess
 import threading
 import time
@@ -129,6 +130,7 @@ def _step_progress_emit(api_key, session_id, pipeline_id, steps, results, runnin
         "pipeline_id": pipeline_id,
         "steps": [s["label"] for s in steps],
         "commands": [s["command"] for s in steps],
+        "timeouts": [s.get("timeout", 30) for s in steps],
         "results": results,
         "running_index": running_index,
     }).encode()
@@ -827,7 +829,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="authorize",
-            description="Request authorization for a protected action (e.g. 'commit', 'push'). This prompts the user in the chat UI for approval. Returns success/denied. Call this BEFORE attempting git commit or git push — run_command will reject those commands without a valid authorization grant.",
+            description="Request authorization for a protected action (e.g. 'commit', 'push'). This prompts the user in the chat UI for approval. Returns success/denied. Call this BEFORE attempting git commit or git push — run_command and run_steps will reject those commands without a valid authorization grant.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1419,97 +1421,107 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "run_steps":
         steps = arguments["steps"]
         session_id = _find_my_session_id() or ""
-        api_key = ""
-        try:
-            api_key = open("/tmp/fernando-api-key").read().strip()
-        except Exception:
-            pass
-        pipeline_id = secrets.token_hex(8)
-        results = []
-        cancelled = False
-        # Send initial state
-        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, -1)
-        for i, step in enumerate(steps):
-            # Check cancel flag
-            cancel_path = f"/tmp/fernando-pipeline-{pipeline_id}.cancel"
-            if os.path.exists(cancel_path):
-                cancelled = True
-                results.append({"label": step["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
-                _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
-                # Mark remaining as cancelled
-                for j in range(i + 1, len(steps)):
-                    results.append({"label": steps[j]["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+
+        # Authorization check: verify all step commands before executing any
+        auth_blocked = False
+        for step in steps:
+            allowed, needed_auth = _check_authorization(step["command"], session_id)
+            if not allowed:
+                result = {"error": f"Authorization required: '{needed_auth}' (in step '{step['label']}'). Use the authorize tool to request permission first.", "authorization_needed": needed_auth}
+                auth_blocked = True
                 break
-            # Mark step as running
-            _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
-            start_t = time.time()
+
+        if not auth_blocked:
+            api_key = ""
             try:
-                timeout = step.get("timeout", 30)
-                proc = subprocess.Popen(
-                    ["bash", "-c", step["command"]],
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, start_new_session=True,
-                )
-                # Start cancel watchdog that kills the process group if cancel file appears
-                _cancel_flag = [False]
-                def _watchdog(p, path, flag):
-                    while p.poll() is None:
-                        if os.path.exists(path):
-                            flag[0] = True
-                            try:
-                                os.killpg(p.pid, 9)
-                            except OSError:
-                                pass
-                            return
-                        time.sleep(0.5)
-                wdog = threading.Thread(target=_watchdog, args=(proc, cancel_path, _cancel_flag), daemon=True)
-                wdog.start()
+                api_key = open("/tmp/fernando-api-key").read().strip()
+            except Exception:
+                pass
+            pipeline_id = secrets.token_hex(8)
+            pid_path = f"/tmp/fernando-pipeline-{pipeline_id}.pid"
+            results = []
+            cancelled = False
+            # Send initial state
+            _step_progress_emit(api_key, session_id, pipeline_id, steps, results, -1)
+            for i, step in enumerate(steps):
+                # Mark step as running
+                _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                start_t = time.time()
                 try:
-                    stdout, stderr = proc.communicate(timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    # Kill the entire process group (bash + all children)
+                    timeout = step.get("timeout", 30)
+                    proc = subprocess.Popen(
+                        ["bash", "-c", step["command"]],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, start_new_session=True,
+                    )
+                    # Write PID file so the Flask cancel endpoint can SIGTERM this process group
                     try:
-                        os.killpg(proc.pid, 9)
+                        with open(pid_path, "w") as pf:
+                            pf.write(str(proc.pid))
                     except OSError:
                         pass
-                    proc.wait()
+                    try:
+                        stdout, stderr = proc.communicate(timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        # Kill the entire process group on timeout
+                        try:
+                            os.killpg(proc.pid, signal.SIGTERM)
+                        except OSError:
+                            pass
+                        # Give processes a moment to exit gracefully, then force kill
+                        try:
+                            proc.wait(timeout=3)
+                        except subprocess.TimeoutExpired:
+                            try:
+                                os.killpg(proc.pid, signal.SIGKILL)
+                            except OSError:
+                                pass
+                            proc.wait()
+                        duration = round(time.time() - start_t, 1)
+                        results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": f"Timed out after {timeout}s", "duration": duration})
+                        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                        for j in range(i + 1, len(steps)):
+                            results.append({"label": steps[j]["label"], "status": "skipped", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                        break
+                    # Remove PID file now that step finished
+                    try:
+                        os.unlink(pid_path)
+                    except OSError:
+                        pass
                     duration = round(time.time() - start_t, 1)
-                    results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": f"Timed out after {timeout}s", "duration": duration})
-                    _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                    # Process killed by SIGKILL = cancelled by user (Flask cancel endpoint)
+                    if proc.returncode == -signal.SIGKILL:
+                        cancelled = True
+                        results.append({"label": step["label"], "status": "cancelled", "exit_code": proc.returncode, "stdout": "", "stderr": "Cancelled by user", "duration": duration})
+                        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                        for j in range(i + 1, len(steps)):
+                            results.append({"label": steps[j]["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
+                        break
+                    status = "succeeded" if proc.returncode == 0 else "failed"
+                    results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": stdout[-4000:] if stdout else "", "stderr": stderr[-2000:] if stderr else "", "duration": duration})
+                except Exception as e:
+                    duration = round(time.time() - start_t, 1)
+                    results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": str(e), "duration": duration})
+                _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
+                # Stop on failure
+                if results[-1]["status"] == "failed":
                     for j in range(i + 1, len(steps)):
                         results.append({"label": steps[j]["label"], "status": "skipped", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
                     _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
                     break
-                wdog.join(timeout=1)
-                if _cancel_flag[0]:
-                    cancelled = True
-                    duration = round(time.time() - start_t, 1)
-                    results.append({"label": step["label"], "status": "cancelled", "exit_code": -1, "stdout": "", "stderr": "Cancelled by user", "duration": duration})
-                    _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
-                    for j in range(i + 1, len(steps)):
-                        results.append({"label": steps[j]["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
-                    break
-                duration = round(time.time() - start_t, 1)
-                status = "succeeded" if proc.returncode == 0 else "failed"
-                results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": stdout[-4000:] if stdout else "", "stderr": stderr[-2000:] if stderr else "", "duration": duration})
-            except Exception as e:
-                duration = round(time.time() - start_t, 1)
-                results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": str(e), "duration": duration})
-            _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
-            # Stop on failure
-            if results[-1]["status"] == "failed":
-                for j in range(i + 1, len(steps)):
-                    results.append({"label": steps[j]["label"], "status": "skipped", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
-                _step_progress_emit(api_key, session_id, pipeline_id, steps, results, i)
-                break
-        # Clean up cancel file if it exists
-        try:
-            os.unlink(f"/tmp/fernando-pipeline-{pipeline_id}.cancel")
-        except OSError:
-            pass
-        # Send final state
-        _step_progress_emit(api_key, session_id, pipeline_id, steps, results, -2)
-        result = {"pipeline_id": pipeline_id, "cancelled": cancelled, "steps": results}
+            # Clean up PID file if it still exists
+            try:
+                os.unlink(pid_path)
+            except OSError:
+                pass
+            # Send final state
+            _step_progress_emit(api_key, session_id, pipeline_id, steps, results, -2)
+            # Consume authorizations for successfully executed steps
+            for i, step_result in enumerate(results):
+                if step_result.get("exit_code") == 0:
+                    _consume_authorization(steps[i]["command"], session_id)
+            result = {"pipeline_id": pipeline_id, "cancelled": cancelled, "steps": results}
     elif name == "mutate":
         _save_continuation(arguments.get("continuation"))
         subprocess.Popen(
