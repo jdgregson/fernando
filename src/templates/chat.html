@@ -72,6 +72,7 @@
     const agentCwd = "{{ agent_cwd }}";
     let csrfToken = null;
     let isWorking = false;
+    let isReady = false;
 
     // Configure marked for safe rendering
     const renderer = new marked.Renderer();
@@ -109,6 +110,7 @@
 
     socket.on('connected', (data) => {
         csrfToken = data.csrf_token;
+        if (historyOffset === 0) setStatus('connecting', 'Loading...');
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId, history_offset: historyOffset });
     });
 
@@ -133,6 +135,7 @@
         document.getElementById('statusText').textContent = text;
         const btn = document.getElementById('sendBtn');
         if (state === 'ready') {
+            isReady = true;
             if (document.hasFocus()) {
                 document.getElementById('input').focus();
             }
@@ -239,9 +242,11 @@
         }
         const steps = data.steps || [];
         const commands = data.commands || [];
+        const timeouts = data.timeouts || [];
         const results = data.results || [];
         const running = data.running_index;
         widget._commands = commands;
+        widget._timeouts = timeouts;
         let html = '';
         for (let i = 0; i < steps.length; i++) {
             const r = results[i];
@@ -254,10 +259,12 @@
                 status = 'running';
                 icon = _pwIcons.running;
             }
+            const timeoutVal = timeouts[i] || 30;
+            const styleAttr = status === 'running' ? ` style="--pw-timeout: ${timeoutVal}s"` : '';
             const iconWrap = status === 'running' ? '<span class="pw-spinner">' + icon + '</span>' : icon;
             const expanded = widget._expanded[i];
             const arrowCls = expanded ? 'pw-arrow open' : 'pw-arrow';
-            html += `<div class="pw-step ${status}"><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
+            html += `<div class="pw-step ${status}"${styleAttr}><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
             if (expanded && commands[i]) {
                 html += `<div class="pw-detail"><code>${DOMPurify.sanitize(commands[i])}</code></div>`;
             }
@@ -1057,7 +1064,9 @@
         _userScrolledUp = _messagesEl.scrollHeight - _messagesEl.scrollTop - _messagesEl.clientHeight > 150;
     });
 
+    let _suppressScroll = false;
     function scrollToBottom(force) {
+        if (_suppressScroll) return;
         if (force) _userScrolledUp = false;
         if (_userScrolledUp) return;
         _messagesEl.scrollTop = _messagesEl.scrollHeight;
@@ -1376,7 +1385,7 @@
         slashIdx = -1;
         const input = document.getElementById('input');
         let text = input.value.trim();
-        if ((!text && attachedFiles.length === 0) || isWorking) return;
+        if ((!text && attachedFiles.length === 0) || isWorking || !isReady) return;
 
         // Intercept /model <name> to switch model directly
         const modelMatch = text.match(/^\/model\s+(.+)$/);
@@ -1482,6 +1491,52 @@
             doSend('');
         }
     }
+
+    socket.on('acp_history_batch', (data) => {
+        if (data.session_id !== sessionId) return;
+        resetStallTimer();
+        const events = data.events || [];
+        setStatus('connecting', 'Loading ' + events.length + ' events...');
+
+        // Suppress per-message scroll during batch rendering
+        _suppressScroll = true;
+
+        // Process all history events synchronously
+        for (let i = 0; i < events.length; i++) {
+            processEvent({ session_id: data.session_id, event: events[i] });
+        }
+
+        // Process step_progress catch-up events
+        const stepProgress = data.step_progress || [];
+        for (let i = 0; i < stepProgress.length; i++) {
+            processEvent({ session_id: data.session_id, event: stepProgress[i] });
+        }
+
+        // Restore scroll and scroll once
+        _suppressScroll = false;
+        scrollToBottom(true);
+
+        // Apply sync state
+        if (data.sync_seq !== undefined) expectedSeq = data.sync_seq;
+        if (data.model) window._sessionModel = data.model;
+        if (data.history_length !== undefined) historyOffset = data.history_length;
+
+        // Drain any buffered live events that arrived during load
+        while (seqBuffer[expectedSeq]) {
+            processEvent(seqBuffer[expectedSeq]);
+            delete seqBuffer[expectedSeq];
+            expectedSeq++;
+        }
+
+        // Handle archived vs active
+        if (data.archived) {
+            finishTurn();
+            setStatus('archived', 'Archived — read-only preview');
+            document.getElementById('input').disabled = true;
+            document.getElementById('sendBtn').disabled = true;
+        }
+        // Note: session_ready will arrive as a separate acp_event after this
+    });
 
     socket.on('acp_event', (data) => {
         if (data.session_id !== sessionId) return;
