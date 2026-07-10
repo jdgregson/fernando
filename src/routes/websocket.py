@@ -564,6 +564,8 @@ def register_handlers(socketio):
             if session:
                 offset = data.get("history_offset", 0)
                 history = session.history[offset:]
+                # Tell client how many events to expect so it can show progress
+                emit("acp_history_size", {"session_id": acp_sid, "count": len(history)})
                 # Collapse consecutive agent_message_chunk text events into single events
                 collapsed = []
                 text_buf = ""
@@ -635,6 +637,7 @@ def register_handlers(socketio):
                 from src.services.acp import load_history_file
                 history = load_history_file(acp_sid)
                 if history:
+                    emit("acp_history_size", {"session_id": acp_sid, "count": len(history)})
                     collapsed = []
                     text_buf = ""
                     text_buf_ts = None

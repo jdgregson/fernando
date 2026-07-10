@@ -1492,11 +1492,19 @@
         }
     }
 
+    socket.on('acp_history_size', (data) => {
+        if (data.session_id !== sessionId) return;
+        setStatus('connecting', 'Loading ' + data.count + ' events...');
+    });
+
     socket.on('acp_history_batch', (data) => {
         if (data.session_id !== sessionId) return;
         resetStallTimer();
         const events = data.events || [];
         setStatus('connecting', 'Loading ' + events.length + ' events...');
+
+        // Let the browser repaint to show the loading status before processing
+        requestAnimationFrame(() => {
 
         // Suppress per-message scroll during batch rendering
         _suppressScroll = true;
@@ -1535,7 +1543,7 @@
             document.getElementById('input').disabled = true;
             document.getElementById('sendBtn').disabled = true;
         }
-        // Note: session_ready will arrive as a separate acp_event after this
+        }); // end requestAnimationFrame
     });
 
     socket.on('acp_event', (data) => {
@@ -1623,7 +1631,8 @@
         }
 
         if (evt.type === 'session_ready') {
-            finishTurn(); setStatus('ready', 'Ready');
+            finishTurn();
+            setStatus('ready', 'Ready');
             return;
         }
         if (evt.type === 'system_message') { addSystemMessage(evt.text); return; }

@@ -829,7 +829,7 @@ class ACPManager:
 
     def list_sessions(self):
         with self._lock:
-            return [{"id": sid, "name": s.display_name} for sid, s in self.sessions.items()]
+            return [{"id": sid, "name": s.display_name, "history_count": len(s.history)} for sid, s in self.sessions.items()]
 
     def rename_session(self, session_id, new_name):
         with self._lock:
