@@ -1557,7 +1557,7 @@
 
     socket.on('acp_history_size', (data) => {
         if (data.session_id !== sessionId) return;
-        setStatus('connecting', 'Loading ' + data.count + ' events...');
+        setStatus('connecting', 'Loading ' + data.count.toLocaleString() + ' events...');
     });
 
     socket.on('acp_history_batch', (data) => {
