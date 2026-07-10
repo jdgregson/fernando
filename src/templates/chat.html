@@ -383,6 +383,10 @@
     let currentAssistantMsg = null;
     let currentText = '';
     let currentContentDiv = null;
+    // Thinking (agent_thought_chunk) accumulator — one block per reasoning segment
+    let currentThoughtBody = null;
+    let currentThoughtArrow = null;
+    let currentThoughtText = '';
     let currentTurnTs = null;
     let currentTurnModel = null;
     let toolCalls = {};
@@ -463,6 +467,64 @@
         img.style.cssText = 'width:100%;border-radius:4px;margin:6px 0';
         currentContentDiv.appendChild(img);
         scrollToBottom();
+    }
+
+    // --- Thinking (agent_thought_chunk) rendering ---
+    // Thought chunks stream just like message chunks but render into a separate,
+    // collapsible block that lives inside the assistant turn. Kept open while
+    // streaming so the user can watch reasoning progress, then collapsed once the
+    // answer (or a tool call) begins. A new block starts for each reasoning segment.
+    function ensureThoughtBlock() {
+        if (currentThoughtBody) return currentThoughtBody;
+        ensureAssistantMsg();
+        // Start a fresh answer content div after this thought so multi-cycle turns
+        // (think -> answer -> think -> answer) render in chronological order.
+        currentContentDiv = null;
+        const wrap = document.createElement('div');
+        wrap.className = 'thinking-block';
+        const header = document.createElement('div');
+        header.className = 'thinking-header';
+        const arrow = document.createElement('span');
+        arrow.className = 'thinking-arrow';
+        arrow.textContent = '▼';
+        const title = document.createElement('span');
+        title.className = 'thinking-title';
+        title.textContent = 'Thinking';
+        header.appendChild(arrow);
+        header.appendChild(title);
+        const body = document.createElement('div');
+        body.className = 'thinking-body';
+        header.addEventListener('click', () => {
+            const hidden = body.style.display === 'none';
+            body.style.display = hidden ? '' : 'none';
+            arrow.textContent = hidden ? '▼' : '▶';
+        });
+        wrap.appendChild(header);
+        wrap.appendChild(body);
+        currentAssistantMsg.appendChild(wrap);
+        currentThoughtBody = body;
+        currentThoughtArrow = arrow;
+        currentThoughtText = '';
+        return body;
+    }
+
+    function appendThought(text) {
+        const body = ensureThoughtBlock();
+        currentThoughtText += text;
+        body.textContent = currentThoughtText;
+        scrollToBottom();
+    }
+
+    // Collapse and finalize the current thought block (answer or tool is starting,
+    // or the turn ended). The next thought chunk will open a new block.
+    function closeThought() {
+        if (currentThoughtBody) {
+            currentThoughtBody.style.display = 'none';
+            if (currentThoughtArrow) currentThoughtArrow.textContent = '▶';
+        }
+        currentThoughtBody = null;
+        currentThoughtArrow = null;
+        currentThoughtText = '';
     }
 
     function extractFilePaths(rawInput) {
@@ -1011,6 +1073,7 @@
         currentAssistantMsg = null;
         currentContentDiv = null;
         currentText = '';
+        closeThought();
         toolCalls = {};
         isWorking = false;
         setStatus('ready', 'Ready');
@@ -1662,12 +1725,18 @@
                     addUserMessage(display, userMsgCount === 1);
                 }
             }
+        } else if (su === 'agent_thought_chunk') {
+            setStatus('working', 'Thinking...');
+            const c = update.content;
+            if (c && c.type === 'text') appendThought(c.text);
         } else if (su === 'agent_message_chunk') {
+            closeThought();
             setStatus('working', 'Responding...');
             const c = update.content;
             if (c && c.type === 'text') appendChunk(c.text);
             else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
         } else if (su === 'tool_call') {
+            closeThought();
             setStatus('working', (update.title || 'Using tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
         } else if (su === 'tool_call_update') {

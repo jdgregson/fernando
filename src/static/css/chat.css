@@ -379,3 +379,35 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .pipeline-widget .pw-detail code { color: #a9b1d6; }
 @keyframes pw-spin { to { transform: rotate(360deg); } }
 .pipeline-widget .pw-spinner svg { animation: pw-spin 1s linear infinite; }
+
+/* Thinking / reasoning (ACP agent_thought_chunk) — styled identically to tool-call blocks.
+   Models that don't emit thought chunks (e.g. 4.6) simply never create these blocks. */
+.thinking-block {
+    background: #0a1d35;
+    border: 1px solid #3b73b938;
+    border-radius: 4px;
+    margin: 6px 0;
+    font-size: 12px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    color: #9cdcfe;
+    overflow: hidden;
+}
+.thinking-header {
+    padding: 6px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+}
+.thinking-header:hover { background: #061628; }
+.thinking-header .thinking-arrow { font-size: 10px; color: #888; }
+.thinking-header .thinking-title { color: #3465a3; font-weight: bold; }
+.thinking-body {
+    border-top: 1px solid #143151;
+    color: #aaa;
+    font-size: 11px;
+    padding: 10px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
