@@ -25,10 +25,52 @@ BUNDLED_SERVERS = {
         "args": [os.path.join(_MCP_DIR, "desktop_mcp.py")],
         "default_enabled": True,
     },
-    "fernando": {
-        "description": "Subagent management, self-mutation, reboot, notes, automation",
+    "subagents": {
+        "description": "Subagent orchestration (spawn, status, list, terminate)",
         "command": "python3",
-        "args": [os.path.join(_MCP_DIR, "fernando_mcp.py")],
+        "args": [os.path.join(_MCP_DIR, "subagents_mcp.py")],
+        "default_enabled": True,
+    },
+    "system": {
+        "description": "System & process control (run_command, run_steps, run_daemon, authorize, mutate, reboot)",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "system_mcp.py")],
+        "default_enabled": True,
+    },
+    "web": {
+        "description": "Web search & fetch (fetch, brave/bing search, brave answers)",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "web_mcp.py")],
+        "default_enabled": True,
+    },
+    "notes": {
+        "description": "SilverBullet notebooks & notes",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "notes_mcp.py")],
+        "default_enabled": True,
+    },
+    "jupyter": {
+        "description": "Jupyter integration (list, read, execute, live cell ops)",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "jupyter_mcp.py")],
+        "default_enabled": True,
+    },
+    "automation": {
+        "description": "Inbound email automation rules",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "automation_mcp.py")],
+        "default_enabled": True,
+    },
+    "docs": {
+        "description": "Document generation (PDF, DOCX)",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "docs_mcp.py")],
+        "default_enabled": True,
+    },
+    "chat": {
+        "description": "Chat/session utilities (set_chat_name, save_memory, attach_file, live_canvas, conversation search)",
+        "command": "python3",
+        "args": [os.path.join(_MCP_DIR, "chat_mcp.py")],
         "default_enabled": True,
     },
     "microsoft": {
