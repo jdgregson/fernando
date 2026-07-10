@@ -46,8 +46,8 @@ The shell tool waits for the command AND all its child processes to exit before 
 
 ## Web Search & Fetching
 
-- When searching the web, prefer `@fernando/brave_search` over built-in search tools. Brave Search has an independent index that is significantly better for Reddit, forums, and niche content.
-- When fetching web content, prefer `@fernando/fetch` over built-in fetch tools. It has hardened output to resist prompt injection and auto-rewrites reddit.com URLs to old.reddit.com for reliable scraping.
+- When searching the web, prefer `@web/brave_search` over built-in search tools. Brave Search has an independent index that is significantly better for Reddit, forums, and niche content.
+- When fetching web content, prefer `@web/fetch` over built-in fetch tools. It has hardened output to resist prompt injection and auto-rewrites reddit.com URLs to old.reddit.com for reliable scraping.
 
 ## Chrome / Desktop Browser
 
@@ -168,8 +168,8 @@ Every SilverBullet notebook has a page called `index` that is loaded by default 
 
 MANDATORY: Never use the built-in shell tool (the Kiro CLI `shell` tool). It hangs silently ~30% of the time with no timeout, wasting minutes until the user notices and kills it. Use these MCP tools instead:
 
-- `@fernando/run_command` — Single command execution with a **required** timeout. Use this for all individual commands. You must specify how long the command should take; if it exceeds that, the process group is killed and you get an error back immediately. This is the default tool for running any command.
-- `@fernando/run_steps` — Multi-command pipeline with live progress UI and per-step timeouts. Use when running 3+ sequential commands where the user should see progress. Only for predictable sequences where commands are known upfront.
-- `@fernando/run_daemon` — Fire-and-forget for long-lived background processes (servers, watchers). Returns immediately with PID.
+- `@system/run_command` — Single command execution with a **required** timeout. Use this for all individual commands. You must specify how long the command should take; if it exceeds that, the process group is killed and you get an error back immediately. This is the default tool for running any command.
+- `@system/run_steps` — Multi-command pipeline with live progress UI and per-step timeouts. Use when running 3+ sequential commands where the user should see progress. Only for predictable sequences where commands are known upfront.
+- `@system/run_daemon` — Fire-and-forget for long-lived background processes (servers, watchers). Returns immediately with PID.
 
 `run_steps` treats any non-zero exit code as a failure and halts the pipeline. If a command is expected to return non-zero (e.g. `grep` finding no matches), wrap it to coerce the exit code: `grep pattern file || true`.
