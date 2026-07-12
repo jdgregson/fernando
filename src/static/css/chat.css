@@ -348,7 +348,7 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .tool-exec-attach:hover { background: #5ed4bb; }
 
 /* Pipeline / run_steps widget */
-.pipeline-widget { background: #0a1d35; border: 1px solid #3b73b938; border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; border-top-right-radius: 0; border-bottom-left-radius: 0; margin-top: -10px; border-top: 0; }
+.pipeline-widget { background: #0a1d35; border: 1px solid #3b73b938; border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; border-top-right-radius: 0; border-top-left-radius: 0; margin-top: -10px; border-top: 0; }
 .pipeline-widget .pw-step { display: flex; flex-direction: column; padding: 2px 0; color: #9cdcfe; position: relative; }
 .pipeline-widget .pw-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 4px; position: relative; z-index: 1; border-radius: 3px; overflow: hidden; }
 .pipeline-widget .pw-step-header::before { content: ''; position: absolute; inset: 0; background: #3465a338; width: 0%; z-index: -1; border-radius: 3px; }
@@ -375,10 +375,16 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .pipeline-widget .pw-step.cancelled .pw-label { color: #565f89; }
 .pipeline-widget .pw-cancel { margin-top: 8px; padding: 4px 10px; border-radius: 4px; border: 1px solid #f44747; background: transparent; color: #f44747; font-size: 11px; font-family: 'SF Mono', Menlo, Consolas, monospace; cursor: pointer; }
 .pipeline-widget .pw-cancel:hover { background: #2d1520; }
-.pipeline-widget .pw-detail { margin: 2px 0 4px 34px; padding: 4px 8px; background: #061628; border-radius: 3px; font-size: 11px; color: #888; }
+.pipeline-widget .pw-detail { margin: -1px 0 4px 0; padding: 0; background: #061628; border-bottom-left-radius: 3px; border-bottom-right-radius: 3px; font-size: 11px; color: #888; border-left: 1px solid #143151; border-right: 1px solid #143151; border-bottom: 1px solid #143151; overflow: hidden; }
+.pipeline-widget .pw-detail .pw-tabs { display: flex; border-bottom: 1px solid #143151; }
+.pipeline-widget .pw-detail .pw-tab { padding: 5px 12px; font-size: 11px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; }
+.pipeline-widget .pw-detail .pw-tab.active { color: #7aa2f7; border-bottom-color: #7aa2f7; }
+.pipeline-widget .pw-detail .pw-panel { display: none; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; color: #a9b1d6; max-height: 300px; overflow-y: auto; }
+.pipeline-widget .pw-detail .pw-panel.active { display: block; }
 .pipeline-widget .pw-detail code { color: #a9b1d6; }
 @keyframes pw-spin { to { transform: rotate(360deg); } }
 .pipeline-widget .pw-spinner svg { animation: pw-spin 1s linear infinite; }
+.pw-spinner { line-height: 0; }
 
 /* Thinking / reasoning (ACP agent_thought_chunk) — styled identically to tool-call blocks.
    Models that don't emit thought chunks (e.g. 4.6) simply never create these blocks. */

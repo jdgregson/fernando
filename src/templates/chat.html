@@ -247,6 +247,7 @@
         const running = data.running_index;
         widget._commands = commands;
         widget._timeouts = timeouts;
+        widget._results = results;
         let html = '';
         for (let i = 0; i < steps.length; i++) {
             const r = results[i];
@@ -266,7 +267,11 @@
             const arrowCls = expanded ? 'pw-arrow open' : 'pw-arrow';
             html += `<div class="pw-step ${status}"${styleAttr}><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
             if (expanded && commands[i]) {
-                html += `<div class="pw-detail"><code>${DOMPurify.sanitize(commands[i])}</code></div>`;
+                const r = results[i];
+                const stdout = r ? (r.stdout || '') : '';
+                const stderr = r ? (r.stderr || '') : '';
+                const output = (stderr ? (stdout + '\n' + stderr).trim() : stdout.trim()) || '(no output)';
+                html += `<div class="pw-detail"><div class="pw-tabs"><div class="pw-tab active" onclick="event.stopPropagation();pwTabSwitch(this,0)">Input</div><div class="pw-tab" onclick="event.stopPropagation();pwTabSwitch(this,1)">Output</div></div><div class="pw-panel active">${DOMPurify.sanitize(commands[i])}</div><div class="pw-panel">${DOMPurify.sanitize(output)}</div></div>`;
             }
             html += `</div>`;
         }
@@ -276,6 +281,16 @@
         }
         widget.innerHTML = html;
         scrollToBottom();
+    }
+
+    function pwTabSwitch(tabEl, panelIndex) {
+        const detail = tabEl.closest('.pw-detail');
+        const tabs = detail.querySelectorAll('.pw-tab');
+        const panels = detail.querySelectorAll('.pw-panel');
+        tabs.forEach(t => t.classList.remove('active'));
+        panels.forEach(p => p.classList.remove('active'));
+        tabEl.classList.add('active');
+        if (panels[panelIndex]) panels[panelIndex].classList.add('active');
     }
 
     function togglePwStep(pipelineId, index) {
@@ -289,9 +304,32 @@
             if (arrow) arrow.classList.add('open');
             const d = document.createElement('div');
             d.className = 'pw-detail';
-            const code = document.createElement('code');
-            code.textContent = (widget._commands || [])[index] || '';
-            d.appendChild(code);
+            const cmd = (widget._commands || [])[index] || '';
+            const r = (widget._results || [])[index];
+            const stdout = r ? (r.stdout || '') : '';
+            const stderr = r ? (r.stderr || '') : '';
+            const output = stderr ? (stdout + '\n' + stderr).trim() : stdout.trim();
+            const tabs = document.createElement('div');
+            tabs.className = 'pw-tabs';
+            const tabIn = document.createElement('div');
+            tabIn.className = 'pw-tab active';
+            tabIn.textContent = 'Input';
+            const tabOut = document.createElement('div');
+            tabOut.className = 'pw-tab';
+            tabOut.textContent = 'Output';
+            tabs.appendChild(tabIn);
+            tabs.appendChild(tabOut);
+            const panelIn = document.createElement('div');
+            panelIn.className = 'pw-panel active';
+            panelIn.textContent = cmd;
+            const panelOut = document.createElement('div');
+            panelOut.className = 'pw-panel';
+            panelOut.textContent = output || '(no output)';
+            tabIn.addEventListener('click', (e) => { e.stopPropagation(); tabIn.classList.add('active'); tabOut.classList.remove('active'); panelIn.classList.add('active'); panelOut.classList.remove('active'); });
+            tabOut.addEventListener('click', (e) => { e.stopPropagation(); tabOut.classList.add('active'); tabIn.classList.remove('active'); panelOut.classList.add('active'); panelIn.classList.remove('active'); });
+            d.appendChild(tabs);
+            d.appendChild(panelIn);
+            d.appendChild(panelOut);
             step.appendChild(d);
         } else {
             if (arrow) arrow.classList.remove('open');
