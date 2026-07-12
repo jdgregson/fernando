@@ -1595,14 +1595,22 @@
 
     socket.on('acp_history_size', (data) => {
         if (data.session_id !== sessionId) return;
-        setStatus('connecting', 'Loading ' + data.count.toLocaleString() + ' events...');
+        if (data.count === 0) {
+            setStatus('connecting', 'Starting...');
+        } else {
+            setStatus('connecting', 'Loading ' + data.count.toLocaleString() + ' events...');
+        }
     });
 
     socket.on('acp_history_batch', (data) => {
         if (data.session_id !== sessionId) return;
         resetStallTimer();
         const events = data.events || [];
-        setStatus('connecting', 'Loading ' + events.length + ' events...');
+        if (events.length === 0) {
+            setStatus('connecting', 'Starting...');
+        } else {
+            setStatus('connecting', 'Loading ' + events.length + ' events...');
+        }
 
         // Let the browser repaint to show the loading status before processing
         requestAnimationFrame(() => {
