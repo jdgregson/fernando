@@ -152,6 +152,16 @@
                             <option value="">Loading...</option>
                         </select>
                     </div>
+                    <div class="settings-row">
+                        <label class="settings-label" for="settingsEffort">Effort level</label>
+                        <select id="settingsEffort" class="settings-select" onchange="saveDefaultEffort(this.value)">
+                            <option value="max">max</option>
+                            <option value="xhigh">xhigh</option>
+                            <option value="high">high</option>
+                            <option value="medium">medium</option>
+                            <option value="low">low</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="settings-tab-content" id="settingsTabMcp">
                     <div id="mcpServerList" style="color:#8899aa;font-size:13px;">Loading...</div>

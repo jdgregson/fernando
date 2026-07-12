@@ -115,6 +115,7 @@ class ACPSession:
         self.display_name = "Chat-" + session_id
         from src.services.settings import get as get_setting
         self.model = get_setting("default_model") or self.DEFAULT_MODEL
+        self.effort = get_setting("default_effort") or "max"
         self._reader_thread = None
         self._stderr_thread = None
         self._next_id = 0
@@ -133,7 +134,7 @@ class ACPSession:
         """Spawn kiro-cli acp and run initialize handshake."""
         logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
         self.proc = subprocess.Popen(
-            [KIRO_CLI, "acp", "-a", "--model", self.model],
+            [KIRO_CLI, "acp", "-a", "--model", self.model, "--effort", self.effort],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

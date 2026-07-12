@@ -149,7 +149,6 @@ function loadSettings() {
         .then(data => {
             const sel = document.getElementById('settingsModel');
             const currentModel = data.default_model || '';
-            // Populate model dropdown from API
             fetch('/api/models?api_key=' + window.FERNANDO_API_KEY)
                 .then(r => r.json())
                 .then(mdata => {
@@ -164,6 +163,8 @@ function loadSettings() {
                         if (currentModel) sel.value = currentModel;
                     }
                 }).catch(() => {});
+            const effortSel = document.getElementById('settingsEffort');
+            if (effortSel) effortSel.value = data.default_effort || 'max';
         }).catch(() => {});
 }
 
@@ -172,6 +173,14 @@ function saveDefaultModel(value) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'default_model', value})
+    }).catch(() => {});
+}
+
+function saveDefaultEffort(value) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key: 'default_effort', value})
     }).catch(() => {});
 }
 
