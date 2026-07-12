@@ -239,11 +239,9 @@
             widget._expanded = {};
             widget._prevRunning = -1;
             widget._runStartTime = null;
-            widget._renderCount = 0;
         }
-        widget._renderCount++;
-        console.log(`[pw] handleStepProgress #${widget._renderCount}, running=${data.running_index}, results=${(data.results||[]).length}`);
         if (widget._skipAnimating) return;
+        const _isReplay = _suppressScroll;
         const steps = data.steps || [];
         const commands = data.commands || [];
         const timeouts = data.timeouts || [];
@@ -264,70 +262,146 @@
             widget._prevRunning = running;
             widget._runStartTime = Date.now();
         }
-        let html = '';
-        for (let i = 0; i < steps.length; i++) {
-            const r = results[i];
-            let status = 'pending', icon = _pwIcons.pending, duration = '';
-            if (r) {
-                status = r.status;
-                icon = _pwIcons[status] || _pwIcons.pending;
-                if (r.duration != null) duration = r.duration + 's';
-            } else if (i === running) {
-                status = 'running';
-                icon = _pwIcons.running;
-            }
-            const timeoutVal = timeouts[i] || 30;
-            let styleAttr = '';
-            let extraClass = '';
-            if (status === 'running') {
-                styleAttr = ` style="--pw-timeout: ${timeoutVal}s"`;
-            } else if (i === justCompletedIdx && (status === 'succeeded' || status === 'failed')) {
-                extraClass = ' just-completed';
-                styleAttr = ` style="--pw-completed-from: ${completedFromPct}%"`;
-            } else if (status === 'skipped' && !widget._hadSkipped) {
-                if (!widget._firstSkipIdx) widget._firstSkipIdx = i;
-                const skippedOffset = i - widget._firstSkipIdx;
-                extraClass = ' pw-skip-hidden';
-                widget._skipReveal = widget._skipReveal || [];
-                widget._skipReveal.push({ index: i, delay: skippedOffset * 250 });
-            }
-            const iconWrap = status === 'running' ? '<span class="pw-spinner">' + icon + '</span>' : icon;
-            const expanded = widget._expanded[i];
-            const arrowCls = expanded ? 'pw-arrow open' : 'pw-arrow';
-            html += `<div class="pw-step ${status}${extraClass}"${styleAttr}><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
-            if (expanded && commands[i]) {
+
+        const existingSteps = widget.querySelectorAll('.pw-step');
+        const needsFullRender = existingSteps.length !== steps.length;
+
+        if (!needsFullRender && existingSteps.length > 0) {
+            for (let i = 0; i < steps.length; i++) {
                 const r = results[i];
-                const stdout = r ? (r.stdout || '') : '';
-                const stderr = r ? (r.stderr || '') : '';
-                const output = (stderr ? (stdout + '\n' + stderr).trim() : stdout.trim()) || '(no output)';
-                html += `<div class="pw-detail"><div class="pw-tabs"><div class="pw-tab active" onclick="event.stopPropagation();pwTabSwitch(this,0)">Input</div><div class="pw-tab" onclick="event.stopPropagation();pwTabSwitch(this,1)">Output</div></div><div class="pw-panel active">${DOMPurify.sanitize(commands[i])}</div><div class="pw-panel">${DOMPurify.sanitize(output)}</div></div>`;
+                let status = 'pending';
+                if (r) { status = r.status; } else if (i === running) { status = 'running'; }
+                const stepEl = existingSteps[i];
+                const prevStatus = stepEl.dataset.status;
+                if (prevStatus === status && status !== 'running') continue;
+                stepEl.dataset.status = status;
+
+                const timeoutVal = timeouts[i] || 30;
+                const bar = stepEl.querySelector('.pw-bar');
+                const iconEl = stepEl.querySelector('.pw-icon');
+                const durationEl = stepEl.querySelector('.pw-duration');
+
+                if (status === 'running' && prevStatus !== 'running') {
+                    stepEl.className = 'pw-step running';
+                    stepEl.style = `--pw-timeout: ${timeoutVal}s`;
+                    if (bar) { bar.className = 'pw-bar pw-bar-running'; bar.style.width = '100%'; bar.style.transition = ''; }
+                    if (iconEl) iconEl.innerHTML = '<span class="pw-spinner">' + _pwIcons.running + '</span>';
+                    if (durationEl) durationEl.textContent = '';
+                } else if ((status === 'succeeded' || status === 'failed') && prevStatus === 'running') {
+                    stepEl.className = 'pw-step ' + status;
+                    stepEl.style = '';
+                    if (iconEl) iconEl.innerHTML = _pwIcons[status] || _pwIcons.pending;
+                    if (durationEl && r && r.duration != null) durationEl.textContent = r.duration + 's';
+                    const elapsed = (Date.now() - widget._runStartTime) / 1000;
+                    const stepTimeout = timeouts[i] || 30;
+                    const fromPct = Math.min(Math.round((elapsed / stepTimeout) * 100), 95);
+                    if (bar && !_isReplay && fromPct < 90) {
+                        bar.className = 'pw-bar';
+                        bar.style.width = fromPct + '%';
+                        requestAnimationFrame(() => {
+                            bar.style.transition = 'width 0.25s ease-out';
+                            bar.style.width = '100%';
+                        });
+                    } else if (bar) {
+                        bar.className = 'pw-bar';
+                        bar.style.transition = '';
+                        bar.style.width = '100%';
+                    }
+                    if (status === 'failed' && bar) bar.style.background = '#552929d1';
+                } else if (status === 'skipped') {
+                    stepEl.className = 'pw-step skipped';
+                    stepEl.style = '';
+                    if (bar) { bar.className = 'pw-bar'; bar.style.width = '0%'; bar.style.transition = ''; }
+                    if (iconEl) iconEl.innerHTML = _pwIcons.skipped;
+                    if (durationEl && r && r.duration != null) durationEl.textContent = r.duration + 's';
+                    if (!_isReplay && !widget._hadSkipped) {
+                        if (!widget._firstSkipIdx) widget._firstSkipIdx = i;
+                        const skippedOffset = i - widget._firstSkipIdx;
+                        stepEl.classList.add('pw-skip-hidden');
+                        widget._skipReveal = widget._skipReveal || [];
+                        widget._skipReveal.push({ index: i, delay: skippedOffset * 80 });
+                    }
+                }
             }
-            html += `</div>`;
-        }
-        const isRunning = running >= 0 && results.length < steps.length;
-        if (isRunning) {
-            html += `<button class="pw-cancel" onclick="cancelPipeline('${pid}')">Cancel</button>`;
-        }
-        const prevHeight = widget.offsetHeight;
-        widget.innerHTML = html;
-        const newHeight = widget.offsetHeight;
-        if (prevHeight && newHeight && prevHeight !== newHeight) {
-            widget.style.height = prevHeight + 'px';
-            widget.style.transition = 'height 0.35s ease-out';
-            requestAnimationFrame(() => {
-                widget.style.height = newHeight + 'px';
-                setTimeout(() => {
-                    widget.style.height = '';
-                    widget.style.transition = '';
-                    scrollToBottom();
-                }, 370);
-            });
+            const cancelBtn = widget.querySelector('.pw-cancel');
+            const isRunning = running >= 0 && results.length < steps.length;
+            if (!isRunning && cancelBtn) {
+                const prevH = widget.offsetHeight;
+                cancelBtn.remove();
+                const newH = widget.offsetHeight;
+                if (prevH !== newH) {
+                    widget.style.height = prevH + 'px';
+                    widget.style.transition = 'height 0.3s ease-out';
+                    requestAnimationFrame(() => {
+                        widget.style.height = newH + 'px';
+                        setTimeout(() => { widget.style.height = ''; widget.style.transition = ''; }, 320);
+                    });
+                }
+            }
+            if (isRunning && !cancelBtn) {
+                const btn = document.createElement('button');
+                btn.className = 'pw-cancel';
+                btn.textContent = 'Cancel';
+                btn.onclick = () => cancelPipeline(pid);
+                widget.appendChild(btn);
+            }
+        } else {
+            let html = '';
+            for (let i = 0; i < steps.length; i++) {
+                const r = results[i];
+                let status = 'pending', icon = _pwIcons.pending, duration = '';
+                if (r) {
+                    status = r.status;
+                    icon = _pwIcons[status] || _pwIcons.pending;
+                    if (r.duration != null) duration = r.duration + 's';
+                } else if (i === running) {
+                    status = 'running';
+                    icon = _pwIcons.running;
+                }
+                const timeoutVal = timeouts[i] || 30;
+                let styleAttr = status === 'running' ? ` style="--pw-timeout: ${timeoutVal}s"` : '';
+                const iconWrap = status === 'running' ? '<span class="pw-spinner">' + icon + '</span>' : icon;
+                const expanded = widget._expanded[i];
+                const arrowCls = expanded ? 'pw-arrow open' : 'pw-arrow';
+                let barWidth = '0%';
+                if (status === 'succeeded' || status === 'failed') barWidth = '100%';
+                const barClass = status === 'running' ? 'pw-bar pw-bar-running' : 'pw-bar';
+                let barStyle = `width:${barWidth}`;
+                if (status === 'failed') barStyle += ';background:#552929d1';
+                html += `<div class="pw-step ${status}" data-status="${status}"${styleAttr}><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${barClass}" style="${barStyle}"></span><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
+                if (expanded && commands[i]) {
+                    const stdout = r ? (r.stdout || '') : '';
+                    const stderr = r ? (r.stderr || '') : '';
+                    const output = (stderr ? (stdout + '\n' + stderr).trim() : stdout.trim()) || '(no output)';
+                    html += `<div class="pw-detail"><div class="pw-tabs"><div class="pw-tab active" onclick="event.stopPropagation();pwTabSwitch(this,0)">Input</div><div class="pw-tab" onclick="event.stopPropagation();pwTabSwitch(this,1)">Output</div></div><div class="pw-panel active">${DOMPurify.sanitize(commands[i])}</div><div class="pw-panel">${DOMPurify.sanitize(output)}</div></div>`;
+                }
+                html += `</div>`;
+            }
+            const isRunning = running >= 0 && results.length < steps.length;
+            if (isRunning) {
+                html += `<button class="pw-cancel" onclick="cancelPipeline('${pid}')">Cancel</button>`;
+            }
+            const prevHeight = _isReplay ? 0 : widget.offsetHeight;
+            widget.innerHTML = html;
+            const newHeight = _isReplay ? 0 : widget.offsetHeight;
+            if (prevHeight && newHeight && prevHeight !== newHeight) {
+                widget.style.height = prevHeight + 'px';
+                widget.style.transition = 'height 0.35s ease-out';
+                requestAnimationFrame(() => {
+                    widget.style.height = newHeight + 'px';
+                    setTimeout(() => {
+                        widget.style.height = '';
+                        widget.style.transition = '';
+                        scrollToBottom();
+                    }, 370);
+                });
+            }
         }
         if (widget._skipReveal && widget._skipReveal.length) {
             widget._skipAnimating = true;
-            const steps = widget.querySelectorAll('.pw-step');
+            const stepEls = widget.querySelectorAll('.pw-step');
             widget._skipReveal.forEach(({ index, delay }) => {
-                const el = steps[index];
+                const el = stepEls[index];
                 if (el) {
                     setTimeout(() => {
                         el.classList.add('pw-skip-animating');

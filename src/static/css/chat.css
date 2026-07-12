@@ -350,25 +350,20 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 /* Pipeline / run_steps widget */
 .pipeline-widget { background: #0a1d35; border: 1px solid #3b73b938; border-radius: 4px; padding: 8px 10px; margin: 6px 0; font-size: 12px; font-family: 'SF Mono', Menlo, Consolas, monospace; border-top-right-radius: 0; border-top-left-radius: 0; margin-top: -10px; border-top: 0; }
 .pipeline-widget .pw-step { display: flex; flex-direction: column; padding: 2px 0; color: #9cdcfe; position: relative; }
-.pipeline-widget .pw-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 4px; position: relative; z-index: 1; border-radius: 3px; overflow: hidden; }
-.pipeline-widget .pw-step-header::before { content: ''; position: absolute; inset: 0; background: #3465a338; width: 0%; z-index: -1; border-radius: 3px; }
-.pipeline-widget .pw-step.running .pw-step-header::before { animation: pw-progress linear forwards; animation-duration: var(--pw-timeout, 30s); width: 100%; }
-.pipeline-widget .pw-step.succeeded .pw-step-header::before { width: 100%; background: #3465a338; animation: none; }
-.pipeline-widget .pw-step.succeeded.just-completed .pw-step-header::before { animation: pw-fill-complete 0.35s ease-out forwards; }
-.pipeline-widget .pw-step.failed .pw-step-header::before { width: 100%; background: #552929d1; animation: none; }
-.pipeline-widget .pw-step.failed.just-completed .pw-step-header::before { animation: pw-fill-complete-fail 0.35s ease-out forwards; }
-.pipeline-widget .pw-step.cancelled .pw-step-header::before { background: #a5427015; animation: none; }
-@keyframes pw-fill-complete { from { width: var(--pw-completed-from, 0%); background: #3465a338; } to { width: 100%; background: #3465a338; } }
-@keyframes pw-fill-complete-fail { from { width: var(--pw-completed-from, 0%); background: #3465a338; } to { width: 100%; background: #552929d1; } }
+.pipeline-widget .pw-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 4px; position: relative; border-radius: 3px; overflow: hidden; }
+.pipeline-widget .pw-bar { position: absolute; inset: 0; background: #3465a338; width: 0%; z-index: 0; border-radius: 3px; pointer-events: none; }
+.pipeline-widget .pw-bar-running { animation: pw-progress linear forwards; animation-duration: var(--pw-timeout, 30s); width: 100%; }
+.pipeline-widget .pw-step.failed .pw-bar { background: #552929d1; }
+.pipeline-widget .pw-step.cancelled .pw-bar { background: #a5427015; }
 @keyframes pw-progress { from { width: 0%; } to { width: 100%; } }
 .pipeline-widget .pw-step-header:hover { opacity: 0.8; }
-.pipeline-widget .pw-arrow { width: 12px; height: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.15s; color: #565f89; }
+.pipeline-widget .pw-arrow { width: 12px; height: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.15s; color: #565f89; position: relative; z-index: 1; }
 .pipeline-widget .pw-arrow svg { width: 10px; height: 10px; }
 .pipeline-widget .pw-arrow.open { transform: rotate(90deg); }
-.pipeline-widget .pw-icon { width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.pipeline-widget .pw-icon { width: 16px; height: 16px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; }
 .pipeline-widget .pw-icon svg { width: 14px; height: 14px; }
-.pipeline-widget .pw-label { flex: 1; }
-.pipeline-widget .pw-duration { color: #565f89; font-size: 11px; }
+.pipeline-widget .pw-label { flex: 1; position: relative; z-index: 1; }
+.pipeline-widget .pw-duration { color: #565f89; font-size: 11px; position: relative; z-index: 1; }
 .pipeline-widget .pw-step.succeeded .pw-icon svg { stroke: #4ec9b0; }
 .pipeline-widget .pw-step.failed .pw-icon svg { stroke: #f44747; }
 .pipeline-widget .pw-step.running .pw-icon svg { stroke: #7aa2f7; }
