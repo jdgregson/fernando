@@ -765,7 +765,7 @@
 
         const arrow = document.createElement('span');
         arrow.className = 'arrow';
-        arrow.textContent = '▶';
+        arrow.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg>';
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tool-name';
@@ -907,6 +907,18 @@
         }
 
         toolCalls[toolCallId] = { div, statusSpan, body, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
+
+        const isTimedTool = (title && (title.includes('run_command') || title.includes('run_daemon'))) && rawInput && rawInput.timeout;
+        if (isTimedTool && status !== 'completed' && status !== 'failed') {
+            const bar = document.createElement('span');
+            bar.className = 'tc-bar tc-bar-running';
+            bar.style.setProperty('--tc-timeout', rawInput.timeout + 's');
+            header.appendChild(bar);
+            toolCalls[toolCallId]._bar = bar;
+            toolCalls[toolCallId]._barStart = Date.now();
+            toolCalls[toolCallId]._barTimeout = rawInput.timeout;
+        }
+
         scrollToBottom();
     }
 
@@ -1010,6 +1022,33 @@
         if (status) {
             tc.statusSpan.className = 'tool-status ' + status;
             tc.statusSpan.textContent = status;
+        }
+        if ((status === 'completed' || status === 'failed') && tc._bar) {
+            const bar = tc._bar;
+            const elapsed = (Date.now() - tc._barStart) / 1000;
+            const fromPct = Math.min(Math.round((elapsed / tc._barTimeout) * 100), 95);
+            const fullWidth = 'calc(100% - 10px)';
+            bar.className = 'tc-bar';
+            if (fromPct >= 90) {
+                bar.style.width = fullWidth;
+            } else {
+                const fromWidth = `calc(${fromPct}% * (100% - 10px) / 100%)`;
+                bar.style.width = ((fromPct / 100) * 100).toFixed(1) + '%';
+                requestAnimationFrame(() => {
+                    bar.style.transition = 'width 0.25s ease-out';
+                    bar.style.width = fullWidth;
+                });
+            }
+            if (status === 'failed') bar.style.background = '#552929d1';
+            tc._bar = null;
+        }
+        if ((status === 'completed' || status === 'failed') && tc._barStart) {
+            const dur = ((Date.now() - tc._barStart) / 1000).toFixed(1);
+            const durSpan = document.createElement('span');
+            durSpan.className = 'tool-duration';
+            durSpan.textContent = dur + 's';
+            tc.statusSpan.parentNode.insertBefore(durSpan, tc.statusSpan);
+            tc._barStart = null;
         }
         if (rawOutput) {
             tc.tcState.rawOutput = rawOutput;
