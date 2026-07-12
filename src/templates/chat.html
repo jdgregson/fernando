@@ -229,8 +229,6 @@
         const pid = data.pipeline_id;
         let widget = _pipelines[pid];
         if (!widget) {
-            // Don't create a new assistant message for step_progress — if the turn
-            // was already finished (cancelled/ended), this is a stale late-arriving event.
             if (!currentAssistantMsg) return;
             if (_chunkRenderPending) _renderCurrentChunk();
             widget = document.createElement('div');
@@ -239,7 +237,13 @@
             currentAssistantMsg.appendChild(widget);
             _pipelines[pid] = widget;
             widget._expanded = {};
+            widget._prevRunning = -1;
+            widget._runStartTime = null;
+            widget._renderCount = 0;
         }
+        widget._renderCount++;
+        console.log(`[pw] handleStepProgress #${widget._renderCount}, running=${data.running_index}, results=${(data.results||[]).length}`);
+        if (widget._skipAnimating) return;
         const steps = data.steps || [];
         const commands = data.commands || [];
         const timeouts = data.timeouts || [];
@@ -248,6 +252,18 @@
         widget._commands = commands;
         widget._timeouts = timeouts;
         widget._results = results;
+        const justCompleted = (widget._prevRunning >= 0 && widget._prevRunning !== running && results[widget._prevRunning]);
+        const justCompletedIdx = justCompleted ? widget._prevRunning : -1;
+        let completedFromPct = 0;
+        if (justCompleted) {
+            const elapsed = (Date.now() - widget._runStartTime) / 1000;
+            const timeout = timeouts[justCompletedIdx] || 30;
+            completedFromPct = Math.min(Math.round((elapsed / timeout) * 100), 95);
+        }
+        if (running !== widget._prevRunning) {
+            widget._prevRunning = running;
+            widget._runStartTime = Date.now();
+        }
         let html = '';
         for (let i = 0; i < steps.length; i++) {
             const r = results[i];
@@ -255,17 +271,30 @@
             if (r) {
                 status = r.status;
                 icon = _pwIcons[status] || _pwIcons.pending;
-                if (r.duration) duration = r.duration + 's';
+                if (r.duration != null) duration = r.duration + 's';
             } else if (i === running) {
                 status = 'running';
                 icon = _pwIcons.running;
             }
             const timeoutVal = timeouts[i] || 30;
-            const styleAttr = status === 'running' ? ` style="--pw-timeout: ${timeoutVal}s"` : '';
+            let styleAttr = '';
+            let extraClass = '';
+            if (status === 'running') {
+                styleAttr = ` style="--pw-timeout: ${timeoutVal}s"`;
+            } else if (i === justCompletedIdx && (status === 'succeeded' || status === 'failed')) {
+                extraClass = ' just-completed';
+                styleAttr = ` style="--pw-completed-from: ${completedFromPct}%"`;
+            } else if (status === 'skipped' && !widget._hadSkipped) {
+                if (!widget._firstSkipIdx) widget._firstSkipIdx = i;
+                const skippedOffset = i - widget._firstSkipIdx;
+                extraClass = ' pw-skip-hidden';
+                widget._skipReveal = widget._skipReveal || [];
+                widget._skipReveal.push({ index: i, delay: skippedOffset * 250 });
+            }
             const iconWrap = status === 'running' ? '<span class="pw-spinner">' + icon + '</span>' : icon;
             const expanded = widget._expanded[i];
             const arrowCls = expanded ? 'pw-arrow open' : 'pw-arrow';
-            html += `<div class="pw-step ${status}"${styleAttr}><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
+            html += `<div class="pw-step ${status}${extraClass}"${styleAttr}><div class="pw-step-header" onclick="togglePwStep('${pid}',${i})"><span class="${arrowCls}"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span><span class="pw-icon">${iconWrap}</span><span class="pw-label">${DOMPurify.sanitize(steps[i])}</span><span class="pw-duration">${duration}</span></div>`;
             if (expanded && commands[i]) {
                 const r = results[i];
                 const stdout = r ? (r.stdout || '') : '';
@@ -279,7 +308,36 @@
         if (isRunning) {
             html += `<button class="pw-cancel" onclick="cancelPipeline('${pid}')">Cancel</button>`;
         }
+        const prevHeight = widget.offsetHeight;
         widget.innerHTML = html;
+        const newHeight = widget.offsetHeight;
+        if (prevHeight && newHeight && prevHeight !== newHeight) {
+            widget.style.height = prevHeight + 'px';
+            widget.style.transition = 'height 0.35s ease-out';
+            requestAnimationFrame(() => {
+                widget.style.height = newHeight + 'px';
+                setTimeout(() => {
+                    widget.style.height = '';
+                    widget.style.transition = '';
+                    scrollToBottom();
+                }, 370);
+            });
+        }
+        if (widget._skipReveal && widget._skipReveal.length) {
+            widget._skipAnimating = true;
+            const steps = widget.querySelectorAll('.pw-step');
+            widget._skipReveal.forEach(({ index, delay }) => {
+                const el = steps[index];
+                if (el) {
+                    setTimeout(() => {
+                        el.classList.add('pw-skip-animating');
+                        el.classList.remove('pw-skip-hidden');
+                    }, delay);
+                }
+            });
+            widget._skipReveal = null;
+        }
+        if (results.some(r => r && r.status === 'skipped')) widget._hadSkipped = true;
         scrollToBottom();
     }
 

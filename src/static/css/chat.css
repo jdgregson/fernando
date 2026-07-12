@@ -353,9 +353,13 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .pipeline-widget .pw-step-header { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 2px 4px; position: relative; z-index: 1; border-radius: 3px; overflow: hidden; }
 .pipeline-widget .pw-step-header::before { content: ''; position: absolute; inset: 0; background: #3465a338; width: 0%; z-index: -1; border-radius: 3px; }
 .pipeline-widget .pw-step.running .pw-step-header::before { animation: pw-progress linear forwards; animation-duration: var(--pw-timeout, 30s); width: 100%; }
-.pipeline-widget .pw-step.succeeded .pw-step-header::before { width: 100%; background: #3465a338; transition: width 0.3s ease-out; animation: none; }
-.pipeline-widget .pw-step.failed .pw-step-header::before { background: #f4474715; animation: none; }
+.pipeline-widget .pw-step.succeeded .pw-step-header::before { width: 100%; background: #3465a338; animation: none; }
+.pipeline-widget .pw-step.succeeded.just-completed .pw-step-header::before { animation: pw-fill-complete 0.35s ease-out forwards; }
+.pipeline-widget .pw-step.failed .pw-step-header::before { width: 100%; background: #552929d1; animation: none; }
+.pipeline-widget .pw-step.failed.just-completed .pw-step-header::before { animation: pw-fill-complete-fail 0.35s ease-out forwards; }
 .pipeline-widget .pw-step.cancelled .pw-step-header::before { background: #a5427015; animation: none; }
+@keyframes pw-fill-complete { from { width: var(--pw-completed-from, 0%); background: #3465a338; } to { width: 100%; background: #3465a338; } }
+@keyframes pw-fill-complete-fail { from { width: var(--pw-completed-from, 0%); background: #3465a338; } to { width: 100%; background: #552929d1; } }
 @keyframes pw-progress { from { width: 0%; } to { width: 100%; } }
 .pipeline-widget .pw-step-header:hover { opacity: 0.8; }
 .pipeline-widget .pw-arrow { width: 12px; height: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; transition: transform 0.15s; color: #565f89; }
@@ -371,6 +375,11 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .pipeline-widget .pw-step.pending .pw-icon svg { stroke: #565f89; }
 .pipeline-widget .pw-step.skipped .pw-icon svg { stroke: #565f89; }
 .pipeline-widget .pw-step.skipped .pw-label { color: #565f89; text-decoration: line-through; }
+.pipeline-widget .pw-step.skipped .pw-icon svg { stroke: #565f89; }
+.pipeline-widget .pw-step.skipped.pw-skip-hidden .pw-label { color: #9cdcfe; text-decoration: none; }
+.pipeline-widget .pw-step.skipped.pw-skip-hidden .pw-icon svg { stroke: #565f89; opacity: 0; }
+.pipeline-widget .pw-step.skipped.pw-skip-animating .pw-label { transition: color 0.2s ease-out, text-decoration-color 0.2s ease-out; }
+.pipeline-widget .pw-step.skipped.pw-skip-animating .pw-icon svg { transition: opacity 0.2s ease-out; }
 .pipeline-widget .pw-step.cancelled .pw-icon svg { stroke: #a54270; }
 .pipeline-widget .pw-step.cancelled .pw-label { color: #565f89; }
 .pipeline-widget .pw-cancel { margin-top: 8px; padding: 4px 10px; border-radius: 4px; border: 1px solid #f44747; background: transparent; color: #f44747; font-size: 11px; font-family: 'SF Mono', Menlo, Consolas, monospace; cursor: pointer; }
