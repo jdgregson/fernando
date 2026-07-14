@@ -175,6 +175,18 @@
     function stopGeneration() {
         document.getElementById('sendBtn').blur();
         if (!isWorking) return;
+        // Kill any active pipeline subprocesses so the MCP server unblocks
+        for (const widget of Object.values(_pipelines)) {
+            if (widget.querySelector('.pw-step.running')) {
+                const pid = widget.dataset.pipelineId;
+                if (pid) cancelPipeline(pid);
+            }
+        }
+        // Kill any active run_command subprocesses
+        fetch('/api/cancel_commands', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+        });
         socket.emit('acp_cancel', { csrf_token: csrfToken, session_id: sessionId });
     }
 
@@ -241,6 +253,7 @@
             widget._runStartTime = null;
         }
         if (widget._skipAnimating) return;
+        if (widget._frozen) return;
         const _isReplay = _suppressScroll;
         const steps = data.steps || [];
         const commands = data.commands || [];
@@ -471,6 +484,27 @@
     }
 
     function cancelPipeline(pipelineId) {
+        const widget = _pipelines[pipelineId];
+        if (widget) {
+            widget._frozen = true;
+            for (const stepEl of widget.querySelectorAll('.pw-step.running')) {
+                stepEl.className = 'pw-step cancelled';
+                stepEl.style = '';
+                stepEl.dataset.status = 'cancelled';
+                const bar = stepEl.querySelector('.pw-bar');
+                if (bar) { bar.className = 'pw-bar'; bar.style.width = '0%'; bar.style.transition = ''; }
+                const iconEl = stepEl.querySelector('.pw-icon');
+                if (iconEl) iconEl.innerHTML = _pwIcons.cancelled;
+            }
+            for (const stepEl of widget.querySelectorAll('.pw-step.pending')) {
+                stepEl.className = 'pw-step cancelled';
+                stepEl.dataset.status = 'cancelled';
+                const iconEl = stepEl.querySelector('.pw-icon');
+                if (iconEl) iconEl.innerHTML = _pwIcons.cancelled;
+            }
+            const cancelBtn = widget.querySelector('.pw-cancel');
+            if (cancelBtn) cancelBtn.remove();
+        }
         fetch('/api/cancel_pipeline', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
@@ -1246,6 +1280,30 @@
     }
 
     function finishTurn() {
+        // Stop any in-progress pipeline animations (agent was stopped mid-command)
+        for (const widget of Object.values(_pipelines)) {
+            const runningSteps = widget.querySelectorAll('.pw-step.running');
+            const pendingSteps = widget.querySelectorAll('.pw-step.pending');
+            if (runningSteps.length === 0 && pendingSteps.length === 0) continue;
+            widget._frozen = true;  // Block late step_progress events from overwriting
+            for (const stepEl of runningSteps) {
+                stepEl.className = 'pw-step cancelled';
+                stepEl.style = '';
+                stepEl.dataset.status = 'cancelled';
+                const bar = stepEl.querySelector('.pw-bar');
+                if (bar) { bar.className = 'pw-bar'; bar.style.width = '0%'; bar.style.transition = ''; }
+                const iconEl = stepEl.querySelector('.pw-icon');
+                if (iconEl) iconEl.innerHTML = _pwIcons.cancelled;
+            }
+            for (const stepEl of pendingSteps) {
+                stepEl.className = 'pw-step cancelled';
+                stepEl.dataset.status = 'cancelled';
+                const iconEl = stepEl.querySelector('.pw-icon');
+                if (iconEl) iconEl.innerHTML = _pwIcons.cancelled;
+            }
+            const cancelBtn = widget.querySelector('.pw-cancel');
+            if (cancelBtn) cancelBtn.remove();
+        }
         currentTurnTs = null;
         currentTurnModel = null;
         if (_chunkRenderPending) _renderCurrentChunk();
@@ -1271,6 +1329,31 @@
         }
         for (const tc of Object.values(toolCalls)) {
             if (tc.statusSpan && tc.statusSpan.textContent !== 'completed') {
+                if (tc._bar) {
+                    const bar = tc._bar;
+                    const elapsed = (Date.now() - tc._barStart) / 1000;
+                    const timeout = tc._barTimeout || 30;
+                    const fromPct = Math.min(Math.round((elapsed / timeout) * 100), 95);
+                    bar.className = 'tc-bar';
+                    if (fromPct >= 90) {
+                        bar.style.width = 'calc(100% - 10px)';
+                    } else {
+                        bar.style.width = ((fromPct / 100) * 100).toFixed(1) + '%';
+                        requestAnimationFrame(() => {
+                            bar.style.transition = 'width 0.25s ease-out';
+                            bar.style.width = 'calc(100% - 10px)';
+                        });
+                    }
+                    tc._bar = null;
+                }
+                if (tc._barStart) {
+                    const dur = ((Date.now() - tc._barStart) / 1000).toFixed(1);
+                    const durSpan = document.createElement('span');
+                    durSpan.className = 'tool-duration';
+                    durSpan.textContent = dur + 's';
+                    tc.statusSpan.parentNode.insertBefore(durSpan, tc.statusSpan);
+                    tc._barStart = null;
+                }
                 tc.statusSpan.className = 'tool-status completed';
                 tc.statusSpan.textContent = 'completed';
             }

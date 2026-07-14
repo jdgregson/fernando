@@ -1036,6 +1036,24 @@ def api_cancel_pipeline():
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/cancel_commands", methods=["POST"])
+def api_cancel_commands():
+    """Kill any active run_command subprocesses via their PID files."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    import glob
+    killed = 0
+    for pid_path in glob.glob("/tmp/fernando-cmd-*.pid"):
+        try:
+            with open(pid_path) as f:
+                pid = int(f.read().strip())
+            os.killpg(pid, signal.SIGKILL)
+            killed += 1
+        except (OSError, ValueError):
+            pass
+    return json.dumps({"ok": True, "killed": killed}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/authorization/request", methods=["POST"])
 def api_authorization_request():
     """MCP server calls this to emit an auth prompt to the chat UI."""

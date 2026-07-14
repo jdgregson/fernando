@@ -249,12 +249,18 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         def _exec():
             start_t = time.time()
+            cmd_pid_path = f"/tmp/fernando-cmd-{os.getpid()}.pid"
             try:
                 proc = subprocess.Popen(
                     ["bash", "-c", cmd],
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, cwd=cwd, start_new_session=True,
                 )
+                try:
+                    with open(cmd_pid_path, "w") as pf:
+                        pf.write(str(proc.pid))
+                except OSError:
+                    pass
                 try:
                     stdout, stderr = proc.communicate(timeout=timeout_secs)
                 except subprocess.TimeoutExpired:
@@ -263,7 +269,15 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     except OSError:
                         pass
                     proc.wait()
+                    try:
+                        os.unlink(cmd_pid_path)
+                    except OSError:
+                        pass
                     return {"status": "timeout", "exit_code": -1, "stdout": "", "stderr": f"Killed: exceeded {timeout_secs}s timeout", "duration": round(time.time() - start_t, 1)}
+                try:
+                    os.unlink(cmd_pid_path)
+                except OSError:
+                    pass
                 duration = round(time.time() - start_t, 1)
                 # Truncate large output, spill full content to file
                 stdout_out = stdout or ""
