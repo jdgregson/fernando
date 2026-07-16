@@ -513,6 +513,16 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
             # Graph view toggle button — adds a clickable button to the SB top bar
             graph_btn_script = """<script>
 (function(){
+  function isPanelOpen(){
+    var panel=document.querySelector('.sb-panel');
+    if(!panel)return false;
+    return panel.offsetWidth>10;
+  }
+  function updateIndicator(){
+    var btn=document.getElementById('f-graph-btn');
+    if(!btn)return;
+    if(isPanelOpen()){btn.classList.add('f-active')}else{btn.classList.remove('f-active')}
+  }
   function addBtn(){
     var actions=document.querySelector('.sb-actions');
     if(!actions||document.getElementById('f-graph-btn'))return;
@@ -520,35 +530,94 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
     btn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="19" cy="18" r="2"/><line x1="6.7" y1="7.5" x2="10.5" y2="16.5"/><line x1="17.3" y1="7.5" x2="13.5" y2="16.5"/><line x1="14" y1="18" x2="17" y2="18"/><line x1="19" y1="8" x2="19" y2="16"/></svg>';
     btn.title='Toggle Graph View';
     btn.onclick=function(e){e.preventDefault();e.stopPropagation();
-      if(window.client){client.runCommandByName('Atlas: Toggle Graph View').catch(function(err){console.error('Atlas toggle failed',err)})}};
+      if(window.client){client.runCommandByName('Atlas: Toggle Graph View').catch(function(err){console.error('Atlas toggle failed',err)})}
+      setTimeout(updateIndicator,300);setTimeout(updateIndicator,600)};
     actions.prepend(btn);
+    updateIndicator();
   }
   setInterval(addBtn,1000);
+  setInterval(updateIndicator,1000);
+  var sbMain=document.getElementById('sb-main');
+  if(sbMain){new MutationObserver(updateIndicator).observe(sbMain,{childList:true,attributes:true,subtree:true})}
+  else{var mo=new MutationObserver(function(){
+    var el=document.getElementById('sb-main');
+    if(el){mo.disconnect();new MutationObserver(updateIndicator).observe(el,{childList:true,attributes:true,subtree:true})}
+  });mo.observe(document.body,{childList:true,subtree:true})}
 })();
 </script>
 <script>
 (function(){
+  var modalEl=null;
+  function getModal(){
+    if(modalEl)return modalEl;
+    modalEl=document.createElement('div');
+    modalEl.id='f-new-page-modal';
+    modalEl.innerHTML='<div class="f-np-backdrop"></div><div class="f-np-card"><div class="f-np-title">New Page</div><input class="f-np-input" type="text" placeholder="Page name" autocomplete="off"><div class="f-np-buttons"><button class="f-np-btn f-np-cancel">Cancel</button><button class="f-np-btn f-np-create">Create</button></div></div>';
+    var style=document.createElement('style');
+    style.textContent='.f-np-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9998}'
+      +'.f-np-card{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;background:#0d2848;border:1px solid #143151;border-radius:8px;max-width:400px;width:90%;padding:20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}'
+      +'.f-np-title{color:#d4d4d4;font-size:16px;font-weight:600;margin-bottom:16px}'
+      +'.f-np-input{width:100%;padding:8px;background:#0a1d35;color:#d4d4d4;border:1px solid #143151;border-radius:4px;font-size:14px;margin-bottom:16px;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}'
+      +'.f-np-input:focus{outline:none;border-color:#3465a3}'
+      +'.f-np-buttons{display:flex;gap:10px}'
+      +'.f-np-btn{flex:1;padding:10px;border:1px solid #143151;border-radius:6px;cursor:pointer;font-family:"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;color:#fff;font-size:13px}'
+      +'.f-np-create{background:#3465a3}.f-np-create:hover{background:#143151}'
+      +'.f-np-cancel{background:#143151}.f-np-cancel:hover{background:#3465a3}';
+    modalEl.appendChild(style);
+    document.body.appendChild(modalEl);
+    return modalEl;
+  }
+  function showNewPageModal(){
+    var m=getModal();
+    m.style.display='block';
+    var input=m.querySelector('.f-np-input');
+    input.value='';
+    setTimeout(function(){input.focus()},50);
+    function close(){m.style.display='none';cleanup()}
+    function submit(){
+      var name=input.value.trim();
+      if(name&&window.client){client.navigate({path:name+'.md'},false,false)}
+      close();
+    }
+    function onKey(e){if(e.key==='Enter')submit();if(e.key==='Escape')close()}
+    function onBackdrop(e){if(e.target.classList.contains('f-np-backdrop'))close()}
+    function cleanup(){
+      input.removeEventListener('keydown',onKey);
+      m.querySelector('.f-np-cancel').removeEventListener('click',close);
+      m.querySelector('.f-np-create').removeEventListener('click',submit);
+      m.removeEventListener('click',onBackdrop);
+    }
+    input.addEventListener('keydown',onKey);
+    m.querySelector('.f-np-cancel').addEventListener('click',close);
+    m.querySelector('.f-np-create').addEventListener('click',submit);
+    m.addEventListener('click',onBackdrop);
+  }
   function addNewBtn(){
     var actions=document.querySelector('.sb-actions');
     if(!actions||document.getElementById('f-new-btn'))return;
     var btn=document.createElement('button');btn.id='f-new-btn';btn.type='button';
     btn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>';
     btn.title='New Page';
-    btn.style.marginRight='8px';
-    btn.onclick=function(e){e.preventDefault();e.stopPropagation();
-      var name=prompt('New page name:');
-      if(name&&name.trim()&&window.client){client.navigate({path:name.trim()+'.md'},false,false)}};
+    btn.onclick=function(e){e.preventDefault();e.stopPropagation();showNewPageModal()};
     actions.prepend(btn);
   }
   setInterval(addNewBtn,1000);
 })();
 </script>
 <style>
+/* Custom scrollbar — matches Fernando scroll-pill visuals */
+* { scrollbar-color: rgba(255,255,255,0.3) transparent !important; }
+*::-webkit-scrollbar { width: 6px !important; height: 6px !important; background: transparent !important; }
+*::-webkit-scrollbar-track { background: transparent !important; }
+*::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3) !important; border-radius: 3px !important; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.5) !important; }
+/* Graph toggle active state */
+#f-graph-btn.f-active { background: #3465a3; border-radius: 4px; }
 /* Force RHS panel to 50% width and prevent overflow */
 #sb-main { overflow: hidden !important; }
 #sb-main .sb-panel { flex: 1 1 50% !important; min-width: 0 !important; }
 #sb-main #sb-editor { flex: 1 1 50% !important; min-width: 0 !important; overflow: hidden !important; --editor-width: 100% !important; }
-#sb-main #sb-editor .cm-editor { overflow: hidden !important; }
+#sb-main #sb-editor .cm-editor { position: relative !important; }
 #sb-main #sb-editor .cm-scroller { overflow-x: hidden !important; }
 #sb-main #sb-editor .cm-content { overflow-wrap: break-word !important; word-break: break-word !important; }
 #sb-main #sb-editor .cm-line { overflow-wrap: break-word !important; word-break: break-word !important; }
