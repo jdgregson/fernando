@@ -2,6 +2,7 @@ services:
   fernando-desktop:
     container_name: fernando-desktop
     image: fernando-desktop
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile.desktop
