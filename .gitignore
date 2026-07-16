@@ -17,3 +17,4 @@ nohup.out
 subagents
 config
 nginx.conf
+docker-compose.override.yml
