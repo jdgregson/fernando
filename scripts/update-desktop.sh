@@ -16,8 +16,9 @@ else
     export VNC_PW
 fi
 
-echo "Pulling latest base image..."
-docker compose pull
+BASE_IMAGE=$(grep '^FROM ' "$REPO_DIR/Dockerfile.desktop" | head -1 | awk '{print $2}')
+echo "Pulling latest base image ($BASE_IMAGE)..."
+docker pull "$BASE_IMAGE"
 
 echo "Rebuilding desktop container..."
 docker compose build --no-cache
