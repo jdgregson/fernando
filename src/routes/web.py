@@ -479,7 +479,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
       if(i>0){var sep=document.createElement('span');sep.textContent=' / ';sep.style.cssText='color:#6a7a8a;margin:0 2px';bc.appendChild(sep)}
       var a=document.createElement('a');a.textContent=parts[i];a.href='#';
       if(i<parts.length-1){a.style.cssText='color:#5a9fd4;text-decoration:none;cursor:pointer';
-        (function(p){a.onclick=function(e){e.preventDefault();nav(p)}})(parts.slice(0,i+1).join('/')+'/index');
+        (function(p){a.onclick=function(e){e.preventDefault();nav(p)}})(parts.slice(0,i+1).join('/'));
       } else {a.style.cssText='color:#d4d4d4;text-decoration:none;cursor:default';
         a.onclick=function(e){e.preventDefault()};
       }
