@@ -396,10 +396,15 @@ class ACPSession:
         except Exception:
             pass
         if index_rag:
-            try:
-                rag.index_session(self.id, self.display_name, self.history)
-            except Exception as e:
-                logger.warning(f"[{self.id}] RAG index error: {e}")
+            threading.Thread(
+                target=self._index_rag_background, daemon=True
+            ).start()
+
+    def _index_rag_background(self):
+        try:
+            rag.index_session(self.id, self.display_name, list(self.history))
+        except Exception as e:
+            logger.warning(f"[{self.id}] RAG index error: {e}")
 
     def _load_history(self):
         self.history = load_history_file(self.id)
