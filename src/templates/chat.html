@@ -1934,6 +1934,10 @@
             document.getElementById('input').disabled = true;
             document.getElementById('sendBtn').disabled = true;
         }
+
+        // Ask server for any pending auth request now that we've finished rendering
+        socket.emit('acp_check_pending_auth', {csrf_token: csrfToken, session_id: sessionId});
+
         }); // end requestAnimationFrame
     });
 
@@ -2022,8 +2026,18 @@
         }
 
         if (evt.type === 'session_ready') {
+            if (window._waitingForLoad) {
+                window._waitingForLoad = false;
+                socket.emit('acp_subscribe', {csrf_token: csrfToken, session_id: sessionId, history_offset: 0});
+                return;
+            }
             finishTurn();
             setStatus('ready', 'Ready');
+            return;
+        }
+        if (evt.type === 'session_loading') {
+            setStatus('connecting', 'Loading session...');
+            window._waitingForLoad = true;
             return;
         }
         if (evt.type === 'system_message') { addSystemMessage(evt.text); return; }

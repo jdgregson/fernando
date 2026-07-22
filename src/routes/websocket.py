@@ -623,20 +623,20 @@ def register_handlers(socketio):
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 elif session.proc is None or session.proc.poll() is not None:
-                    # Process is dead but session wasn't marked ready — it's stuck/crashed
-                    logger.info(f"acp_subscribe: session {acp_sid} proc dead, sending session_ready")
-                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                    if len(session.history) > 0:
+                        # Process died after loading — it's actually crashed
+                        logger.info(f"acp_subscribe: session {acp_sid} proc dead (post-load), sending session_ready")
+                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                    else:
+                        # Process hasn't started yet — session is still loading, don't send ready
+                        logger.info(f"acp_subscribe: session {acp_sid} still loading (proc not yet spawned)")
+                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading"}})
                 elif not session._is_prompting and (time.time() - session._last_activity) > 60:
                     # Process alive but idle for >60s without being in a prompt — stalled
                     logger.info(f"acp_subscribe: session {acp_sid} stalled (idle {time.time() - session._last_activity:.0f}s), sending session_ready")
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 else:
                     logger.info(f"acp_subscribe: session {acp_sid} not ready. ready={session.ready} proc={session.proc is not None} poll={session.proc.poll() if session.proc else 'N/A'} prompting={session._is_prompting} idle={time.time() - session._last_activity:.0f}s")
-                # Re-emit pending authorization request if one exists for this session
-                from src.routes.web import _pending_auth_requests
-                pending_auth = _pending_auth_requests.get(acp_sid)
-                if pending_auth:
-                    emit("authorization_request", pending_auth)
             else:
                 # Archived session — replay from history file as read-only preview
                 from src.services.acp import load_history_file
@@ -708,6 +708,17 @@ def register_handlers(socketio):
         session = acp_manager.get_session(data.get("session_id"))
         if session:
             emit("acp_stall_info", {"session_id": data["session_id"], **session.get_stall_info()})
+
+    @socketio.on("acp_check_pending_auth")
+    def acp_check_pending_auth(data):
+        if not validate_csrf(data):
+            return
+        sid = data.get("session_id")
+        if sid:
+            from src.routes.web import _pending_auth_requests
+            pending = _pending_auth_requests.get(sid)
+            if pending:
+                emit("authorization_request", pending)
 
     @socketio.on("acp_force_unstick")
     def acp_force_unstick(data):
