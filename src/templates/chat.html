@@ -550,9 +550,13 @@
                 <div style="color:#e0e0e0;font-size:14px;margin-bottom:4px;">${data.description}</div>
                 ${data.reason ? `<div style="color:#888;font-size:13px;margin-bottom:12px;">${data.reason}</div>` : '<div style="margin-bottom:12px;"></div>'}
                 <textarea class="auth-reason-input" placeholder="Reason / instructions (optional)" style="width:100%;min-height:60px;background:#0d1525;border:1px solid #2a3a5c;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:13px;outline:none;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
+                <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;user-select:none;">
+                    <input type="checkbox" class="auth-auto-approve" style="width:16px;height:16px;accent-color:#2d6b4f;cursor:pointer;">
+                    <span style="color:#888;font-size:12px;">Auto-approve for this conversation</span>
+                </label>
                 <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;">
-                    <button onclick="respondAuth('${data.session_id}','${data.action}',true,this)" style="width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 0;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
-                    <button onclick="respondAuth('${data.session_id}','${data.action}',false,this)" style="width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 0;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
+                    <button onclick="respondAuth('${data.session_id}','${data.action}',true,this)" class="auth-btn auth-btn-approve" style="min-width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
+                    <button onclick="respondAuth('${data.session_id}','${data.action}',false,this)" class="auth-btn auth-btn-deny" style="min-width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
                 </div>
             </div>
         `;
@@ -566,16 +570,19 @@
         const overlay = btn.closest('.auth-modal-overlay');
         const reasonInput = overlay.querySelector('.auth-reason-input');
         const reason = reasonInput ? reasonInput.value.trim() : '';
+        const autoApproveBox = overlay.querySelector('.auth-auto-approve');
+        const autoApprove = autoApproveBox ? autoApproveBox.checked : false;
         const buttons = overlay.querySelectorAll('button');
-        buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
-        btn.textContent = approved ? 'Approving...' : 'Denying...';
+        buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.4'; b.style.pointerEvents = 'none'; });
+        btn.style.opacity = '1';
+        btn.innerHTML = '<span class="auth-dots"><span>.</span><span>.</span><span>.</span></span>';
         let success = false;
         for (let attempt = 0; attempt < 3; attempt++) {
             try {
                 const res = await fetch('/api/authorization/grant', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
-                    body: JSON.stringify({session_id: sid, action: action, approved: approved, deny_reason: reason}),
+                    body: JSON.stringify({session_id: sid, action: action, approved: approved, deny_reason: reason, auto_approve: autoApprove}),
                 });
                 if (res.ok) { success = true; break; }
             } catch(e) {}
@@ -587,7 +594,7 @@
             addSystemMessage(text);
             socket.emit('acp_system_message', {csrf_token: csrfToken, session_id: sid, text: text});
         } else {
-            buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+            buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; b.style.pointerEvents = ''; });
             btn.textContent = approved ? 'Approve' : 'Deny';
             const errMsg = overlay.querySelector('.auth-error');
             if (errMsg) errMsg.remove();
