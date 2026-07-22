@@ -32,25 +32,18 @@ AVAILABLE_MODELS = []
 DEFAULT_MODEL = "claude-opus-4.6"
 
 def _load_available_models():
-    """Query kiro-cli for available models (runs in background thread)."""
+    """Read cached model list from disk (written by Flask at startup)."""
     global AVAILABLE_MODELS, DEFAULT_MODEL
-    import subprocess
-    import shutil
-    kiro = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
+    models_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "available_models.json")
     try:
-        result = subprocess.run(
-            [kiro, "chat", "--list-models", "--format", "json"],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            AVAILABLE_MODELS = [m["model_id"] for m in data.get("models", [])]
-            DEFAULT_MODEL = data.get("default_model", DEFAULT_MODEL)
-    except Exception:
+        with open(models_file) as f:
+            data = json.load(f)
+        AVAILABLE_MODELS = [m["model_id"] for m in data.get("models", [])]
+        DEFAULT_MODEL = data.get("default_model", DEFAULT_MODEL)
+    except (OSError, json.JSONDecodeError, KeyError):
         pass
 
-import threading
-threading.Thread(target=_load_available_models, daemon=True).start()
+_load_available_models()
 
 app = Server("subagents")
 

@@ -90,6 +90,12 @@ def api_models():
         if result.returncode == 0 and result.stdout.strip():
             _models_cache["data"] = result.stdout.strip()
             _models_cache["ts"] = now
+            _models_file = os.path.join(os.path.dirname(__file__), "..", "..", "data", "available_models.json")
+            try:
+                with open(_models_file, "w") as mf:
+                    mf.write(_models_cache["data"])
+            except OSError:
+                pass
             return _models_cache["data"], 200, {"Content-Type": "application/json"}
     except Exception:
         pass

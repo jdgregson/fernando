@@ -38,4 +38,22 @@ def create_app(config_name=None):
         response.headers["Expires"] = "0"
         return response
 
+    # Fetch and cache available models at startup (background thread)
+    import threading
+    def _cache_models():
+        import subprocess, shutil
+        kiro_cli = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
+        try:
+            result = subprocess.run(
+                [kiro_cli, "chat", "--list-models", "--format", "json"],
+                capture_output=True, text=True, timeout=15
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                models_file = os.path.join(os.path.dirname(__file__), "..", "data", "available_models.json")
+                with open(models_file, "w") as f:
+                    f.write(result.stdout.strip())
+        except Exception:
+            pass
+    threading.Thread(target=_cache_models, daemon=True).start()
+
     return app
