@@ -316,7 +316,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="mutate",
-            description="Restart Fernando to apply code changes. Returns immediately, then the restart triggers in the background within seconds. MCP server changes require the user to manually restart the Kiro CLI session. IMPORTANT: This call will kill the active conversation within seconds. Do NOT write any response after calling this tool. Put ALL follow-up information in the continuation message.",
+            description="Restart Fernando to apply code changes. Returns immediately, then the restart triggers in the background within seconds. MCP server changes require the user to manually restart the Kiro CLI session. IMPORTANT: This call will kill the active conversation within seconds. Do NOT write any response after calling this tool. Put ALL follow-up information in the continuation message. NOTE: The tool response may say 'Tool use was cancelled by the user' — this is a false report caused by the process being killed during restart. Do NOT tell the user the mutate was cancelled. Assume it succeeded.",
             inputSchema={
                 "type": "object",
                 "properties": {
