@@ -563,9 +563,11 @@ class ACPManager:
         self._lock = threading.Lock()
         self.default_on_event = None  # Set by websocket.py after register_handlers
 
-    def create_session(self, on_event=None):
+    def create_session(self, on_event=None, model=None):
         session_id = str(uuid.uuid4())[:8]
         session = ACPSession(session_id, on_event=on_event)
+        if model:
+            session.model = model
         with self._lock:
             self.sessions[session_id] = session
         threading.Thread(target=self._start_new, args=(session_id, session), daemon=True).start()

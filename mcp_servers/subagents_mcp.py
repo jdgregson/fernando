@@ -28,6 +28,26 @@ from mcp.types import Tool, TextContent
 
 import os
 
+AVAILABLE_MODELS = []
+DEFAULT_MODEL = "claude-opus-4.6"
+
+def _load_available_models():
+    """Query kiro-cli for available models at startup."""
+    global AVAILABLE_MODELS, DEFAULT_MODEL
+    import subprocess
+    import shutil
+    kiro = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
+    result = subprocess.run(
+        [kiro, "chat", "--list-models", "--format", "json"],
+        capture_output=True, text=True, timeout=15
+    )
+    if result.returncode == 0:
+        data = json.loads(result.stdout)
+        AVAILABLE_MODELS = [m["model_id"] for m in data.get("models", [])]
+        DEFAULT_MODEL = data.get("default_model", DEFAULT_MODEL)
+
+_load_available_models()
+
 app = Server("subagents")
 
 
@@ -38,6 +58,7 @@ def create_subagent(
     context_path=None,
     at_schedule=None,
     cron_schedule=None,
+    model=None,
 ):
     """Spawn a subagent with full workspace/instructions, using ACP instead of tmux."""
     task_id, workspace = create_workspace(task_id)
@@ -56,7 +77,7 @@ def create_subagent(
 
     if at_schedule:
         # Rewrite spawn.sh to use ACP API instead of tmux
-        _write_acp_spawn_script(script_path, instructions_file, session_name)
+        _write_acp_spawn_script(script_path, instructions_file, session_name, model)
         schedule_at(script_path, at_schedule)
         return {
             "task_id": task_id,
@@ -66,7 +87,7 @@ def create_subagent(
         }
 
     if cron_schedule:
-        _write_acp_spawn_script(script_path, instructions_file, session_name)
+        _write_acp_spawn_script(script_path, instructions_file, session_name, model)
         schedule_cron(script_path, cron_schedule)
         return {
             "task_id": task_id,
@@ -78,10 +99,12 @@ def create_subagent(
     # Immediate: spawn via ACP API
     prompt = f"Read the instructions from {instructions_file} and execute the task described there."
     api_key = read_api_key()
-    payload = json.dumps({"task": prompt, "name": session_name}).encode()
+    payload = {"task": prompt, "name": session_name}
+    if model:
+        payload["model"] = model
     req = urllib.request.Request(
         "http://localhost:5000/api/spawn_subagent",
-        data=payload,
+        data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json", "X-API-Key": api_key},
     )
     try:
@@ -94,9 +117,12 @@ def create_subagent(
         return {"error": str(e), "task_id": task_id, "workspace": workspace}
 
 
-def _write_acp_spawn_script(script_path, instructions_file, session_name):
+def _write_acp_spawn_script(script_path, instructions_file, session_name, model=None):
     """Overwrite spawn.sh to use ACP API instead of tmux."""
     os.chmod(script_path, 0o700)
+    payload_fields = f'\\"task\\": \\"$TASK\\", \\"name\\": \\"{session_name}\\"'
+    if model:
+        payload_fields += f', \\"model\\": \\"{model}\\"'
     with open(script_path, "w") as f:
         f.write(f"""#!/bin/bash
 API_KEY=$(cat /tmp/fernando-api-key 2>/dev/null)
@@ -104,7 +130,7 @@ TASK="Read the instructions from {instructions_file} and execute the task descri
 curl -s -X POST http://localhost:5000/api/spawn_subagent \\
   -H "Content-Type: application/json" \\
   -H "X-API-Key: $API_KEY" \\
-  --data-raw "{{\\"task\\": \\"$TASK\\", \\"name\\": \\"{session_name}\\"}}"
+  --data-raw "{{{payload_fields}}}"
 """)
     os.chmod(script_path, 0o500)
 
@@ -141,6 +167,11 @@ async def list_tools() -> list[Tool]:
                     "cron_schedule": {
                         "type": "string",
                         "description": "Run on cron schedule (e.g., '*/5 * * * *' for every 5 minutes, '0 * * * *' for hourly). Mutually exclusive with at_schedule.",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": f"Model ID for the subagent (default: {DEFAULT_MODEL})",
+                        "enum": AVAILABLE_MODELS,
                     },
                 },
                 "required": ["task_id", "task"],
@@ -182,6 +213,11 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "spawn_subagent":
+        model = arguments.get("model")
+        if model and AVAILABLE_MODELS and model not in AVAILABLE_MODELS:
+            return [TextContent(type="text", text=json.dumps({
+                "error": f"Invalid model '{model}'. Available: {', '.join(AVAILABLE_MODELS)}"
+            }))]
         result = create_subagent(
             arguments["task_id"],
             arguments["task"],
@@ -189,6 +225,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments.get("context_path"),
             arguments.get("at_schedule"),
             arguments.get("cron_schedule"),
+            arguments.get("model"),
         )
     elif name == "get_subagent_status":
         result = get_subagent_status(arguments["task_id"])

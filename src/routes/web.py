@@ -104,10 +104,11 @@ def api_spawn_subagent():
     data = request.get_json(force=True)
     task = data.get("task", "")
     name = data.get("name", "")
+    model = data.get("model")
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
     on_event = acp_manager.default_on_event
-    session_id = acp_manager.create_session(on_event=on_event)
+    session_id = acp_manager.create_session(on_event=on_event, model=model)
     if name:
         acp_manager.rename_session(session_id, name)
 
