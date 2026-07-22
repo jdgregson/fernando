@@ -562,20 +562,41 @@
         chatContainer.appendChild(overlay);
     });
 
-    window.respondAuth = function(sid, action, approved, btn) {
+    window.respondAuth = async function(sid, action, approved, btn) {
         const overlay = btn.closest('.auth-modal-overlay');
         const reasonInput = overlay.querySelector('.auth-reason-input');
         const reason = reasonInput ? reasonInput.value.trim() : '';
-        fetch('/api/authorization/grant', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
-            body: JSON.stringify({session_id: sid, action: action, approved: approved, deny_reason: reason}),
-        });
-        overlay.remove();
-        // Persist result in chat history
-        const text = (approved ? '\u2713 Approved' : '\u2717 Denied') + ': ' + action + (reason ? ' \u2014 ' + reason : '');
-        addSystemMessage(text);
-        socket.emit('acp_system_message', {csrf_token: csrfToken, session_id: sid, text: text});
+        const buttons = overlay.querySelectorAll('button');
+        buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.5'; });
+        btn.textContent = approved ? 'Approving...' : 'Denying...';
+        let success = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const res = await fetch('/api/authorization/grant', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-API-Key': apiKey},
+                    body: JSON.stringify({session_id: sid, action: action, approved: approved, deny_reason: reason}),
+                });
+                if (res.ok) { success = true; break; }
+            } catch(e) {}
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        if (success) {
+            overlay.remove();
+            const text = (approved ? '\u2713 Approved' : '\u2717 Denied') + ': ' + action + (reason ? ' \u2014 ' + reason : '');
+            addSystemMessage(text);
+            socket.emit('acp_system_message', {csrf_token: csrfToken, session_id: sid, text: text});
+        } else {
+            buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+            btn.textContent = approved ? 'Approve' : 'Deny';
+            const errMsg = overlay.querySelector('.auth-error');
+            if (errMsg) errMsg.remove();
+            const err = document.createElement('div');
+            err.className = 'auth-error';
+            err.style.cssText = 'color:#f55;font-size:12px;margin-top:8px;text-align:center;';
+            err.textContent = 'Failed to send. Check connection and try again.';
+            btn.closest('div').after(err);
+        }
     };
 
     function forceUnstick() {
