@@ -125,6 +125,111 @@ def _grant_authorization(session_id, auth_name):
     return True
 
 
+def _health_check():
+    """Gather system health info for Fernando."""
+    import multiprocessing
+    health = {}
+
+    # Load average + CPU count
+    load1, load5, load15 = os.getloadavg()
+    cpus = multiprocessing.cpu_count()
+    health["load_average"] = {"1min": round(load1, 2), "5min": round(load5, 2), "15min": round(load15, 2), "cpu_count": cpus}
+
+    # Memory
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    meminfo[parts[0].rstrip(":")] = int(parts[1])
+        total = meminfo.get("MemTotal", 0)
+        available = meminfo.get("MemAvailable", 0)
+        used = total - available
+        health["memory"] = {
+            "total_mb": round(total / 1024),
+            "used_mb": round(used / 1024),
+            "available_mb": round(available / 1024),
+            "percent_used": round(used / total * 100, 1) if total else 0,
+        }
+    except Exception as e:
+        health["memory"] = {"error": str(e)}
+
+    # Process summary
+    try:
+        ps_out = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, timeout=5
+        ).stdout
+        kiro_chat = sum(1 for l in ps_out.splitlines() if "kiro-cli-chat" in l)
+        kiro_cli = sum(1 for l in ps_out.splitlines() if "kiro-cli acp" in l and "kiro-cli-chat" not in l)
+        mcp_servers = sum(1 for l in ps_out.splitlines() if "mcp_servers/" in l)
+        python_total = sum(1 for l in ps_out.splitlines() if "python" in l.lower() and "grep" not in l)
+        health["processes"] = {
+            "kiro_cli_sessions": kiro_chat,
+            "kiro_cli_wrappers": kiro_cli,
+            "mcp_servers": mcp_servers,
+            "python_total": python_total,
+        }
+    except Exception as e:
+        health["processes"] = {"error": str(e)}
+
+    # Last 50 lines from available logs
+    log_files = [
+        ("/tmp/fernando-flask.log", "flask"),
+        ("/tmp/fernando-mutate.log", "mutate"),
+        ("/tmp/fernando-update-kiro.log", "update-kiro"),
+        ("/tmp/fernando-update-desktop.log", "update-desktop"),
+    ]
+    health["logs"] = {}
+    for log_path, log_name in log_files:
+        try:
+            with open(log_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                read_size = min(size, 50000)
+                f.seek(size - read_size)
+                chunk = f.read().decode(errors="replace")
+            lines = chunk.splitlines()[-50:]
+            health["logs"][log_name] = lines
+        except OSError:
+            pass
+
+    # Session load times (from current Flask log - read more for this)
+    try:
+        load_times = []
+        starts = {}
+        with open("/tmp/fernando-flask.log", "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            read_size = min(size, 500000)
+            f.seek(size - read_size)
+            flask_tail = f.read().decode(errors="replace")
+        for line in flask_tail.splitlines():
+            if "_load_existing: starting for" in line:
+                parts = line.split("starting for ")
+                if len(parts) > 1:
+                    sid = parts[1].split()[0]
+                    ts = line[:23]
+                    starts[sid] = ts
+            elif "_load_existing: session" in line and "ready" in line:
+                parts = line.split("session ")
+                if len(parts) > 1:
+                    sid = parts[1].split()[0]
+                    ts = line[:23]
+                    if sid in starts:
+                        from datetime import datetime
+                        t0 = datetime.strptime(starts[sid], "%Y-%m-%d %H:%M:%S,%f")
+                        t1 = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S,%f")
+                        dur = (t1 - t0).total_seconds()
+                        load_times.append({"session": sid, "seconds": round(dur, 1)})
+        load_times.sort(key=lambda x: x["seconds"], reverse=True)
+        health["session_load_times"] = load_times[:10]
+    except Exception as e:
+        health["session_load_times"] = [{"error": str(e)}]
+
+    return health
+
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
@@ -233,6 +338,14 @@ async def list_tools() -> list[Tool]:
                         "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
                     },
                 },
+            },
+        ),
+        Tool(
+            name="health_check",
+            description="Get Fernando's current system health at a glance: load average, CPU count, memory usage, recent errors from Flask log, session load times, and process count summary.",
+            inputSchema={
+                "type": "object",
+                "properties": {},
             },
         ),
     ]
@@ -531,6 +644,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             start_new_session=True,
         )
         result = {"status": "rebooting", "message": "Host will reboot in 5 seconds."}
+    elif name == "health_check":
+        result = _health_check()
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
