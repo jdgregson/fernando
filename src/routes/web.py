@@ -1169,12 +1169,13 @@ def api_authorization_grant():
         except (OSError, json.JSONDecodeError):
             config = {}
         auth = config.get(action, {})
+        auto_approve = data.get("auto_approve", False)
         auth_dir = os.path.join("/tmp/agent_authorization", session_id)
         os.makedirs(auth_dir, exist_ok=True)
-        grant = {
-            "granted_at": _time.time(),
-            "expires_at": _time.time() + auth.get("timeout_seconds", 300),
-        }
+        if auto_approve:
+            grant = {"granted_at": _time.time(), "expires_at": None, "auto_approve": True}
+        else:
+            grant = {"granted_at": _time.time(), "expires_at": _time.time() + auth.get("timeout_seconds", 300)}
         with open(os.path.join(auth_dir, action), "w") as f:
             json.dump(grant, f)
     else:

@@ -96,9 +96,16 @@ def _consume_authorization(cmd, session_id):
         if re.search(r'(?:^|&&|;|\|)\s*' + re.escape(pattern), cmd) and auth.get("expire_on_use"):
             auth_file = os.path.join(_AUTH_DIR, session_id, auth_name)
             try:
+                with open(auth_file) as f:
+                    grant = json.load(f)
+                if grant.get("auto_approve"):
+                    continue
                 os.remove(auth_file)
-            except OSError:
-                pass
+            except (OSError, json.JSONDecodeError):
+                try:
+                    os.remove(auth_file)
+                except OSError:
+                    pass
 
 
 def _grant_authorization(session_id, auth_name):
@@ -317,53 +324,65 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if action not in config:
             result = {"error": f"Unknown authorization: '{action}'"}
         else:
-            def _do_authorize():
-                # Emit authorization request to the chat UI via HTTP
-                auth_id = secrets.token_hex(8)
-                api_key = read_api_key()
-                req_data = json.dumps({
-                    "session_id": session_id,
-                    "auth_id": auth_id,
-                    "action": action,
-                    "reason": reason,
-                    "description": config[action].get("description", action),
-                }).encode()
+            auth_file = os.path.join(_AUTH_DIR, session_id, action)
+            already_granted = False
+            if os.path.exists(auth_file):
                 try:
-                    req = urllib.request.Request(
-                        "http://localhost:5000/api/authorization/request",
-                        data=req_data,
-                        headers={"Content-Type": "application/json", "X-API-Key": api_key},
-                    )
-                    resp = urllib.request.urlopen(req, timeout=10)
-                    resp.read()
-                except Exception as e:
-                    return {"error": f"Failed to emit authorization request: {e}"}
-                # Poll for the grant or denial file
-                auth_file = os.path.join(_AUTH_DIR, session_id, action)
-                deny_file = auth_file + ".denied"
-                granted = False
-                deny_reason = ""
-                while True:
-                    if os.path.exists(auth_file):
-                        granted = True
-                        break
-                    if os.path.exists(deny_file):
-                        try:
-                            with open(deny_file) as f:
-                                d = json.load(f)
-                                deny_reason = d.get("reason", "")
-                            os.remove(deny_file)
-                        except (OSError, json.JSONDecodeError):
-                            pass
-                        break
-                    time.sleep(1)
-                if granted:
-                    return {"status": "authorized", "action": action}
-                r = {"status": "denied", "action": action}
-                if deny_reason:
-                    r["reason"] = deny_reason
-                return r
-            result = await asyncio.to_thread(_do_authorize)
+                    with open(auth_file) as f:
+                        grant = json.load(f)
+                    if not grant.get("expires_at") or time.time() <= grant["expires_at"]:
+                        already_granted = True
+                    else:
+                        os.remove(auth_file)
+                except (OSError, json.JSONDecodeError):
+                    pass
+            if already_granted:
+                result = {"status": "authorized", "action": action}
+            else:
+                def _do_authorize():
+                    auth_id = secrets.token_hex(8)
+                    api_key = read_api_key()
+                    req_data = json.dumps({
+                        "session_id": session_id,
+                        "auth_id": auth_id,
+                        "action": action,
+                        "reason": reason,
+                        "description": config[action].get("description", action),
+                    }).encode()
+                    try:
+                        req = urllib.request.Request(
+                            "http://localhost:5000/api/authorization/request",
+                            data=req_data,
+                            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                        )
+                        resp = urllib.request.urlopen(req, timeout=10)
+                        resp.read()
+                    except Exception as e:
+                        return {"error": f"Failed to emit authorization request: {e}"}
+                    deny_file = auth_file + ".denied"
+                    granted = False
+                    deny_reason = ""
+                    while True:
+                        if os.path.exists(auth_file):
+                            granted = True
+                            break
+                        if os.path.exists(deny_file):
+                            try:
+                                with open(deny_file) as f:
+                                    d = json.load(f)
+                                    deny_reason = d.get("reason", "")
+                                os.remove(deny_file)
+                            except (OSError, json.JSONDecodeError):
+                                pass
+                            break
+                        time.sleep(0.25)
+                    if granted:
+                        return {"status": "authorized", "action": action}
+                    r = {"status": "denied", "action": action}
+                    if deny_reason:
+                        r["reason"] = deny_reason
+                    return r
+                result = await asyncio.to_thread(_do_authorize)
     elif name == "run_daemon":
         cmd = arguments["command"]
         cwd = arguments.get("working_dir", PROJECT_ROOT)
