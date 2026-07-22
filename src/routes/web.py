@@ -12,6 +12,8 @@ from src.services.acp import acp_manager
 
 bp = Blueprint("web", __name__)
 
+_pending_auth_requests = {}
+
 
 def _check_api_key():
     key = request.headers.get("X-API-Key") or request.form.get("api_key") or request.args.get("api_key")
@@ -1137,15 +1139,16 @@ def api_authorization_request():
     description = data.get("description", action)
     if not session_id or not action:
         return json.dumps({"error": "Missing session_id or action"}), 400, {"Content-Type": "application/json"}
-    # Emit to the chat UI via socketio
-    from src import socketio
-    socketio.emit("authorization_request", {
+    auth_data = {
         "session_id": session_id,
         "auth_id": auth_id,
         "action": action,
         "reason": reason,
         "description": description,
-    }, namespace="/")
+    }
+    _pending_auth_requests[session_id] = auth_data
+    from src import socketio
+    socketio.emit("authorization_request", auth_data, namespace="/")
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
 
@@ -1160,6 +1163,7 @@ def api_authorization_grant():
     approved = data.get("approved", False)
     if not session_id or not action:
         return json.dumps({"error": "Missing session_id or action"}), 400, {"Content-Type": "application/json"}
+    _pending_auth_requests.pop(session_id, None)
     if approved:
         import time as _time
         auth_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "authorization.json")

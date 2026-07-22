@@ -632,6 +632,11 @@ def register_handlers(socketio):
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 else:
                     logger.info(f"acp_subscribe: session {acp_sid} not ready. ready={session.ready} proc={session.proc is not None} poll={session.proc.poll() if session.proc else 'N/A'} prompting={session._is_prompting} idle={time.time() - session._last_activity:.0f}s")
+                # Re-emit pending authorization request if one exists for this session
+                from src.routes.web import _pending_auth_requests
+                pending_auth = _pending_auth_requests.get(acp_sid)
+                if pending_auth:
+                    emit("authorization_request", pending_auth)
             else:
                 # Archived session — replay from history file as read-only preview
                 from src.services.acp import load_history_file
