@@ -2040,7 +2040,13 @@
             window._waitingForLoad = true;
             return;
         }
-        if (evt.type === 'system_message') { addSystemMessage(evt.text); return; }
+        if (evt.type === 'system_message') {
+            addSystemMessage(evt.text);
+            if (evt.text && evt.text.startsWith('Model unavailable. Retrying')) {
+                setStatus('working', evt.text);
+            }
+            return;
+        }
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
         if (evt.type === 'archived_preview') { finishTurn(); setStatus('archived', 'Archived — read-only preview'); document.getElementById('input').disabled = true; document.getElementById('sendBtn').disabled = true; return; }

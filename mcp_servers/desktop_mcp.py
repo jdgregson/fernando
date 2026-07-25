@@ -359,6 +359,20 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="browser_console",
+            description="Get recent console output (logs, errors, warnings) from a Chrome browser tab via CDP. Enables Runtime and collects any buffered exceptions. Also installs a persistent collector for future calls.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "tab_index": {
+                        "type": "integer",
+                        "description": "Tab index from browser_tabs (default: 0)",
+                        "default": 0,
+                    },
+                },
+            },
+        ),
+        Tool(
             name="desktop_copy_file",
             description="Copy a file between the host and the Kasm desktop container. Provide the source path and direction. The destination is chosen automatically and returned.",
             inputSchema={
@@ -550,6 +564,67 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(type="text", text=json.dumps(val.get("value", val), indent=2, default=str))]
         except Exception as e:
             return [TextContent(type="text", text=f"Error executing JS: {e}")]
+
+    elif name == "browser_console":
+        try:
+            tabs = get_chrome_tabs()
+            pages = [t for t in tabs if t.get("type") == "page"]
+            idx = arguments.get("tab_index", 0)
+            if not pages or idx >= len(pages):
+                return [TextContent(type="text", text="Tab not found.")]
+            ws_url = pages[idx]["webSocketDebuggerUrl"]
+            script = """
+import websocket, json, sys, time
+ws = websocket.create_connection(sys.argv[1], timeout=10)
+msg_id = 1
+
+def send(method, params=None):
+    global msg_id
+    ws.send(json.dumps({"id": msg_id, "method": method, "params": params or {}}))
+    msg_id += 1
+
+send("Runtime.enable")
+send("Log.enable")
+
+entries = []
+deadline = time.time() + 1.5
+while time.time() < deadline:
+    ws.settimeout(0.5)
+    try:
+        raw = ws.recv()
+        msg = json.loads(raw)
+        if msg.get("method") == "Runtime.consoleAPICalled":
+            p = msg["params"]
+            level = p.get("type", "log")
+            args = " ".join(a.get("description", a.get("value", str(a))) for a in p.get("args", []))
+            entries.append(f"[{level}] {args}")
+        elif msg.get("method") == "Runtime.exceptionThrown":
+            exc = msg["params"].get("exceptionDetails", {})
+            text = exc.get("exception", {}).get("description", exc.get("text", "unknown"))
+            entries.append(f"[exception] {text}")
+        elif msg.get("method") == "Log.entryAdded":
+            e = msg["params"].get("entry", {})
+            entries.append(f"[{e.get('level','log')}] {e.get('text','')}")
+    except websocket.WebSocketTimeoutException:
+        break
+    except Exception:
+        break
+
+ws.close()
+print(json.dumps(entries))
+"""
+            result = subprocess.run(
+                ["docker", "exec", "-i", "fernando-desktop", "python3", "-c", script, ws_url],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode != 0:
+                return [TextContent(type="text", text=f"Error: {result.stderr}")]
+            entries = json.loads(result.stdout)
+            if entries:
+                return [TextContent(type="text", text="\n".join(entries))]
+            return [TextContent(type="text", text="(no console output)")]
+        except Exception as e:
+            return [TextContent(type="text", text=f"Error: {e}")]
 
     elif name == "desktop_copy_file":
         src = arguments["src"]

@@ -129,6 +129,10 @@ class ACPSession:
         self._last_activity = time.time()  # track last stdout data for stall detection
         self._is_prompting = False  # True while waiting for agent response
         self._flushed = 0  # number of history entries already written to disk
+        self._retry_count = 0  # current consecutive retry attempts for model unavailability
+        self._max_retries = 5  # give up after this many consecutive failures
+        self._retry_backoff_base = 5  # seconds, doubles each retry
+        self._retry_pending = False  # True while a retry is waiting to fire
 
     def _spawn_and_init(self):
         """Spawn kiro-cli acp and run initialize handshake."""
@@ -266,6 +270,9 @@ class ACPSession:
             logger.warning(f"[{self.id}] send_prompt called but no acp_session_id")
             return
         logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}, was_prompting={self._is_prompting}")
+        if self._retry_pending:
+            self._retry_pending = False
+            self._retry_count = 0
         if self._is_prompting:
             logger.info(f"[{self.id}] cancelling stuck prompt before sending new one")
             self.cancel()
@@ -505,6 +512,34 @@ class ACPSession:
             if self.on_event:
                 self.on_event(self.id, {"type": "system_message", "text": f"Auto-reload failed: {e}"})
 
+    def _retry_after_unavailable(self):
+        """Auto-retry the last prompt after model unavailability with exponential backoff."""
+        self._retry_count += 1
+        self._retry_pending = True
+        delay = self._retry_backoff_base * (2 ** (self._retry_count - 1))
+        logger.info(f"[{self.id}] Model unavailable, retry {self._retry_count}/{self._max_retries} in {delay}s")
+        if self.on_event and self._broadcasting:
+            self.on_event(self.id, {
+                "type": "system_message",
+                "text": f"Model unavailable. Retrying ({self._retry_count}/{self._max_retries}) in {delay}s...",
+            })
+        time.sleep(delay)
+        if not self._alive or not self.acp_session_id or not self._retry_pending:
+            self._retry_pending = False
+            return
+        self._retry_pending = False
+        self._is_prompting = True
+        self._last_activity = time.time()
+        self._send({
+            "jsonrpc": "2.0",
+            "id": self._get_id(),
+            "method": "session/prompt",
+            "params": {
+                "sessionId": self.acp_session_id,
+                "prompt": [{"type": "text", "text": "continue"}],
+            },
+        })
+
     def _dispatch(self, msg):
         msg_id = msg.get("id")
 
@@ -519,6 +554,7 @@ class ACPSession:
             if stop_reason:
                 logger.info(f"[{self.id}] turn ended: stopReason={stop_reason}")
                 self._is_prompting = False
+                self._retry_count = 0
             self._record_event(msg)
             if self.on_event and self._broadcasting:
                 try:
@@ -536,8 +572,18 @@ class ACPSession:
             err = msg.get("error", {})
             logger.warning(f"[{self.id}] ACP error: {err}")
             self._is_prompting = False
-            # Detect MCP transport crash and auto-reload
             err_text = str(err.get("data") or err.get("message", ""))
+            if "is not available" in err_text:
+                if self._retry_count < self._max_retries:
+                    threading.Thread(target=self._retry_after_unavailable, daemon=True).start()
+                else:
+                    logger.warning(f"[{self.id}] Model unavailable: max retries ({self._max_retries}) exhausted")
+                    self._retry_count = 0
+                    if self.on_event and self._broadcasting:
+                        self.on_event(self.id, {"type": "system_message", "text": f"Model unavailable after {self._max_retries} retries. Send any message to try again."})
+                        self.on_event(self.id, {"type": "acp_error", "error": err_text})
+                return
+            self._retry_count = 0
             if "Transport" in err_text and "closed" in err_text:
                 logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
                 threading.Thread(target=self._auto_reload, daemon=True).start()
