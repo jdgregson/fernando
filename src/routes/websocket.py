@@ -547,7 +547,9 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
-        session_id = acp_manager.create_session(on_event=acp_on_event)
+        model = data.get("model")
+        backend = data.get("backend", "kiro")
+        session_id = acp_manager.create_session(on_event=acp_on_event, model=model, backend=backend)
         emit("acp_created", {"session_id": session_id})
 
     @socketio.on("acp_subscribe")
@@ -619,6 +621,7 @@ def register_handlers(socketio):
                     "sync_seq": next_seq,
                     "history_length": len(session.history),
                     "model": session.model,
+                    "backend": session.backend,
                 })
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
@@ -636,7 +639,9 @@ def register_handlers(socketio):
                     logger.info(f"acp_subscribe: session {acp_sid} stalled (idle {time.time() - session._last_activity:.0f}s), sending session_ready")
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 else:
+                    # Session exists but not ready yet — still loading
                     logger.info(f"acp_subscribe: session {acp_sid} not ready. ready={session.ready} proc={session.proc is not None} poll={session.proc.poll() if session.proc else 'N/A'} prompting={session._is_prompting} idle={time.time() - session._last_activity:.0f}s")
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading"}})
             else:
                 # Archived session — replay from history file as read-only preview
                 from src.services.acp import load_history_file

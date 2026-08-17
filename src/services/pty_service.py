@@ -67,6 +67,17 @@ class PTYSession:
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
 
+        config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config")
+        if os.path.exists(config_path):
+            with open(config_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line:
+                        key, _, value = line.partition("=")
+                        env[key] = value
+
         master, slave = pty.openpty()
         proc = __import__("subprocess").Popen(
             cmd,

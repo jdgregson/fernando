@@ -150,6 +150,13 @@
             btn.onclick = stopGeneration;
             btn.style.background = '#a03030';
             btn.style.borderColor = '#511414';
+        } else if (state === 'connecting') {
+            isReady = false;
+            btn.classList.add('disabled');
+            btn.textContent = 'Send';
+            btn.onclick = sendMessage;
+            btn.style.background = '';
+            btn.style.borderColor = '';
         } else if (state === 'error') {
             btn.classList.add('disabled');
             btn.textContent = 'Send';
@@ -681,9 +688,14 @@
         currentContentDiv.innerHTML = html;
         scrollToBottom();
     }
+    let _chunkDebugLog = [];
     function appendChunk(text) {
+        const before = currentText.slice(-20);
         ensureContentDiv();
         currentText += text;
+        const after = currentText.slice(-40);
+        _chunkDebugLog.push({t: Date.now(), chunk: text.slice(0,50), before, after});
+        if (_chunkDebugLog.length > 200) _chunkDebugLog.shift();
         if (_modelListPending) return;
         if (!_chunkRenderPending) {
             _chunkRenderPending = true;
@@ -691,6 +703,7 @@
         }
         _scheduleCanvasActivation();
     }
+    window._getChunkLog = () => _chunkDebugLog;
 
     function appendImage(data, mimeType) {
         ensureContentDiv();
@@ -1808,10 +1821,13 @@
             input.value = '';
             input.style.height = 'auto';
             localStorage.removeItem(draftKey);
-            fetch('/api/models', {headers: {'X-API-Key': apiKey}})
+            const endpoint = window._sessionBackend === 'opencode' ? '/api/opencode_models' : '/api/models';
+            fetch(endpoint, {headers: {'X-API-Key': apiKey}})
                 .then(r => r.json())
                 .then(data => {
-                    const models = (data.models || []).map(m => m.model_id);
+                    const models = window._sessionBackend === 'opencode'
+                        ? (data.models || [])
+                        : (data.models || []).map(m => m.model_id);
                     showModelModal(models, window._sessionModel || 'claude-opus-4.6');
                 })
                 .catch(() => {
@@ -1918,6 +1934,7 @@
         // Apply sync state
         if (data.sync_seq !== undefined) expectedSeq = data.sync_seq;
         if (data.model) window._sessionModel = data.model;
+        if (data.backend) window._sessionBackend = data.backend;
         if (data.history_length !== undefined) historyOffset = data.history_length;
 
         // Drain any buffered live events that arrived during load

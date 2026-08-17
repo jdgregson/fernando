@@ -104,6 +104,49 @@ def api_models():
     return json.dumps({"error": "Could not fetch models"}), 500, {"Content-Type": "application/json"}
 
 
+_opencode_models_cache = {"data": None, "ts": 0}
+
+
+@bp.route("/api/opencode_models")
+def api_opencode_models():
+    """Return available models from opencode, cached for 5 minutes."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    import time, subprocess
+    now = time.time()
+    if _opencode_models_cache["data"] and now - _opencode_models_cache["ts"] < 300:
+        return json.dumps(_opencode_models_cache["data"]), 200, {"Content-Type": "application/json"}
+    opencode_cli = os.path.expanduser("~/.opencode/bin/opencode")
+    if not os.path.exists(opencode_cli):
+        return json.dumps({"error": "OpenCode not installed"}), 404, {"Content-Type": "application/json"}
+    env = os.environ.copy()
+    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config")
+    if os.path.exists(config_path):
+        with open(config_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    env[key] = value
+    try:
+        result = subprocess.run(
+            [opencode_cli, "models"],
+            capture_output=True, text=True, timeout=30, env=env
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            models = [m.strip() for m in result.stdout.strip().split("\n") if m.strip()]
+            _opencode_models_cache["data"] = {"models": models}
+            _opencode_models_cache["ts"] = now
+            return json.dumps(_opencode_models_cache["data"]), 200, {"Content-Type": "application/json"}
+    except Exception:
+        pass
+    if _opencode_models_cache["data"]:
+        return json.dumps(_opencode_models_cache["data"]), 200, {"Content-Type": "application/json"}
+    return json.dumps({"error": "Could not fetch OpenCode models"}), 500, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/spawn_subagent", methods=["POST"])
 def api_spawn_subagent():
     """Create an ACP chat session and send a task as the first prompt."""
@@ -113,10 +156,11 @@ def api_spawn_subagent():
     task = data.get("task", "")
     name = data.get("name", "")
     model = data.get("model")
+    backend = data.get("backend", "kiro")
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
     on_event = acp_manager.default_on_event
-    session_id = acp_manager.create_session(on_event=on_event, model=model)
+    session_id = acp_manager.create_session(on_event=on_event, model=model, backend=backend)
     if name:
         acp_manager.rename_session(session_id, name)
 
@@ -678,8 +722,8 @@ def jupyter_proxy(path):
     port = get_port()
 
     # Map /jupyter/X to Jupyter's /nbclassic/X for tree/notebook views,
-    # but pass /api/, /static/, /custom/, /nbextensions/, /kernelspecs/ paths through directly
-    if path.startswith(("api/", "static/", "nbextensions/", "custom/", "custom-preload", "kernelspecs/")):
+    # but pass /api/, /static/, /custom/, /nbextensions/, /kernelspecs/, /files/ paths through directly
+    if path.startswith(("api/", "static/", "nbextensions/", "custom/", "custom-preload", "kernelspecs/", "files/")):
         upstream_path = path
     elif path == "" or path.startswith("tree") or path.startswith("notebooks/"):
         upstream_path = f"nbclassic/{path}" if path else "nbclassic/tree/"
@@ -747,6 +791,8 @@ def jupyter_proxy(path):
             content = content.replace("'/custom-preload'", "'/jupyter/custom/custom-preload'")
             content = content.replace("'/nbextensions'", "'/jupyter/nbextensions'")
             content = content.replace("'/kernelspecs'", "'/jupyter/kernelspecs'")
+            content = content.replace('"/files/', '"/jupyter/files/')
+            content = content.replace("'/files/", "'/jupyter/files/")
             # Rewrite wsUrl to use the direct WS proxy path with api_key
             # Also intercept XHR/fetch to rewrite absolute /api/ paths to /jupyter/api/
             ak = request.args.get("api_key", "")
@@ -763,6 +809,7 @@ def jupyter_proxy(path):
                 "if(u.startsWith('/nbextensions/'))return '/jupyter'+u;"
                 "if(u.startsWith('/kernelspecs/'))return '/jupyter'+u;"
                 "if(u.startsWith('/custom/'))return '/jupyter'+u;"
+                "if(u.startsWith('/files/'))return '/jupyter'+u;"
                 "return u;}"
                 # Patch XMLHttpRequest.open
                 "var _xo=XMLHttpRequest.prototype.open;"

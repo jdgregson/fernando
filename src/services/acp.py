@@ -16,6 +16,7 @@ from src.services import rag
 logger = logging.getLogger(__name__)
 
 KIRO_CLI = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
+OPENCODE_CLI = os.path.expanduser("~/.opencode/bin/opencode")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
@@ -107,9 +108,10 @@ class ACPSession:
 
     DEFAULT_MODEL = "claude-opus-4.6"
 
-    def __init__(self, session_id, on_event=None):
+    def __init__(self, session_id, on_event=None, backend="kiro"):
         self.id = session_id
         self.on_event = on_event
+        self.backend = backend  # "kiro" or "opencode"
         self.proc = None
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
@@ -135,16 +137,44 @@ class ACPSession:
         self._retry_pending = False  # True while a retry is waiting to fire
 
     def _spawn_and_init(self):
-        """Spawn kiro-cli acp and run initialize handshake."""
-        logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
-        self.proc = subprocess.Popen(
-            [KIRO_CLI, "acp", "-a", "--model", self.model, "--effort", self.effort],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            cwd=os.path.expanduser("~/fernando"),
-        )
-        logger.info(f"[{self.id}] kiro-cli pid={self.proc.pid}")
+        """Spawn kiro-cli or opencode acp and run initialize handshake."""
+        if self.backend == "opencode":
+            logger.info(f"[{self.id}] Spawning opencode acp subprocess")
+            env = os.environ.copy()
+            config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config")
+            if os.path.exists(config_path):
+                with open(config_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#"):
+                            continue
+                        if "=" in line:
+                            key, _, value = line.partition("=")
+                            env[key] = value
+            if self.model:
+                import json as _json
+                env["OPENCODE_CONFIG_CONTENT"] = _json.dumps({"model": self.model})
+            logger.info(f"[{self.id}] env has AWS_BEARER_TOKEN_BEDROCK: {'AWS_BEARER_TOKEN_BEDROCK' in env}")
+            logger.info(f"[{self.id}] model={self.model}")
+            self.proc = subprocess.Popen(
+                [OPENCODE_CLI, "acp"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=os.path.expanduser("~/fernando"),
+                env=env,
+            )
+            logger.info(f"[{self.id}] opencode pid={self.proc.pid}")
+        else:
+            logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
+            self.proc = subprocess.Popen(
+                [KIRO_CLI, "acp", "-a", "--model", self.model, "--effort", self.effort],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                cwd=os.path.expanduser("~/fernando"),
+            )
+            logger.info(f"[{self.id}] kiro-cli pid={self.proc.pid}")
         self._alive = True
         self._last_activity = time.time()
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
@@ -157,7 +187,7 @@ class ACPSession:
             "protocolVersion": 1,
             "clientCapabilities": {},
             "clientInfo": {"name": "fernando-chat", "version": "1.0.0"},
-        }, timeout=15)
+        }, timeout=30 if self.backend == "opencode" else 15)
         if not resp:
             raise RuntimeError("ACP initialize failed")
         logger.info(f"[{self.id}] ACP initialized successfully")
@@ -169,8 +199,10 @@ class ACPSession:
             "cwd": os.path.expanduser("~/fernando"),
             "mcpServers": [],
         }, timeout=120)
+        logger.info(f"[{self.id}] session/new response: sessionId={resp.get('sessionId') if resp else 'None'}")
         if resp and "sessionId" in resp:
             self.acp_session_id = resp["sessionId"]
+            logger.info(f"[{self.id}] acp_session_id set to {self.acp_session_id}")
         else:
             raise RuntimeError("ACP session/new failed")
 
@@ -238,19 +270,21 @@ class ACPSession:
 
     def load(self, acp_session_id):
         """Load an existing ACP session (resume after restart)."""
-        self._patch_incomplete_mutate(acp_session_id)
+        if self.backend == "kiro":
+            self._patch_incomplete_mutate(acp_session_id)
         self._load_history()
         self._recording = False  # Don't overwrite rich history with kiro's stripped replay
         self._broadcasting = False  # Don't fire on_event for replay events
         self._spawn_and_init()
         self.acp_session_id = acp_session_id
 
-        # Remove stale lock file
-        lock_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_session_id}.lock")
-        try:
-            os.remove(lock_file)
-        except OSError:
-            pass
+        if self.backend == "kiro":
+            # Remove stale lock file (Kiro-specific)
+            lock_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_session_id}.lock")
+            try:
+                os.remove(lock_file)
+            except OSError:
+                pass
 
         load_params = {
             "sessionId": acp_session_id,
@@ -259,15 +293,20 @@ class ACPSession:
         }
         if self.model:
             load_params["model"] = self.model
+        logger.info(f"[{self.id}] Calling session/load for {acp_session_id} (backend={self.backend})")
         resp = self._request("session/load", load_params, timeout=120)
         if not resp:
             raise RuntimeError(f"session/load failed for {acp_session_id}")
+        logger.info(f"[{self.id}] session/load succeeded")
         self._recording = True
         self._broadcasting = True
 
     def send_prompt(self, text):
         if not self.acp_session_id:
             logger.warning(f"[{self.id}] send_prompt called but no acp_session_id")
+            return
+        if not self.ready:
+            logger.warning(f"[{self.id}] send_prompt called but session not ready")
             return
         logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}, was_prompting={self._is_prompting}")
         if self._retry_pending:
@@ -614,9 +653,9 @@ class ACPManager:
         self._lock = threading.Lock()
         self.default_on_event = None  # Set by websocket.py after register_handlers
 
-    def create_session(self, on_event=None, model=None):
+    def create_session(self, on_event=None, model=None, backend="kiro"):
         session_id = str(uuid.uuid4())[:8]
-        session = ACPSession(session_id, on_event=on_event)
+        session = ACPSession(session_id, on_event=on_event, backend=backend)
         if model:
             session.model = model
         with self._lock:
@@ -646,12 +685,19 @@ class ACPManager:
         for fernando_id, info in saved.items():
             # Support old format (string) and new format (dict)
             if isinstance(info, str):
-                acp_id, name = info, "Chat-" + fernando_id
+                acp_id, name, backend = info, "Chat-" + fernando_id, "kiro"
             else:
                 acp_id, name = info["acp_id"], info.get("name", "Chat-" + fernando_id)
-            session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
-            can_load = os.path.exists(session_file)
-            session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id))
+                backend = info.get("backend", "kiro")
+            # For Kiro, check if session file exists; for OpenCode, always try to load if we have acp_id
+            if backend == "kiro":
+                session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
+                can_load = os.path.exists(session_file)
+            else:
+                # OpenCode stores sessions in its SQLite DB, not as JSON files
+                # We'll try to load and fall back to new if it fails
+                can_load = bool(acp_id)
+            session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id), backend=backend)
             session.display_name = name
             session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
             with self._lock:
@@ -700,6 +746,7 @@ class ACPManager:
                 fpath = os.path.join(HISTORY_DIR, f"{sid}.jsonl")
                 # Extract ACP session ID from history events so restore can reload context
                 acp_id = ""
+                model = ""
                 try:
                     with open(fpath) as hf:
                         for line in hf:
@@ -717,12 +764,20 @@ class ACPManager:
                                 sid_val = (obj.get("result") or {}).get("sessionId", "")
                             if sid_val:
                                 acp_id = sid_val
+                            # Also extract model from history events
+                            if not model and obj.get("model"):
+                                model = obj["model"]
+                            if acp_id and model:
                                 break
                 except OSError:
                     pass
+                # Detect backend from acp_id format: OpenCode uses ses_* format
+                backend = "opencode" if acp_id.startswith("ses_") else "kiro"
                 archived[sid] = {
                     "acp_id": acp_id,
                     "name": rag_names.get(sid, "Chat-" + sid),
+                    "backend": backend,
+                    "model": model or ACPSession.DEFAULT_MODEL,
                     "archived_at": os.path.getmtime(fpath),
                 }
             _save_archived_map(archived)
@@ -810,12 +865,20 @@ class ACPManager:
             return
         acp_id = session.acp_session_id
         name = session.display_name
+        backend = session.backend
+        model = session.model
         session.stop()
         self._save()
         if acp_id:
             with _archived_lock:
                 archived = _load_archived_map()
-                archived[session_id] = {"acp_id": acp_id, "name": name, "archived_at": time.time()}
+                archived[session_id] = {
+                    "acp_id": acp_id,
+                    "name": name,
+                    "backend": backend,
+                    "model": model,
+                    "archived_at": time.time()
+                }
                 _save_archived_map(archived)
 
     def list_archived(self):
@@ -837,11 +900,16 @@ class ACPManager:
             if not info:
                 return False
             acp_id = info["acp_id"]
-            can_load = acp_id and os.path.exists(os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json"))
+            backend = info.get("backend", "kiro")
+            if backend == "kiro":
+                can_load = acp_id and os.path.exists(os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json"))
+            else:
+                can_load = bool(acp_id)
             archived.pop(session_id)
             _save_archived_map(archived)
-        session = ACPSession(session_id, on_event=on_event)
+        session = ACPSession(session_id, on_event=on_event, backend=backend)
         session.display_name = info.get("name", "Chat-" + session_id)
+        session.model = info.get("model", ACPSession.DEFAULT_MODEL)
         with self._lock:
             self.sessions[session_id] = session
         if can_load:
@@ -895,7 +963,7 @@ class ACPManager:
     def _save(self):
         with self._lock:
             mapping = {
-                sid: {"acp_id": s.acp_session_id, "name": s.display_name, "model": s.model}
+                sid: {"acp_id": s.acp_session_id, "name": s.display_name, "model": s.model, "backend": s.backend}
                 for sid, s in self.sessions.items()
                 if s.acp_session_id
             }
