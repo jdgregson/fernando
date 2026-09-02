@@ -1546,24 +1546,46 @@ def api_health():
     except OSError:
         pass
 
-    # Determine overall health status
-    # Unhealthy if: memory >= 80%, disk >= 80%, cpu >= 80%, or load > 2 per core
-    unhealthy = False
-    reasons = []
-    if health["memory"].get("percent", 0) >= 80:
-        unhealthy = True
-        reasons.append(f"Memory {health['memory']['percent']}%")
-    if health["disk"].get("percent", 0) >= 80:
-        unhealthy = True
-        reasons.append(f"Disk {health['disk']['percent']}%")
-    if health["cpu"].get("percent", 0) >= 80:
-        unhealthy = True
-        reasons.append(f"CPU {health['cpu']['percent']}%")
-    if health["load"].get("per_core_1min", 0) > 2:
-        unhealthy = True
-        reasons.append(f"Load {health['load']['1min']} ({health['load']['per_core_1min']}/core)")
+    # Determine overall health status using configurable thresholds
+    from src.services.settings import get as get_setting
+    mem_warning = get_setting("health_memory_warning")
+    mem_critical = get_setting("health_memory_critical")
+    disk_warning = get_setting("health_disk_warning")
+    disk_critical = get_setting("health_disk_critical")
+    cpu_warning = get_setting("health_cpu_warning")
+    cpu_critical = get_setting("health_cpu_critical")
+    load_warning = get_setting("health_load_warning")
+    load_critical = get_setting("health_load_critical")
 
-    health["status"] = "unhealthy" if unhealthy else "healthy"
+    unhealthy = False
+    warning = False
+    reasons = []
+    mem_pct = health["memory"].get("percent", 0)
+    if mem_pct >= mem_critical:
+        unhealthy = True
+        reasons.append(f"Memory {mem_pct}%")
+    elif mem_pct >= mem_warning:
+        warning = True
+    disk_pct = health["disk"].get("percent", 0)
+    if disk_pct >= disk_critical:
+        unhealthy = True
+        reasons.append(f"Disk {disk_pct}%")
+    elif disk_pct >= disk_warning:
+        warning = True
+    cpu_pct = health["cpu"].get("percent", 0)
+    if cpu_pct >= cpu_critical:
+        unhealthy = True
+        reasons.append(f"CPU {cpu_pct}%")
+    elif cpu_pct >= cpu_warning:
+        warning = True
+    load_per_core = health["load"].get("per_core_1min", 0)
+    if load_per_core > load_critical:
+        unhealthy = True
+        reasons.append(f"Load {health['load']['1min']} ({load_per_core}/core)")
+    elif load_per_core > load_warning:
+        warning = True
+
+    health["status"] = "unhealthy" if unhealthy else ("warning" if warning else "healthy")
     health["reasons"] = reasons
 
     return json.dumps(health), 200, {"Content-Type": "application/json"}

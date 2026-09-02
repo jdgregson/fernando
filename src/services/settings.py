@@ -7,6 +7,14 @@ _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os
 
 DEFAULTS = {
     "default_model": "claude-opus-4.6",
+    "health_memory_warning": 65,
+    "health_memory_critical": 80,
+    "health_disk_warning": 65,
+    "health_disk_critical": 80,
+    "health_cpu_warning": 65,
+    "health_cpu_critical": 80,
+    "health_load_warning": 1.5,
+    "health_load_critical": 2.0,
 }
 
 

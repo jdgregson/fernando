@@ -187,6 +187,22 @@ function loadSettings() {
             if (effortSel) effortSel.value = data.default_effort || 'max';
             const providerOpenCode = document.getElementById('providerOpenCode');
             if (providerOpenCode) providerOpenCode.checked = data.providers_opencode === true;
+            // Load health thresholds
+            document.getElementById('healthMemWarning').value = data.health_memory_warning ?? 65;
+            document.getElementById('healthMemCritical').value = data.health_memory_critical ?? 80;
+            document.getElementById('healthDiskWarning').value = data.health_disk_warning ?? 65;
+            document.getElementById('healthDiskCritical').value = data.health_disk_critical ?? 80;
+            document.getElementById('healthCpuWarning').value = data.health_cpu_warning ?? 65;
+            document.getElementById('healthCpuCritical').value = data.health_cpu_critical ?? 80;
+            document.getElementById('healthLoadWarning').value = data.health_load_warning ?? 1.5;
+            document.getElementById('healthLoadCritical').value = data.health_load_critical ?? 2.0;
+            // Store thresholds globally for getHealthClass
+            window.healthThresholds = {
+                memory: { warning: data.health_memory_warning ?? 65, critical: data.health_memory_critical ?? 80 },
+                disk: { warning: data.health_disk_warning ?? 65, critical: data.health_disk_critical ?? 80 },
+                cpu: { warning: data.health_cpu_warning ?? 65, critical: data.health_cpu_critical ?? 80 },
+                load: { warning: data.health_load_warning ?? 1.5, critical: data.health_load_critical ?? 2.0 }
+            };
         }).catch(() => {});
 }
 
@@ -232,6 +248,21 @@ function saveDefaultEffort(value) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'default_effort', value})
+    }).catch(() => {});
+}
+
+function saveHealthThreshold(key, value) {
+    const numValue = key.includes('load') ? parseFloat(value) : parseInt(value, 10);
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key, value: numValue})
+    }).then(() => {
+        if (!window.healthThresholds) window.healthThresholds = {};
+        const metric = key.replace('health_', '').replace('_warning', '').replace('_critical', '');
+        const level = key.includes('warning') ? 'warning' : 'critical';
+        if (!window.healthThresholds[metric]) window.healthThresholds[metric] = {};
+        window.healthThresholds[metric][level] = numValue;
     }).catch(() => {});
 }
 
@@ -412,11 +443,14 @@ function fetchHealth() {
 function updateHealthIndicator(data) {
     const dot = document.getElementById('healthDot');
     if (!dot) return;
+    dot.classList.remove('unhealthy', 'warning');
     if (data.status === 'unhealthy') {
         dot.classList.add('unhealthy');
         dot.title = 'System unhealthy: ' + (data.reasons || []).join(', ');
+    } else if (data.status === 'warning') {
+        dot.classList.add('warning');
+        dot.title = 'System warning';
     } else {
-        dot.classList.remove('unhealthy');
         dot.title = 'System healthy';
     }
 }
@@ -448,27 +482,27 @@ function updateHealthModal(data) {
     const mem = data.memory || {};
     const memPct = mem.percent || 0;
     document.getElementById('healthMemValue').textContent = memPct + '%';
-    document.getElementById('healthMemValue').className = 'health-card-value' + getHealthClass(memPct);
+    document.getElementById('healthMemValue').className = 'health-card-value' + getHealthClass(memPct, 'memory');
     document.getElementById('healthMemDetail').textContent = (mem.used_mb ? Math.round(mem.used_mb / 1024 * 10) / 10 : '--') + ' / ' + (mem.total_mb ? Math.round(mem.total_mb / 1024 * 10) / 10 : '--') + ' GB';
     const memBar = document.getElementById('healthMemBar');
     memBar.style.width = memPct + '%';
-    memBar.className = 'health-bar' + getHealthClass(memPct);
+    memBar.className = 'health-bar' + getHealthClass(memPct, 'memory');
 
     // CPU
     const cpu = data.cpu || {};
     const cpuPct = cpu.percent || 0;
     document.getElementById('healthCpuValue').textContent = cpuPct + '%';
-    document.getElementById('healthCpuValue').className = 'health-card-value' + getHealthClass(cpuPct);
+    document.getElementById('healthCpuValue').className = 'health-card-value' + getHealthClass(cpuPct, 'cpu');
     document.getElementById('healthCpuDetail').textContent = (data.load ? data.load.cpu_count : '--') + ' cores';
     const cpuBar = document.getElementById('healthCpuBar');
     cpuBar.style.width = cpuPct + '%';
-    cpuBar.className = 'health-bar' + getHealthClass(cpuPct);
+    cpuBar.className = 'health-bar' + getHealthClass(cpuPct, 'cpu');
 
     // Disk
     const disk = data.disk || {};
     const diskPct = disk.percent || 0;
     document.getElementById('healthDiskValue').textContent = diskPct + '%';
-    document.getElementById('healthDiskValue').className = 'health-card-value' + getHealthClass(diskPct);
+    document.getElementById('healthDiskValue').className = 'health-card-value' + getHealthClass(diskPct, 'disk');
     let diskDetail = (disk.used_gb || '--') + ' / ' + (disk.total_gb || '--') + ' GB';
     if (disk.free_gb !== undefined) {
         diskDetail += ' (' + disk.free_gb + ' GB available)';
@@ -476,18 +510,18 @@ function updateHealthModal(data) {
     document.getElementById('healthDiskDetail').textContent = diskDetail;
     const diskBar = document.getElementById('healthDiskBar');
     diskBar.style.width = diskPct + '%';
-    diskBar.className = 'health-bar' + getHealthClass(diskPct);
+    diskBar.className = 'health-bar' + getHealthClass(diskPct, 'disk');
 
     // Load
     const load = data.load || {};
     const loadPct = Math.min(100, (load.per_core_1min || 0) * 50);
     const loadVal = load['1min'] !== undefined ? load['1min'] : '--';
     document.getElementById('healthLoadValue').textContent = loadVal;
-    document.getElementById('healthLoadValue').className = 'health-card-value' + (load.per_core_1min > 2 ? ' critical' : (load.per_core_1min > 1.5 ? ' warning' : ''));
+    document.getElementById('healthLoadValue').className = 'health-card-value' + getHealthClass(load.per_core_1min || 0, 'load');
     document.getElementById('healthLoadDetail').textContent = (load['1min'] || '--') + ' / ' + (load['5min'] || '--') + ' / ' + (load['15min'] || '--') + ' (1/5/15 min)';
     const loadBar = document.getElementById('healthLoadBar');
     loadBar.style.width = loadPct + '%';
-    loadBar.className = 'health-bar' + (load.per_core_1min > 2 ? ' critical' : (load.per_core_1min > 1.5 ? ' warning' : ''));
+    loadBar.className = 'health-bar' + getHealthClass(load.per_core_1min || 0, 'load');
 
     // Processes
     const procs = data.processes || {};
@@ -524,11 +558,30 @@ function updateHealthModal(data) {
     document.getElementById('healthTimestamp').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
 }
 
-function getHealthClass(pct) {
-    if (pct >= 80) return ' critical';
-    if (pct >= 65) return ' warning';
+function getHealthClass(pct, metric) {
+    const defaults = {
+        memory: { warning: 65, critical: 80 },
+        disk: { warning: 65, critical: 80 },
+        cpu: { warning: 65, critical: 80 },
+        load: { warning: 1.5, critical: 2.0 }
+    };
+    const thresholds = window.healthThresholds && window.healthThresholds[metric] ? window.healthThresholds[metric] : defaults[metric] || defaults.memory;
+    if (pct >= thresholds.critical) return ' critical';
+    if (pct >= thresholds.warning) return ' warning';
     return '';
 }
+
+// Load health thresholds on page load so getHealthClass works immediately
+fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+    .then(r => r.json())
+    .then(data => {
+        window.healthThresholds = {
+            memory: { warning: data.health_memory_warning ?? 65, critical: data.health_memory_critical ?? 80 },
+            disk: { warning: data.health_disk_warning ?? 65, critical: data.health_disk_critical ?? 80 },
+            cpu: { warning: data.health_cpu_warning ?? 65, critical: data.health_cpu_critical ?? 80 },
+            load: { warning: data.health_load_warning ?? 1.5, critical: data.health_load_critical ?? 2.0 }
+        };
+    }).catch(() => {});
 
 // Start health polling on page load (every 30 seconds for indicator, faster when modal open)
 setTimeout(() => {

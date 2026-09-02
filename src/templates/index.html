@@ -148,6 +148,7 @@
                 <button class="sa-tab active" onclick="switchSettingsTab('general',this)">General</button>
                 <button class="sa-tab" onclick="switchSettingsTab('providers',this)">Providers</button>
                 <button class="sa-tab" onclick="switchSettingsTab('mcp',this)">MCP</button>
+                <button class="sa-tab" onclick="switchSettingsTab('health',this)">Health</button>
                 <button class="sa-tab" onclick="switchSettingsTab('auth',this)">Auth</button>
             </div>
             <div class="modal-body">
@@ -194,6 +195,53 @@
                 </div>
                 <div class="settings-tab-content" id="settingsTabAuth">
                     <div id="authConfigArea" style="color:#8899aa;font-size:13px;">Loading...</div>
+                </div>
+                <div class="settings-tab-content" id="settingsTabHealth">
+                    <div style="color:#8899aa;font-size:12px;margin-bottom:12px;">Configure when health indicators show warning (yellow) and critical (red) states.</div>
+                    <div class="health-threshold-group">
+                        <div class="health-threshold-title">Memory</div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthMemWarning">Warning at</label>
+                            <input type="number" id="healthMemWarning" class="settings-input" min="0" max="100" onchange="saveHealthThreshold('health_memory_warning', this.value)"><span class="settings-unit">%</span>
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthMemCritical">Critical at</label>
+                            <input type="number" id="healthMemCritical" class="settings-input" min="0" max="100" onchange="saveHealthThreshold('health_memory_critical', this.value)"><span class="settings-unit">%</span>
+                        </div>
+                    </div>
+                    <div class="health-threshold-group">
+                        <div class="health-threshold-title">Disk</div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthDiskWarning">Warning at</label>
+                            <input type="number" id="healthDiskWarning" class="settings-input" min="0" max="100" onchange="saveHealthThreshold('health_disk_warning', this.value)"><span class="settings-unit">%</span>
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthDiskCritical">Critical at</label>
+                            <input type="number" id="healthDiskCritical" class="settings-input" min="0" max="100" onchange="saveHealthThreshold('health_disk_critical', this.value)"><span class="settings-unit">%</span>
+                        </div>
+                    </div>
+                    <div class="health-threshold-group">
+                        <div class="health-threshold-title">CPU</div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthCpuWarning">Warning at</label>
+                            <input type="number" id="healthCpuWarning" class="settings-input" min="0" max="100" onchange="saveHealthThreshold('health_cpu_warning', this.value)"><span class="settings-unit">%</span>
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthCpuCritical">Critical at</label>
+                            <input type="number" id="healthCpuCritical" class="settings-input" min="0" max="100" onchange="saveHealthThreshold('health_cpu_critical', this.value)"><span class="settings-unit">%</span>
+                        </div>
+                    </div>
+                    <div class="health-threshold-group">
+                        <div class="health-threshold-title">Load (per core)</div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthLoadWarning">Warning at</label>
+                            <input type="number" id="healthLoadWarning" class="settings-input" min="0" max="10" step="0.1" onchange="saveHealthThreshold('health_load_warning', this.value)">
+                        </div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthLoadCritical">Critical at</label>
+                            <input type="number" id="healthLoadCritical" class="settings-input" min="0" max="10" step="0.1" onchange="saveHealthThreshold('health_load_critical', this.value)">
+                        </div>
+                    </div>
                 </div>
                 <button class="modal-close" onclick="closeSettings()">Close</button>
             </div>
