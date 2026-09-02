@@ -51,6 +51,7 @@ function _doForeground() {
 
 // Called from core.js on socket 'connected'
 function onSocketConnected() {
+    applyProviderSettings();
     if (window._urlParamsProcessed) { handleForeground(); return; }
     const params = new URLSearchParams(window.location.search);
     const urlSession = params.get('session');

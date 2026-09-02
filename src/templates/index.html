@@ -97,7 +97,7 @@
                         <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>Kiro Chat</div>
                         <div class="session-card-desc">Graphical chat UI (ACP)</div>
                     </div>
-                    <div class="session-card" onclick="createOpenCodeChatSession()">
+                    <div class="session-card" id="openCodeTile" onclick="createOpenCodeChatSession()">
                         <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-4px;margin-right:6px"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6l3 2-3 2"/><line x1="9" y1="10" x2="12" y2="10"/></svg>OpenCode Chat</div>
                         <div class="session-card-desc">Graphical chat UI (Opus 4.6 via Bedrock)</div>
                     </div>
@@ -145,17 +145,12 @@
             <div class="modal-header">Settings</div>
             <div class="sa-panel-tabs">
                 <button class="sa-tab active" onclick="switchSettingsTab('general',this)">General</button>
+                <button class="sa-tab" onclick="switchSettingsTab('providers',this)">Providers</button>
                 <button class="sa-tab" onclick="switchSettingsTab('mcp',this)">MCP</button>
                 <button class="sa-tab" onclick="switchSettingsTab('auth',this)">Auth</button>
             </div>
             <div class="modal-body">
                 <div class="settings-tab-content active" id="settingsTabGeneral">
-                    <div class="settings-row">
-                        <label class="settings-label" for="settingsModel">Default model</label>
-                        <select id="settingsModel" class="settings-select" onchange="saveDefaultModel(this.value)">
-                            <option value="">Loading...</option>
-                        </select>
-                    </div>
                     <div class="settings-row">
                         <label class="settings-label" for="settingsEffort">Effort level</label>
                         <select id="settingsEffort" class="settings-select" onchange="saveDefaultEffort(this.value)">
@@ -165,6 +160,32 @@
                             <option value="medium">medium</option>
                             <option value="low">low</option>
                         </select>
+                    </div>
+                </div>
+                <div class="settings-tab-content" id="settingsTabProviders">
+                    <div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:8px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <input type="checkbox" id="providerKiro" checked disabled>
+                            <label for="providerKiro" style="display:flex;flex-direction:column;gap:2px;cursor:default;"><div class="mcp-server-name">Kiro</div><div class="mcp-server-desc">Kiro CLI agent backend (always enabled)</div></label>
+                        </div>
+                        <div class="settings-row" style="margin:0;padding-left:26px;">
+                            <label class="settings-label" for="settingsKiroModel">Model</label>
+                            <select id="settingsKiroModel" class="settings-select" onchange="saveDefaultModel(this.value)">
+                                <option value="">Loading...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:8px;">
+                        <div style="display:flex;align-items:center;gap:10px;">
+                            <input type="checkbox" id="providerOpenCode" onchange="saveProviderSetting('opencode', this.checked)">
+                            <label for="providerOpenCode" style="display:flex;flex-direction:column;gap:2px;cursor:pointer;"><div class="mcp-server-name">OpenCode</div><div class="mcp-server-desc">OpenCode agent backend (Bedrock models)</div></label>
+                        </div>
+                        <div class="settings-row" style="margin:0;padding-left:26px;">
+                            <label class="settings-label" for="settingsOpenCodeModel">Model</label>
+                            <select id="settingsOpenCodeModel" class="settings-select" onchange="saveOpenCodeModel(this.value)">
+                                <option value="">Loading...</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
                 <div class="settings-tab-content" id="settingsTabMcp">

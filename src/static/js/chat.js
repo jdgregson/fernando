@@ -6,10 +6,21 @@ function createChatSession() {
 
 function createOpenCodeChatSession() {
     closeNewSessionModal();
-    emitWithCsrf('acp_create', {
-        backend: 'opencode',
-        model: 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1'
-    });
+    fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+        .then(r => r.json())
+        .then(data => {
+            const model = data.opencode_model || 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1';
+            emitWithCsrf('acp_create', {
+                backend: 'opencode',
+                model: model
+            });
+        })
+        .catch(() => {
+            emitWithCsrf('acp_create', {
+                backend: 'opencode',
+                model: 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1'
+            });
+        });
 }
 
 socket.on('acp_created', (data) => { openChatPane(data.session_id); });

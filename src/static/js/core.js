@@ -147,24 +147,75 @@ function loadSettings() {
     fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
         .then(r => r.json())
         .then(data => {
-            const sel = document.getElementById('settingsModel');
-            const currentModel = data.default_model || '';
+            // Load Kiro models
+            const kiroSel = document.getElementById('settingsKiroModel');
+            const currentKiroModel = data.default_model || '';
             fetch('/api/models?api_key=' + window.FERNANDO_API_KEY)
                 .then(r => r.json())
                 .then(mdata => {
-                    if (mdata.models && sel) {
-                        sel.innerHTML = '';
+                    if (mdata.models && kiroSel) {
+                        kiroSel.innerHTML = '';
                         mdata.models.forEach(m => {
                             const opt = document.createElement('option');
                             opt.value = m.model_id;
                             opt.textContent = m.model_name;
-                            sel.appendChild(opt);
+                            kiroSel.appendChild(opt);
                         });
-                        if (currentModel) sel.value = currentModel;
+                        if (currentKiroModel) kiroSel.value = currentKiroModel;
                     }
                 }).catch(() => {});
+            // Load OpenCode models
+            const openCodeSel = document.getElementById('settingsOpenCodeModel');
+            const currentOpenCodeModel = data.opencode_model || '';
+            fetch('/api/opencode_models?api_key=' + window.FERNANDO_API_KEY)
+                .then(r => r.json())
+                .then(mdata => {
+                    if (mdata.models && openCodeSel) {
+                        openCodeSel.innerHTML = '';
+                        mdata.models.forEach(m => {
+                            const opt = document.createElement('option');
+                            opt.value = m;
+                            opt.textContent = m;
+                            openCodeSel.appendChild(opt);
+                        });
+                        if (currentOpenCodeModel) openCodeSel.value = currentOpenCodeModel;
+                    }
+                }).catch(() => {
+                    if (openCodeSel) openCodeSel.innerHTML = '<option value="">Not available</option>';
+                });
             const effortSel = document.getElementById('settingsEffort');
             if (effortSel) effortSel.value = data.default_effort || 'max';
+            const providerOpenCode = document.getElementById('providerOpenCode');
+            if (providerOpenCode) providerOpenCode.checked = data.providers_opencode === true;
+        }).catch(() => {});
+}
+
+function saveOpenCodeModel(value) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key: 'opencode_model', value})
+    }).catch(() => {});
+}
+
+function saveProviderSetting(provider, enabled) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key: 'providers_' + provider, value: enabled})
+    }).then(() => {
+        applyProviderSettings();
+    }).catch(() => {});
+}
+
+function applyProviderSettings() {
+    fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+        .then(r => r.json())
+        .then(data => {
+            const openCodeTile = document.getElementById('openCodeTile');
+            if (openCodeTile) {
+                openCodeTile.style.display = data.providers_opencode === true ? '' : 'none';
+            }
         }).catch(() => {});
 }
 
