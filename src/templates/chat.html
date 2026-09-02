@@ -175,7 +175,7 @@
         const backend = window._sessionBackend === 'opencode' ? 'OpenCode' : 'Kiro';
         parts.push(backend);
         if (sessionEventCount > 0) {
-            parts.push(sessionEventCount + ' events');
+            parts.push(sessionEventCount.toLocaleString() + ' events');
         }
         const statsEl = document.getElementById('headerStats');
         statsEl.innerHTML = '';
@@ -1526,13 +1526,13 @@
     const _messagesEl = document.getElementById('messages');
 
     _messagesEl.addEventListener('scroll', () => {
-        if (_programmaticScroll) return;
+        if (_programmaticScroll || _suppressScroll) return;
         const current = _messagesEl.scrollTop;
-        if (current < _lastScrollTop) {
+        const distFromBottom = _messagesEl.scrollHeight - current - _messagesEl.clientHeight;
+        if (current < _lastScrollTop && distFromBottom > 3) {
             _userScrolledUp = true;
-        } else {
-            const distFromBottom = _messagesEl.scrollHeight - current - _messagesEl.clientHeight;
-            if (distFromBottom < 20) _userScrolledUp = false;
+        } else if (distFromBottom < 20) {
+            _userScrolledUp = false;
         }
         _lastScrollTop = current;
     });
