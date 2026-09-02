@@ -100,11 +100,11 @@ socket.on('acp_archived_search_results', (data) => {
     const q = document.getElementById('archiveSearch').value.trim();
     if (!q) return; // User cleared search while request was in-flight
     const sessions = data.sessions || [];
-    const matchIds = new Set(sessions.map(s => s.id));
+    const matchIds = new Set(sessions.map(s => 'chat:' + s.id));
     // Show/hide existing items based on merged results
     document.querySelectorAll('.archived-item').forEach(el => {
-        const id = el.dataset.sessionId;
-        el.style.display = matchIds.has(id) ? '' : 'none';
+        const sessionKey = el.dataset.session;
+        el.style.display = matchIds.has(sessionKey) ? '' : 'none';
     });
 });
 
@@ -115,7 +115,7 @@ socket.on('acp_archived_list', (data) => {
     (data.sessions || []).forEach(s => {
         const item = document.createElement('div');
         item.className = 'session-item archived-item';
-        item.dataset.sessionId = s.id;
+        item.dataset.session = 'chat:' + s.id;
         const name = document.createElement('span');
         name.className = 'session-name';
         name.textContent = s.name;

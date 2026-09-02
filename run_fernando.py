@@ -4,6 +4,7 @@ from src.services.pty_service import pty_service
 import os
 import signal
 import logging
+import re
 
 
 class SingleLineFormatter(logging.Formatter):
@@ -12,9 +13,22 @@ class SingleLineFormatter(logging.Formatter):
         msg = super().format(record)
         msg = msg.replace('\n', '\\n').replace('\r', '\\r')
         # Redact api_key from URLs
-        import re
         msg = re.sub(r'api_key=[a-fA-F0-9]+', 'api_key=REDACTED', msg)
         return msg
+
+
+class WerkzeugDisconnectFilter(logging.Filter):
+    """Filter out harmless 'write() before start_response' errors from werkzeug.
+    
+    These occur when a client disconnects before the response is sent - 
+    common with cancelled health polls, tab closes, navigation, etc.
+    """
+    def filter(self, record):
+        if record.name == 'werkzeug' and record.levelno == logging.ERROR:
+            msg = record.getMessage()
+            if 'write() before start_response' in msg:
+                return False
+        return True
 
 
 logging.basicConfig(
@@ -23,8 +37,10 @@ logging.basicConfig(
 )
 
 # Replace default formatter with single-line formatter on all handlers
+# and add filter to suppress harmless werkzeug disconnect errors
 for handler in logging.getLogger().handlers:
     handler.setFormatter(SingleLineFormatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    handler.addFilter(WerkzeugDisconnectFilter())
 
 logger = logging.getLogger("fernando")
 
