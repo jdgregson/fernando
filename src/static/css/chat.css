@@ -9,11 +9,11 @@ html, body { height: 100%; background: #26364b; color: #d4d4d4; font-family: -ap
 body { display: flex; flex-direction: column; }
 
 .chat-header {
-    background: #4e96c926;
+    background: #0a213d;
     border-bottom: 1px solid #143151;
     padding: 8px 16px;
     font-size: 13px;
-    color: #bbbbbb;
+    color: #3465a3;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -166,10 +166,10 @@ body { display: flex; flex-direction: column; }
 
 .msg.system {
     align-self: center;
-    color: #bbbbbb;
+    color: #3465a3;
     font-size: 12px;
     font-style: italic;
-    background: #4e96c926;
+    background: #0a213d;
     padding: 6px 12px;
 }
 
