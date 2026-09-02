@@ -469,7 +469,11 @@ function updateHealthModal(data) {
     const diskPct = disk.percent || 0;
     document.getElementById('healthDiskValue').textContent = diskPct + '%';
     document.getElementById('healthDiskValue').className = 'health-card-value' + getHealthClass(diskPct);
-    document.getElementById('healthDiskDetail').textContent = (disk.used_gb || '--') + ' / ' + (disk.total_gb || '--') + ' GB';
+    let diskDetail = (disk.used_gb || '--') + ' / ' + (disk.total_gb || '--') + ' GB';
+    if (disk.free_gb !== undefined) {
+        diskDetail += ' (' + disk.free_gb + ' GB available)';
+    }
+    document.getElementById('healthDiskDetail').textContent = diskDetail;
     const diskBar = document.getElementById('healthDiskBar');
     diskBar.style.width = diskPct + '%';
     diskBar.className = 'health-bar' + getHealthClass(diskPct);

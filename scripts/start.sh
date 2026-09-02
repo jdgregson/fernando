@@ -133,5 +133,7 @@ if [ "$DETACHED" = true ]; then
     echo "Logs: tail -f /tmp/fernando-flask.log"
 else
     echo "Access at http://localhost:$NGINX_PORT"
-    python run_fernando.py
+    echo "Logs: tail -f /tmp/fernando-flask.log"
+    # -u keeps output unbuffered so both the terminal and the log file stay live
+    python -u run_fernando.py 2>&1 | tee /tmp/fernando-flask.log
 fi
