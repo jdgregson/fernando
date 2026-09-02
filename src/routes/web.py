@@ -1424,10 +1424,23 @@ def api_health():
                 read_size = min(size, 20000)
                 f.seek(size - read_size)
                 chunk = f.read().decode(errors="replace")
-            lines = chunk.splitlines()[-30:]
+            lines = chunk.splitlines()[-100:]
             health["logs"][log_name] = lines
         except OSError:
             pass
+
+    # Recent errors - grep ERROR lines from flask log (single-line format)
+    health["errors"] = []
+    try:
+        with open("/tmp/fernando-flask.log", "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            read_size = min(size, 100000)
+            f.seek(size - read_size)
+            chunk = f.read().decode(errors="replace")
+        health["errors"] = [l for l in chunk.splitlines() if " ERROR " in l][-10:]
+    except OSError:
+        pass
 
     # Determine overall health status
     # Unhealthy if: memory >= 80%, disk >= 80%, cpu >= 80%, or load > 2 per core

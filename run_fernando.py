@@ -5,10 +5,27 @@ import os
 import signal
 import logging
 
+
+class SingleLineFormatter(logging.Formatter):
+    """Format log records with newlines escaped so each record is one line."""
+    def format(self, record):
+        msg = super().format(record)
+        msg = msg.replace('\n', '\\n').replace('\r', '\\r')
+        # Redact api_key from URLs
+        import re
+        msg = re.sub(r'api_key=[a-fA-F0-9]+', 'api_key=REDACTED', msg)
+        return msg
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
+
+# Replace default formatter with single-line formatter on all handlers
+for handler in logging.getLogger().handlers:
+    handler.setFormatter(SingleLineFormatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+
 logger = logging.getLogger("fernando")
 
 app = create_app()

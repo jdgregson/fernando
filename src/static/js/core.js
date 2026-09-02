@@ -279,34 +279,33 @@ function loadAuthConfig() {
             let html = '';
             for (const name of names) {
                 const a = auths[name];
-                html += `<div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:6px;padding:10px 12px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div class="mcp-server-name">${name}</div>
-                        <button onclick="removeAuth('${name}')" style="background:transparent;color:#f44;border:none;cursor:pointer;font-size:11px;">Remove</button>
+                html += `<div class="auth-card" data-auth-card="${name}">
+                    <div class="auth-card-header">
+                        <div class="auth-card-name">${name}</div>
+                        <button class="auth-card-remove" onclick="removeAuth('${name}')">Remove</button>
                     </div>
-                    <div class="settings-row" style="margin:0;gap:8px;">
-                        <label class="settings-label" style="min-width:90px;">Description</label>
-                        <input type="text" class="settings-select" data-auth="${name}" data-field="description" value="${a.description || ''}" style="flex:1;">
+                    <div class="auth-card-row">
+                        <label class="auth-card-label">Description</label>
+                        <input type="text" class="auth-card-input" data-auth="${name}" data-field="description" value="${a.description || ''}" onchange="saveAuthConfig()">
                     </div>
-                    <div class="settings-row" style="margin:0;gap:8px;">
-                        <label class="settings-label" style="min-width:90px;">Match command</label>
-                        <input type="text" class="settings-select" data-auth="${name}" data-field="match_command" value="${a.match_command || ''}" style="flex:1;">
+                    <div class="auth-card-row">
+                        <label class="auth-card-label">Match command</label>
+                        <input type="text" class="auth-card-input" data-auth="${name}" data-field="match_command" value="${a.match_command || ''}" onchange="saveAuthConfig()">
                     </div>
-                    <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
-                        <label style="color:#8899aa;font-size:12px;">Timeout (sec)</label>
-                        <input type="number" class="settings-select" data-auth="${name}" data-field="timeout_seconds" value="${a.timeout_seconds || 300}" style="width:70px;">
+                    <div class="auth-card-row">
+                        <label class="auth-card-label">Timeout (sec)</label>
+                        <input type="number" class="auth-card-input" data-auth="${name}" data-field="timeout_seconds" value="${a.timeout_seconds || 300}" onchange="saveAuthConfig()">
                     </div>
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <input type="checkbox" data-auth="${name}" data-field="expire_on_use" ${a.expire_on_use ? 'checked' : ''}>
-                        <label style="color:#8899aa;font-size:12px;">Single-use</label>
+                    <div class="auth-card-checkbox-row">
+                        <input type="checkbox" data-auth="${name}" data-field="expire_on_use" ${a.expire_on_use ? 'checked' : ''} onchange="saveAuthConfig()">
+                        <label class="auth-card-label" style="min-width:auto;">Single-use (expire after first use)</label>
                     </div>
                 </div>`;
             }
-            html += `<div style="margin-top:8px;display:flex;gap:8px;">
-                <input type="text" id="newAuthName" placeholder="New authorization name" class="settings-select" style="flex:1;">
-                <button onclick="addAuth()" style="background:#2d6b4f;color:#fff;border:none;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;">Add</button>
+            html += `<div class="auth-add-row">
+                <input type="text" id="newAuthName" placeholder="New authorization name" class="auth-card-input" style="flex:1;">
+                <button class="auth-add-btn" onclick="addAuth()">Add</button>
             </div>`;
-            html += `<button onclick="saveAuthConfigFromEditor()" style="margin-top:10px;background:#2d6b4f;color:#fff;border:none;border-radius:4px;padding:6px 14px;cursor:pointer;font-size:12px;">Save</button>`;
             container.innerHTML = html;
         })
         .catch(() => {
@@ -315,8 +314,9 @@ function loadAuthConfig() {
 }
 
 function removeAuth(name) {
-    const el = document.querySelector(`[data-auth="${name}"]`).closest('.mcp-server-item');
-    el.remove();
+    const el = document.querySelector(`[data-auth-card="${name}"]`);
+    if (el) el.remove();
+    saveAuthConfig();
 }
 
 function addAuth() {
@@ -325,38 +325,39 @@ function addAuth() {
     if (!name) return;
     nameInput.value = '';
     const container = document.getElementById('authConfigArea');
-    const addDiv = container.querySelector('div[style*="margin-top:8px"]');
+    const addRow = container.querySelector('.auth-add-row');
     const newItem = document.createElement('div');
-    newItem.className = 'mcp-server-item';
-    newItem.style.cssText = 'flex-direction:column;align-items:stretch;gap:6px;padding:10px 12px;';
+    newItem.className = 'auth-card';
+    newItem.setAttribute('data-auth-card', name);
     newItem.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div class="mcp-server-name">${name}</div>
-            <button onclick="removeAuth('${name}')" style="background:transparent;color:#f44;border:none;cursor:pointer;font-size:11px;">Remove</button>
+        <div class="auth-card-header">
+            <div class="auth-card-name">${name}</div>
+            <button class="auth-card-remove" onclick="removeAuth('${name}')">Remove</button>
         </div>
-        <div class="settings-row" style="margin:0;gap:8px;">
-            <label class="settings-label" style="min-width:90px;">Description</label>
-            <input type="text" class="settings-select" data-auth="${name}" data-field="description" value="" style="flex:1;">
+        <div class="auth-card-row">
+            <label class="auth-card-label">Description</label>
+            <input type="text" class="auth-card-input" data-auth="${name}" data-field="description" value="" onchange="saveAuthConfig()">
         </div>
-        <div class="settings-row" style="margin:0;gap:8px;">
-            <label class="settings-label" style="min-width:90px;">Match command</label>
-            <input type="text" class="settings-select" data-auth="${name}" data-field="match_command" value="" style="flex:1;">
+        <div class="auth-card-row">
+            <label class="auth-card-label">Match command</label>
+            <input type="text" class="auth-card-input" data-auth="${name}" data-field="match_command" value="" onchange="saveAuthConfig()">
         </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
-            <label style="color:#8899aa;font-size:12px;">Timeout (sec)</label>
-            <input type="number" class="settings-select" data-auth="${name}" data-field="timeout_seconds" value="300" style="width:70px;">
+        <div class="auth-card-row">
+            <label class="auth-card-label">Timeout (sec)</label>
+            <input type="number" class="auth-card-input" data-auth="${name}" data-field="timeout_seconds" value="300" onchange="saveAuthConfig()">
         </div>
-        <div style="display:flex;align-items:center;gap:6px;">
-            <input type="checkbox" data-auth="${name}" data-field="expire_on_use" checked>
-            <label style="color:#8899aa;font-size:12px;">Single-use</label>
+        <div class="auth-card-checkbox-row">
+            <input type="checkbox" data-auth="${name}" data-field="expire_on_use" checked onchange="saveAuthConfig()">
+            <label class="auth-card-label" style="min-width:auto;">Single-use (expire after first use)</label>
         </div>
     `;
-    container.insertBefore(newItem, addDiv);
+    container.insertBefore(newItem, addRow);
+    saveAuthConfig();
 }
 
-function saveAuthConfigFromEditor() {
+function saveAuthConfig() {
     const auths = {};
-    const items = document.querySelectorAll('#authConfigArea .mcp-server-item');
+    const items = document.querySelectorAll('#authConfigArea .auth-card');
     items.forEach(item => {
         const inputs = item.querySelectorAll('[data-auth]');
         if (!inputs.length) return;
@@ -373,7 +374,7 @@ function saveAuthConfigFromEditor() {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({authorizations: auths}),
-    }).then(() => loadAuthConfig());
+    }).catch(() => {});
 }
 
 // --- Health Monitoring ---
@@ -493,12 +494,23 @@ function updateHealthModal(data) {
         procsEl.innerHTML = `Kiro CLI sessions: <strong>${procs.kiro_cli_sessions || 0}</strong> &nbsp;|&nbsp; MCP servers: <strong>${procs.mcp_servers || 0}</strong> &nbsp;|&nbsp; Python total: <strong>${procs.python_total || 0}</strong>`;
     }
 
+    // Errors
+    const errors = data.errors || [];
+    const errorsSection = document.getElementById('healthErrorsSection');
+    const errorsEl = document.getElementById('healthErrors');
+    if (errors.length) {
+        errorsSection.style.display = '';
+        errorsEl.textContent = errors.map(e => e.replace(/\\n/g, '\n').replace(/\\r/g, '\r')).join('\n\n');
+    } else {
+        errorsSection.style.display = 'none';
+    }
+
     // Logs
     const logs = data.logs || {};
     const logsEl = document.getElementById('healthLogs');
     const flaskLogs = logs.flask || [];
     if (flaskLogs.length) {
-        logsEl.textContent = flaskLogs.slice(-15).join('\n');
+        logsEl.textContent = flaskLogs.join('\n');
         logsEl.scrollTop = logsEl.scrollHeight;
     } else {
         logsEl.textContent = 'No recent logs';

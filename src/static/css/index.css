@@ -492,6 +492,102 @@ button.notebook-delete-btn {
 .settings-label { display: block; font-size: 12px; color: #8899aa; margin-bottom: 6px; }
 .settings-select { width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid #283d5b; background: #091d35; color: #d4d4d4; font-size: 13px; font-family: inherit; outline: none; }
 .settings-select:focus { border-color: #3465a3; }
+
+/* Auth config cards */
+#authConfigArea {
+    padding-top: 10px;
+}
+.auth-card {
+    background: #091d35;
+    border: 1px solid #143151;
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 10px;
+}
+.auth-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #143151;
+}
+.auth-card-name {
+    font-weight: 600;
+    color: #9cdcfe;
+    font-size: 14px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+}
+.auth-card-remove {
+    background: transparent;
+    color: #f44;
+    border: none;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+.auth-card-remove:hover {
+    background: rgba(255, 68, 68, 0.15);
+}
+.auth-card-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.auth-card-row:last-child {
+    margin-bottom: 0;
+}
+.auth-card-label {
+    font-size: 12px;
+    color: #6a8caf;
+    min-width: 90px;
+}
+.auth-card-input {
+    flex: 1;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border: 1px solid #283d5b;
+    background: #0d2848;
+    color: #d4d4d4;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+}
+.auth-card-input:focus {
+    border-color: #3465a3;
+}
+.auth-card-input[type="number"] {
+    width: 80px;
+    flex: none;
+}
+.auth-card-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.auth-add-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #143151;
+}
+.auth-add-btn {
+    background: #3465a3;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+}
+.auth-add-btn:hover {
+    background: #143151;
+}
+
 .sa-panel input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid #3465a3; border-radius: 3px; background: #091d35; cursor: pointer; vertical-align: middle; position: relative; }
 .sa-panel input[type="checkbox"]:checked { background: #3465a3; }
 .sa-panel input[type="checkbox"]:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; position: absolute; top: 0px; left: 4px; transform: rotate(45deg); }
@@ -1086,6 +1182,19 @@ button.notebook-delete-btn {
     color: #888;
     background: #091d35;
     border: 1px solid #143151;
+    border-radius: 6px;
+    padding: 10px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.health-errors {
+    font-size: 11px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    color: #ff6b6b;
+    background: #2a1515;
+    border: 1px solid #4a2020;
     border-radius: 6px;
     padding: 10px 12px;
     max-height: 200px;
