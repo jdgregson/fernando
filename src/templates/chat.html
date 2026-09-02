@@ -567,44 +567,51 @@
 
     socket.on('authorization_request', (data) => {
         if (data.session_id !== sessionId) return;
-        // Remove any existing prompt for this action (prevent duplicates)
-        document.querySelectorAll('.auth-modal-overlay').forEach(el => el.remove());
-        const overlay = document.createElement('div');
-        overlay.className = 'auth-modal-overlay';
-        overlay.dataset.action = data.action;
-        overlay.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.6);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;';
-        overlay.innerHTML = `
-            <div style="background:#1a2236;border:1px solid #2a3a5c;border-radius:10px;padding:24px;width:100%;max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.5);">
-                <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0ad4e" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                    <span style="color:#f0ad4e;font-size:14px;font-weight:600;">Authorization: ${data.action}</span>
-                </div>
-                <div style="color:#e0e0e0;font-size:14px;margin-bottom:4px;">${data.description}</div>
-                ${data.reason ? `<div style="color:#888;font-size:13px;margin-bottom:12px;">${data.reason}</div>` : '<div style="margin-bottom:12px;"></div>'}
-                <textarea class="auth-reason-input" placeholder="Reason / instructions (optional)" style="width:100%;min-height:60px;background:#0d1525;border:1px solid #2a3a5c;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:13px;outline:none;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
-                <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;user-select:none;">
-                    <input type="checkbox" class="auth-auto-approve" style="width:16px;height:16px;accent-color:#2d6b4f;cursor:pointer;">
-                    <span style="color:#888;font-size:12px;">Auto-approve for this conversation</span>
-                </label>
-                <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;">
-                    <button onclick="respondAuth('${data.session_id}','${data.action}',true,this)" class="auth-btn auth-btn-approve" style="min-width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
-                    <button onclick="respondAuth('${data.session_id}','${data.action}',false,this)" class="auth-btn auth-btn-deny" style="min-width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
-                </div>
-            </div>
-        `;
-        // Attach to the chat container so it overlays the messages area
+        // Remove any existing prompt for THIS SAME action (prevent duplicates), but keep others
+        document.querySelectorAll(`.auth-modal-card[data-action="${data.action}"]`).forEach(el => el.remove());
+        
+        // Get or create the single shared backdrop
         const chatContainer = document.querySelector('.chat-container') || document.getElementById('messages').parentElement;
         chatContainer.style.position = 'relative';
-        chatContainer.appendChild(overlay);
+        let backdrop = chatContainer.querySelector('.auth-modal-backdrop');
+        if (!backdrop) {
+            backdrop = document.createElement('div');
+            backdrop.className = 'auth-modal-backdrop';
+            backdrop.style.cssText = 'position:absolute;inset:0;background:rgba(0,0,0,0.6);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px;';
+            chatContainer.appendChild(backdrop);
+        }
+        
+        const card = document.createElement('div');
+        card.className = 'auth-modal-card';
+        card.dataset.action = data.action;
+        card.style.cssText = 'position:absolute;background:#1a2236;border:1px solid #2a3a5c;border-radius:10px;padding:24px;width:calc(100% - 40px);max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+        card.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0ad4e" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+                <span style="color:#f0ad4e;font-size:14px;font-weight:600;">Authorization: ${data.action}</span>
+            </div>
+            <div style="color:#e0e0e0;font-size:14px;margin-bottom:4px;">${data.description}</div>
+            ${data.reason ? `<div style="color:#888;font-size:13px;margin-bottom:12px;">${data.reason}</div>` : '<div style="margin-bottom:12px;"></div>'}
+            <textarea class="auth-reason-input" placeholder="Reason / instructions (optional)" style="width:100%;min-height:60px;background:#0d1525;border:1px solid #2a3a5c;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:13px;outline:none;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
+            <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;user-select:none;">
+                <input type="checkbox" class="auth-auto-approve" style="width:16px;height:16px;accent-color:#2d6b4f;cursor:pointer;">
+                <span style="color:#888;font-size:12px;">Auto-approve for this conversation</span>
+            </label>
+            <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;">
+                <button onclick="respondAuth('${data.session_id}','${data.action}',true,this)" class="auth-btn auth-btn-approve" style="min-width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
+                <button onclick="respondAuth('${data.session_id}','${data.action}',false,this)" class="auth-btn auth-btn-deny" style="min-width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
+            </div>
+        `;
+        backdrop.appendChild(card);
     });
 
     window.respondAuth = async function(sid, action, approved, btn) {
-        const overlay = btn.closest('.auth-modal-overlay');
-        const reasonInput = overlay.querySelector('.auth-reason-input');
+        const card = btn.closest('.auth-modal-card');
+        const reasonInput = card.querySelector('.auth-reason-input');
         const reason = reasonInput ? reasonInput.value.trim() : '';
-        const autoApproveBox = overlay.querySelector('.auth-auto-approve');
+        const autoApproveBox = card.querySelector('.auth-auto-approve');
         const autoApprove = autoApproveBox ? autoApproveBox.checked : false;
-        const buttons = overlay.querySelectorAll('button');
+        const buttons = card.querySelectorAll('button');
         buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.4'; b.style.pointerEvents = 'none'; });
         btn.style.opacity = '1';
         btn.innerHTML = '<span class="auth-dots"><span>.</span><span>.</span><span>.</span></span>';
@@ -621,14 +628,19 @@
             await new Promise(r => setTimeout(r, 1000));
         }
         if (success) {
-            overlay.remove();
+            const backdrop = card.closest('.auth-modal-backdrop');
+            card.remove();
+            // Remove backdrop if no more cards
+            if (backdrop && !backdrop.querySelector('.auth-modal-card')) {
+                backdrop.remove();
+            }
             const text = (approved ? '\u2713 Approved' : '\u2717 Denied') + ': ' + action + (reason ? ' \u2014 ' + reason : '');
             addSystemMessage(text);
             socket.emit('acp_system_message', {csrf_token: csrfToken, session_id: sid, text: text});
         } else {
             buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; b.style.pointerEvents = ''; });
             btn.textContent = approved ? 'Approve' : 'Deny';
-            const errMsg = overlay.querySelector('.auth-error');
+            const errMsg = card.querySelector('.auth-error');
             if (errMsg) errMsg.remove();
             const err = document.createElement('div');
             err.className = 'auth-error';

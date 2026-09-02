@@ -721,9 +721,10 @@ def register_handlers(socketio):
         sid = data.get("session_id")
         if sid:
             from src.routes.web import _pending_auth_requests
-            pending = _pending_auth_requests.get(sid)
-            if pending:
-                emit("authorization_request", pending)
+            # Find all pending auth requests for this session and emit them
+            for key, pending in list(_pending_auth_requests.items()):
+                if key.startswith(f"{sid}:"):
+                    emit("authorization_request", pending)
 
     @socketio.on("acp_force_unstick")
     def acp_force_unstick(data):

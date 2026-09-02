@@ -1200,7 +1200,7 @@ def api_authorization_request():
         "reason": reason,
         "description": description,
     }
-    _pending_auth_requests[session_id] = auth_data
+    _pending_auth_requests[f"{session_id}:{action}"] = auth_data
     from src import socketio
     socketio.emit("authorization_request", auth_data, namespace="/")
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
@@ -1217,7 +1217,7 @@ def api_authorization_grant():
     approved = data.get("approved", False)
     if not session_id or not action:
         return json.dumps({"error": "Missing session_id or action"}), 400, {"Content-Type": "application/json"}
-    _pending_auth_requests.pop(session_id, None)
+    _pending_auth_requests.pop(f"{session_id}:{action}", None)
     if approved:
         import time as _time
         auth_config_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "authorization.json")
