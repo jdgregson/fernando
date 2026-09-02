@@ -1509,10 +1509,20 @@
     }
 
     let _userScrolledUp = false;
+    let _lastScrollTop = 0;
+    let _programmaticScroll = false;
     const _messagesEl = document.getElementById('messages');
 
     _messagesEl.addEventListener('scroll', () => {
-        _userScrolledUp = _messagesEl.scrollHeight - _messagesEl.scrollTop - _messagesEl.clientHeight > 150;
+        if (_programmaticScroll) return;
+        const current = _messagesEl.scrollTop;
+        if (current < _lastScrollTop) {
+            _userScrolledUp = true;
+        } else {
+            const distFromBottom = _messagesEl.scrollHeight - current - _messagesEl.clientHeight;
+            if (distFromBottom < 20) _userScrolledUp = false;
+        }
+        _lastScrollTop = current;
     });
 
     let _suppressScroll = false;
@@ -1520,7 +1530,10 @@
         if (_suppressScroll) return;
         if (force) _userScrolledUp = false;
         if (_userScrolledUp) return;
+        _programmaticScroll = true;
         _messagesEl.scrollTop = _messagesEl.scrollHeight;
+        _lastScrollTop = _messagesEl.scrollTop;
+        requestAnimationFrame(() => { _programmaticScroll = false; });
     }
 
     function collapseCodeBlocks(container, maxLines) {
