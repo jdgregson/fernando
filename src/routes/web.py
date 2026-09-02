@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, Response, request, current_app, ma
 import json
 import os
 import signal
+import sys
 import threading
 import time
 import requests
@@ -1319,6 +1320,79 @@ def api_authorization_revoke():
     return json.dumps({"ok": True, "revoked": action}), 200, {"Content-Type": "application/json"}
 
 
+_CF_CAPACITY_KEYS = (
+    "kCFURLVolumeTotalCapacityKey",
+    "kCFURLVolumeAvailableCapacityForImportantUsageKey",
+)
+
+
+def _macos_volume_capacity(path):
+    """Read volume capacity from CoreFoundation, matching what macOS itself reports.
+
+    Returns (total, available) in bytes.
+
+    statvfs is not usable for this on APFS: it reports whole-container block counts,
+    so `total - free` charges every volume in the container to the given mount point.
+    Finder and System Settings use kCFURLVolumeAvailableCapacityForImportantUsageKey,
+    so read that same key here.
+    """
+    import ctypes
+
+    cf = ctypes.cdll.LoadLibrary(
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation"
+    )
+
+    kCFStringEncodingUTF8 = 0x08000100
+    kCFURLPOSIXPathStyle = 0
+    kCFNumberSInt64Type = 4
+
+    cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+    cf.CFStringCreateWithCString.argtypes = [
+        ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32
+    ]
+    cf.CFURLCreateWithFileSystemPath.restype = ctypes.c_void_p
+    cf.CFURLCreateWithFileSystemPath.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_long, ctypes.c_bool
+    ]
+    cf.CFURLCopyResourcePropertyForKey.restype = ctypes.c_bool
+    cf.CFURLCopyResourcePropertyForKey.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p
+    ]
+    cf.CFNumberGetValue.restype = ctypes.c_bool
+    cf.CFNumberGetValue.argtypes = [ctypes.c_void_p, ctypes.c_long, ctypes.c_void_p]
+    cf.CFRelease.argtypes = [ctypes.c_void_p]
+
+    cfpath = cf.CFStringCreateWithCString(
+        None, path.encode(), kCFStringEncodingUTF8
+    )
+    url = cf.CFURLCreateWithFileSystemPath(
+        None, cfpath, kCFURLPOSIXPathStyle, True
+    )
+    try:
+        values = []
+        for key_name in _CF_CAPACITY_KEYS:
+            out = ctypes.c_void_p()
+            err = ctypes.c_void_p()
+            ok = cf.CFURLCopyResourcePropertyForKey(
+                url,
+                ctypes.c_void_p.in_dll(cf, key_name),
+                ctypes.byref(out),
+                ctypes.byref(err),
+            )
+            if not ok or not out.value:
+                raise OSError(f"CFURLCopyResourcePropertyForKey failed for {key_name}")
+            number = ctypes.c_int64()
+            got = cf.CFNumberGetValue(out, kCFNumberSInt64Type, ctypes.byref(number))
+            cf.CFRelease(out)
+            if not got:
+                raise OSError(f"CFNumberGetValue failed for {key_name}")
+            values.append(number.value)
+        return tuple(values)
+    finally:
+        cf.CFRelease(url)
+        cf.CFRelease(cfpath)
+
+
 @bp.route("/api/health")
 def api_health():
     """Return system health metrics for the status indicator."""
@@ -1339,58 +1413,88 @@ def api_health():
         "per_core_1min": round(load1 / cpus, 2) if cpus else 0,
     }
 
-    # Memory from /proc/meminfo
+    # Memory - psutil is cross-platform; fall back to /proc/meminfo on Linux
     try:
-        with open("/proc/meminfo") as f:
-            meminfo = {}
-            for line in f:
-                parts = line.split()
-                if len(parts) >= 2:
-                    meminfo[parts[0].rstrip(":")] = int(parts[1])
-        total = meminfo.get("MemTotal", 0)
-        available = meminfo.get("MemAvailable", 0)
-        used = total - available
+        import psutil
+        vm = psutil.virtual_memory()
+        used = vm.total - vm.available
         health["memory"] = {
-            "total_mb": round(total / 1024),
-            "used_mb": round(used / 1024),
-            "available_mb": round(available / 1024),
-            "percent": round(used / total * 100, 1) if total else 0,
+            "total_mb": round(vm.total / (1024**2)),
+            "used_mb": round(used / (1024**2)),
+            "available_mb": round(vm.available / (1024**2)),
+            "percent": round(used / vm.total * 100, 1) if vm.total else 0,
         }
-    except Exception as e:
-        health["memory"] = {"error": str(e), "percent": 0}
+    except Exception:
+        try:
+            with open("/proc/meminfo") as f:
+                meminfo = {}
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        meminfo[parts[0].rstrip(":")] = int(parts[1])
+            total = meminfo.get("MemTotal", 0)
+            available = meminfo.get("MemAvailable", 0)
+            used = total - available
+            health["memory"] = {
+                "total_mb": round(total / 1024),
+                "used_mb": round(used / 1024),
+                "available_mb": round(available / 1024),
+                "percent": round(used / total * 100, 1) if total else 0,
+            }
+        except Exception as e:
+            health["memory"] = {"error": str(e), "percent": 0}
 
-    # Disk usage for root filesystem
+    # Disk usage for root filesystem.
+    # On macOS, statvfs reports APFS *container* blocks, which does not match what
+    # the system reports as available (it excludes purgeable space). Finder and
+    # System Settings read kCFURLVolumeAvailableCapacityForImportantUsageKey, so we
+    # read the same CoreFoundation key to stay consistent with the OS.
     try:
-        statvfs = os.statvfs("/")
-        total = statvfs.f_blocks * statvfs.f_frsize
-        free = statvfs.f_bfree * statvfs.f_frsize
-        used = total - free
-        health["disk"] = {
-            "total_gb": round(total / (1024**3), 1),
-            "used_gb": round(used / (1024**3), 1),
-            "free_gb": round(free / (1024**3), 1),
-            "percent": round(used / total * 100, 1) if total else 0,
-        }
+        if sys.platform == "darwin":
+            total, available = _macos_volume_capacity("/")
+            used = total - available
+            health["disk"] = {
+                # macOS reports capacity in decimal GB, so match that here
+                "total_gb": round(total / (1000**3), 1),
+                "used_gb": round(used / (1000**3), 1),
+                "free_gb": round(available / (1000**3), 1),
+                "percent": round(used / total * 100, 1) if total else 0,
+            }
+        else:
+            statvfs = os.statvfs("/")
+            total = statvfs.f_blocks * statvfs.f_frsize
+            free = statvfs.f_bfree * statvfs.f_frsize
+            used = total - free
+            health["disk"] = {
+                "total_gb": round(total / (1024**3), 1),
+                "used_gb": round(used / (1024**3), 1),
+                "free_gb": round(free / (1024**3), 1),
+                "percent": round(used / total * 100, 1) if total else 0,
+            }
     except Exception as e:
         health["disk"] = {"error": str(e), "percent": 0}
 
-    # CPU usage (simple: from /proc/stat, compare two samples 100ms apart)
+    # CPU usage - psutil is cross-platform; fall back to /proc/stat on Linux
     try:
-        def read_cpu():
-            with open("/proc/stat") as f:
-                line = f.readline()
-            parts = line.split()[1:]
-            return [int(p) for p in parts]
-        cpu1 = read_cpu()
-        time.sleep(0.1)
-        cpu2 = read_cpu()
-        delta = [cpu2[i] - cpu1[i] for i in range(len(cpu1))]
-        idle = delta[3] if len(delta) > 3 else 0
-        total_delta = sum(delta)
-        cpu_percent = round((1 - idle / total_delta) * 100, 1) if total_delta else 0
-        health["cpu"] = {"percent": cpu_percent}
-    except Exception as e:
-        health["cpu"] = {"error": str(e), "percent": 0}
+        import psutil
+        health["cpu"] = {"percent": round(psutil.cpu_percent(interval=0.1), 1)}
+    except Exception:
+        try:
+            def read_cpu():
+                with open("/proc/stat") as f:
+                    line = f.readline()
+                parts = line.split()[1:]
+                return [int(p) for p in parts]
+            cpu1 = read_cpu()
+            time.sleep(0.1)
+            cpu2 = read_cpu()
+            delta = [cpu2[i] - cpu1[i] for i in range(len(cpu1))]
+            idle = delta[3] if len(delta) > 3 else 0
+            total_delta = sum(delta)
+            cpu_percent = round((1 - idle / total_delta) * 100, 1) if total_delta else 0
+            health["cpu"] = {"percent": cpu_percent}
+        except Exception as e:
+            health["cpu"] = {"error": str(e), "percent": 0}
 
     # Process summary
     try:
