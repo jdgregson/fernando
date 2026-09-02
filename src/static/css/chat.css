@@ -23,6 +23,7 @@ body { display: flex; flex-direction: column; }
 .chat-header .status.ready { background: #4ec9b0; }
 .chat-header .status.working { background: #dcdcaa; animation: pulse 1s infinite; }
 .chat-header .status.error { background: #f44747; }
+.chat-header .header-stats { margin-left: auto; font-size: 12px; color: #5a7a9a; white-space: nowrap; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
 .messages {
@@ -150,6 +151,7 @@ body { display: flex; flex-direction: column; }
 .tool-call-body .tc-param-key .tc-copy-btn:hover { opacity: 1; }
 .tool-call-body .tc-param-key .tc-copy-btn.copied svg { stroke: #4ec9b0; }
 .tool-call-body .tc-param-val { color: #c0caf5; font-size: 11px; word-break: break-word; }
+.tool-call-body .tc-note { color: #565f89; font-size: 11px; font-style: italic; padding: 8px 0; }
 .tool-call-body .tc-out-label { font-size: 10px; color: #4ec9b0; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; margin-top: 8px; display: flex; align-items: center; gap: 4px; }
 .tool-call-body .tc-out-label .tc-copy-btn { opacity: 0; cursor: pointer; transition: opacity 0.15s; flex-shrink: 0; }
 .tool-call-body .tc-out-label .tc-copy-btn svg { width: 11px; height: 11px; fill: none; stroke: #4ec9b0; stroke-width: 2; }

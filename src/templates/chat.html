@@ -12,6 +12,7 @@
     <div class="chat-header">
         <div class="status" id="status"></div>
         <span id="statusText">Starting...</span>
+        <span class="header-stats" id="headerStats"></span>
     </div>
     <div class="messages" id="messages"></div>
     <div class="input-area">
@@ -73,6 +74,10 @@
     let csrfToken = null;
     let isWorking = false;
     let isReady = false;
+
+    // Stats tracking
+    let sessionTotalCost = 0;
+    let sessionEventCount = 0;
 
     // Configure marked for safe rendering
     const renderer = new marked.Renderer();
@@ -162,6 +167,26 @@
             btn.textContent = 'Send';
             btn.onclick = sendMessage;
             btn.style.background = '';
+        }
+    }
+
+    function updateHeaderStats() {
+        const parts = [];
+        const backend = window._sessionBackend === 'opencode' ? 'OpenCode' : 'Kiro';
+        parts.push(backend);
+        if (sessionEventCount > 0) {
+            parts.push(sessionEventCount + ' events');
+        }
+        const statsEl = document.getElementById('headerStats');
+        statsEl.innerHTML = '';
+        statsEl.appendChild(document.createTextNode(parts.join(' · ')));
+        if (sessionTotalCost > 0 && backend === 'OpenCode') {
+            statsEl.appendChild(document.createTextNode(' · '));
+            const costSpan = document.createElement('span');
+            costSpan.style.fontStyle = 'italic';
+            costSpan.style.color = 'rgb(160, 48, 48)';
+            costSpan.textContent = '$' + sessionTotalCost.toFixed(2);
+            statsEl.appendChild(costSpan);
         }
     }
 
@@ -886,7 +911,7 @@
         panelInRaw.style.display = 'none';
         panelInRaw.textContent = rawInput ? JSON.stringify(rawInput, null, 2) : '(no input)';
 
-        if (rawInput && typeof rawInput === 'object') {
+        if (rawInput && typeof rawInput === 'object' && Object.keys(rawInput).length > 0) {
             for (const [k, v] of Object.entries(rawInput)) {
                 const row = document.createElement('div');
                 row.className = 'tc-param';
@@ -901,6 +926,11 @@
                 row.appendChild(val);
                 panelInPretty.appendChild(row);
             }
+        } else if (rawInput && typeof rawInput === 'object' && Object.keys(rawInput).length === 0) {
+            const note = document.createElement('div');
+            note.className = 'tc-note';
+            note.textContent = 'OpenCode does not send tool input data';
+            panelInPretty.appendChild(note);
         } else if (rawInput) {
             const row = document.createElement('div');
             row.className = 'tc-param';
@@ -1000,6 +1030,31 @@
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
 
     function _renderOutPretty(container, obj, raw) {
+        // OpenCode format: { output: "...", metadata: {...} }
+        if (obj && typeof obj === 'object' && typeof obj.output === 'string' && obj.metadata !== undefined) {
+            let parsed = null;
+            try { parsed = JSON.parse(obj.output); } catch(e) {}
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                for (const [k, v] of Object.entries(parsed)) {
+                    if (v === '' || v === null || v === undefined) continue;
+                    const label = document.createElement('div');
+                    label.className = 'tc-out-label';
+                    label.textContent = k;
+                    label.appendChild(createCopyBtn(v));
+                    const block = document.createElement('div');
+                    block.className = 'tc-out-block';
+                    block.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                    container.appendChild(label);
+                    container.appendChild(block);
+                }
+            } else {
+                const block = document.createElement('div');
+                block.className = 'tc-out-block';
+                block.textContent = obj.output;
+                container.appendChild(block);
+            }
+            return;
+        }
         // MCP tool results: { items: [{ Json: { content: [...], isError: bool } }] }
         // OR direct fields: { items: [{ Json: { stdout: "...", stderr: "...", exit_status: "..." } }] }
         if (obj && typeof obj === 'object' && Array.isArray(obj.items)) {
@@ -1936,6 +1991,7 @@
         if (data.model) window._sessionModel = data.model;
         if (data.backend) window._sessionBackend = data.backend;
         if (data.history_length !== undefined) historyOffset = data.history_length;
+        updateHeaderStats();
 
         // Drain any buffered live events that arrived during load
         while (seqBuffer[expectedSeq]) {
@@ -2033,6 +2089,8 @@
                 const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
                 addUserMessage(display, false, evt.ts);
             }
+            sessionEventCount++;
+            updateHeaderStats();
             return;
         }
 
@@ -2108,9 +2166,22 @@
             const st = update.status || '';
             if (st === 'in_progress') setStatus('working', 'Running tool...');
             updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput);
+        } else if (su === 'usage_update') {
+            if (update.cost && update.cost.amount) {
+                sessionTotalCost = update.cost.amount;
+                updateHeaderStats();
+            }
+        }
+
+        // Count events (but not meta events like available_commands_update)
+        if (su && su !== 'available_commands_update' && su !== 'usage_update') {
+            sessionEventCount++;
+            updateHeaderStats();
         }
 
         if (evt.result && evt.result.stopReason) {
+            sessionEventCount++;
+            updateHeaderStats();
             if (evt.result.stopReason === 'tool_use') {
                 setStatus('working', 'Running tool...');
             } else {
