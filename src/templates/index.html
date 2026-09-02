@@ -21,6 +21,7 @@
         <div class="top-bar-left">
             <button class="sidebar-toggle" onclick="toggleSidebar()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
             <span class="top-bar-title">Fernando</span>
+            <span id="healthDot" title="System healthy" onclick="openHealthModal()" class="health-indicator">●</span>
             <span id="gitDirtyDot" title="Uncommitted changes" style="display:none; color:rgb(135 132 3); font-size:10px; vertical-align:middle; cursor:pointer;">●</span>
         </div>
         <div>
@@ -195,6 +196,55 @@
                     <div id="authConfigArea" style="color:#8899aa;font-size:13px;">Loading...</div>
                 </div>
                 <button class="modal-close" onclick="closeSettings()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="healthModal" onclick="closeHealthModal()">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">System Health</div>
+            <div class="modal-body">
+                <div id="healthStatusBanner" class="health-status-banner healthy">
+                    <span id="healthStatusIcon">&#10003;</span>
+                    <span id="healthStatusText">System healthy</span>
+                </div>
+                <div id="healthReasons" class="health-reasons" style="display:none;margin-bottom:12px;"></div>
+                <div class="health-grid">
+                    <div class="health-card">
+                        <div class="health-card-title">Memory</div>
+                        <div class="health-card-value" id="healthMemValue">--</div>
+                        <div class="health-card-detail" id="healthMemDetail">-- / -- GB</div>
+                        <div class="health-bar-container"><div class="health-bar" id="healthMemBar" style="width:0%"></div></div>
+                    </div>
+                    <div class="health-card">
+                        <div class="health-card-title">CPU</div>
+                        <div class="health-card-value" id="healthCpuValue">--</div>
+                        <div class="health-card-detail" id="healthCpuDetail">-- cores</div>
+                        <div class="health-bar-container"><div class="health-bar" id="healthCpuBar" style="width:0%"></div></div>
+                    </div>
+                    <div class="health-card">
+                        <div class="health-card-title">Disk</div>
+                        <div class="health-card-value" id="healthDiskValue">--</div>
+                        <div class="health-card-detail" id="healthDiskDetail">-- / -- GB</div>
+                        <div class="health-bar-container"><div class="health-bar" id="healthDiskBar" style="width:0%"></div></div>
+                    </div>
+                    <div class="health-card">
+                        <div class="health-card-title">Load Average</div>
+                        <div class="health-card-value" id="healthLoadValue">--</div>
+                        <div class="health-card-detail" id="healthLoadDetail">-- / -- / -- (1/5/15 min)</div>
+                        <div class="health-bar-container"><div class="health-bar" id="healthLoadBar" style="width:0%"></div></div>
+                    </div>
+                </div>
+                <div class="health-section">
+                    <div class="health-section-title">Processes</div>
+                    <div id="healthProcesses" class="health-processes">--</div>
+                </div>
+                <div class="health-section">
+                    <div class="health-section-title">Recent Logs</div>
+                    <div id="healthLogs" class="health-logs">--</div>
+                </div>
+                <div class="health-timestamp" id="healthTimestamp">Last updated: --</div>
+                <button class="modal-close" onclick="closeHealthModal()">Close</button>
             </div>
         </div>
     </div>

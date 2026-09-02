@@ -375,3 +375,149 @@ function saveAuthConfigFromEditor() {
         body: JSON.stringify({authorizations: auths}),
     }).then(() => loadAuthConfig());
 }
+
+// --- Health Monitoring ---
+let healthModalOpen = false;
+let healthPollInterval = null;
+
+function openHealthModal() {
+    document.getElementById('healthModal').classList.add('open');
+    healthModalOpen = true;
+    fetchHealth();
+    if (!healthPollInterval) {
+        healthPollInterval = setInterval(fetchHealth, 5000);
+    }
+}
+
+function closeHealthModal() {
+    document.getElementById('healthModal').classList.remove('open');
+    healthModalOpen = false;
+}
+
+function fetchHealth() {
+    fetch('/api/health?api_key=' + window.FERNANDO_API_KEY)
+        .then(r => r.json())
+        .then(data => {
+            updateHealthIndicator(data);
+            if (healthModalOpen) {
+                updateHealthModal(data);
+            }
+        })
+        .catch(err => {
+            console.error('Health fetch error:', err);
+        });
+}
+
+function updateHealthIndicator(data) {
+    const dot = document.getElementById('healthDot');
+    if (!dot) return;
+    if (data.status === 'unhealthy') {
+        dot.classList.add('unhealthy');
+        dot.title = 'System unhealthy: ' + (data.reasons || []).join(', ');
+    } else {
+        dot.classList.remove('unhealthy');
+        dot.title = 'System healthy';
+    }
+}
+
+function updateHealthModal(data) {
+    const banner = document.getElementById('healthStatusBanner');
+    const icon = document.getElementById('healthStatusIcon');
+    const text = document.getElementById('healthStatusText');
+    const reasons = document.getElementById('healthReasons');
+
+    if (data.status === 'unhealthy') {
+        banner.className = 'health-status-banner unhealthy';
+        icon.innerHTML = '&#10007;';
+        text.textContent = 'System unhealthy';
+        if (data.reasons && data.reasons.length) {
+            reasons.textContent = data.reasons.join(' • ');
+            reasons.style.display = 'block';
+        } else {
+            reasons.style.display = 'none';
+        }
+    } else {
+        banner.className = 'health-status-banner healthy';
+        icon.innerHTML = '&#10003;';
+        text.textContent = 'System healthy';
+        reasons.style.display = 'none';
+    }
+
+    // Memory
+    const mem = data.memory || {};
+    const memPct = mem.percent || 0;
+    document.getElementById('healthMemValue').textContent = memPct + '%';
+    document.getElementById('healthMemValue').className = 'health-card-value' + getHealthClass(memPct);
+    document.getElementById('healthMemDetail').textContent = (mem.used_mb ? Math.round(mem.used_mb / 1024 * 10) / 10 : '--') + ' / ' + (mem.total_mb ? Math.round(mem.total_mb / 1024 * 10) / 10 : '--') + ' GB';
+    const memBar = document.getElementById('healthMemBar');
+    memBar.style.width = memPct + '%';
+    memBar.className = 'health-bar' + getHealthClass(memPct);
+
+    // CPU
+    const cpu = data.cpu || {};
+    const cpuPct = cpu.percent || 0;
+    document.getElementById('healthCpuValue').textContent = cpuPct + '%';
+    document.getElementById('healthCpuValue').className = 'health-card-value' + getHealthClass(cpuPct);
+    document.getElementById('healthCpuDetail').textContent = (data.load ? data.load.cpu_count : '--') + ' cores';
+    const cpuBar = document.getElementById('healthCpuBar');
+    cpuBar.style.width = cpuPct + '%';
+    cpuBar.className = 'health-bar' + getHealthClass(cpuPct);
+
+    // Disk
+    const disk = data.disk || {};
+    const diskPct = disk.percent || 0;
+    document.getElementById('healthDiskValue').textContent = diskPct + '%';
+    document.getElementById('healthDiskValue').className = 'health-card-value' + getHealthClass(diskPct);
+    document.getElementById('healthDiskDetail').textContent = (disk.used_gb || '--') + ' / ' + (disk.total_gb || '--') + ' GB';
+    const diskBar = document.getElementById('healthDiskBar');
+    diskBar.style.width = diskPct + '%';
+    diskBar.className = 'health-bar' + getHealthClass(diskPct);
+
+    // Load
+    const load = data.load || {};
+    const loadPct = Math.min(100, (load.per_core_1min || 0) * 50);
+    const loadVal = load['1min'] !== undefined ? load['1min'] : '--';
+    document.getElementById('healthLoadValue').textContent = loadVal;
+    document.getElementById('healthLoadValue').className = 'health-card-value' + (load.per_core_1min > 2 ? ' critical' : (load.per_core_1min > 1.5 ? ' warning' : ''));
+    document.getElementById('healthLoadDetail').textContent = (load['1min'] || '--') + ' / ' + (load['5min'] || '--') + ' / ' + (load['15min'] || '--') + ' (1/5/15 min)';
+    const loadBar = document.getElementById('healthLoadBar');
+    loadBar.style.width = loadPct + '%';
+    loadBar.className = 'health-bar' + (load.per_core_1min > 2 ? ' critical' : (load.per_core_1min > 1.5 ? ' warning' : ''));
+
+    // Processes
+    const procs = data.processes || {};
+    const procsEl = document.getElementById('healthProcesses');
+    if (procs.error) {
+        procsEl.textContent = 'Error: ' + procs.error;
+    } else {
+        procsEl.innerHTML = `Kiro CLI sessions: <strong>${procs.kiro_cli_sessions || 0}</strong> &nbsp;|&nbsp; MCP servers: <strong>${procs.mcp_servers || 0}</strong> &nbsp;|&nbsp; Python total: <strong>${procs.python_total || 0}</strong>`;
+    }
+
+    // Logs
+    const logs = data.logs || {};
+    const logsEl = document.getElementById('healthLogs');
+    const flaskLogs = logs.flask || [];
+    if (flaskLogs.length) {
+        logsEl.textContent = flaskLogs.slice(-15).join('\n');
+        logsEl.scrollTop = logsEl.scrollHeight;
+    } else {
+        logsEl.textContent = 'No recent logs';
+    }
+
+    // Timestamp
+    document.getElementById('healthTimestamp').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+}
+
+function getHealthClass(pct) {
+    if (pct >= 80) return ' critical';
+    if (pct >= 65) return ' warning';
+    return '';
+}
+
+// Start health polling on page load (every 30 seconds for indicator, faster when modal open)
+setTimeout(() => {
+    fetchHealth();
+    setInterval(() => {
+        if (!healthModalOpen) fetchHealth();
+    }, 30000);
+}, 1000);

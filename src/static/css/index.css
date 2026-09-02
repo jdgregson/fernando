@@ -23,12 +23,12 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .top-bar-left {
     display: flex;
     align-items: center;
-    gap: 10px;
 }
 
 .top-bar-title {
     font-size: 14px;
     font-weight: bold;
+    margin-left: 10px;
 }
 
 .top-bar button {
@@ -958,5 +958,138 @@ button.notebook-delete-btn {
 .mobile-controls.chat-active, .mobile-controls.notes-active { display: none !important; }
 .session-item:last-of-type {
     margin-bottom: 30px;
-}0px;
+}
+
+/* Health indicator */
+.health-indicator {
+    font-size: 10px;
+    vertical-align: middle;
+    cursor: pointer;
+    color: #3465a3;
+    transition: color 0.3s ease;
+    padding: 10px 10px;
+    margin: -10px 0;
+}
+.health-indicator.unhealthy {
+    color: #e81123;
+    animation: health-pulse 1.5s ease-in-out infinite;
+}
+@keyframes health-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Health modal */
+#healthModal .modal-content {
+    max-width: 600px;
+}
+.health-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+}
+@media (max-width: 500px) {
+    .health-grid { grid-template-columns: 1fr; }
+}
+.health-card {
+    background: #091d35;
+    border: 1px solid #143151;
+    border-radius: 6px;
+    padding: 12px;
+}
+.health-card-title {
+    font-size: 11px;
+    color: #6a8caf;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+.health-card-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: #d4d4d4;
+    margin-bottom: 4px;
+}
+.health-card-value.warning { color: #d4a017; }
+.health-card-value.critical { color: #e81123; }
+.health-card-detail {
+    font-size: 12px;
+    color: #6a7a8a;
+}
+.health-bar-container {
+    height: 6px;
+    background: #143151;
+    border-radius: 3px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+.health-bar {
+    height: 100%;
+    background: #3465a3;
+    border-radius: 3px;
+    transition: width 0.3s ease, background 0.3s ease;
+}
+.health-bar.warning { background: #d4a017; }
+.health-bar.critical { background: #e81123; }
+.health-status-banner {
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.health-status-banner.healthy {
+    background: rgba(78, 201, 176, 0.15);
+    border: 1px solid rgba(78, 201, 176, 0.3);
+    color: #4ec9b0;
+}
+.health-status-banner.unhealthy {
+    background: rgba(232, 17, 35, 0.15);
+    border: 1px solid rgba(232, 17, 35, 0.3);
+    color: #ff4d4d;
+}
+.health-reasons {
+    font-size: 12px;
+    color: #888;
+    margin-top: 4px;
+}
+.health-timestamp {
+    font-size: 11px;
+    color: #555;
+    text-align: right;
+    margin-top: 12px;
+}
+.health-section {
+    margin-top: 16px;
+}
+.health-section-title {
+    font-size: 11px;
+    color: #6a8caf;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+.health-processes {
+    font-size: 12px;
+    color: #d4d4d4;
+    background: #091d35;
+    border: 1px solid #143151;
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+.health-logs {
+    font-size: 11px;
+    font-family: 'SF Mono', Menlo, Consolas, monospace;
+    color: #888;
+    background: #091d35;
+    border: 1px solid #143151;
+    border-radius: 6px;
+    padding: 10px 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
 }

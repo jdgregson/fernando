@@ -1317,3 +1317,136 @@ def api_authorization_revoke():
     except OSError:
         pass
     return json.dumps({"ok": True, "revoked": action}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/health")
+def api_health():
+    """Return system health metrics for the status indicator."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    import multiprocessing
+    import subprocess
+    health = {}
+
+    # Load average + CPU count
+    load1, load5, load15 = os.getloadavg()
+    cpus = multiprocessing.cpu_count()
+    health["load"] = {
+        "1min": round(load1, 2),
+        "5min": round(load5, 2),
+        "15min": round(load15, 2),
+        "cpu_count": cpus,
+        "per_core_1min": round(load1 / cpus, 2) if cpus else 0,
+    }
+
+    # Memory from /proc/meminfo
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    meminfo[parts[0].rstrip(":")] = int(parts[1])
+        total = meminfo.get("MemTotal", 0)
+        available = meminfo.get("MemAvailable", 0)
+        used = total - available
+        health["memory"] = {
+            "total_mb": round(total / 1024),
+            "used_mb": round(used / 1024),
+            "available_mb": round(available / 1024),
+            "percent": round(used / total * 100, 1) if total else 0,
+        }
+    except Exception as e:
+        health["memory"] = {"error": str(e), "percent": 0}
+
+    # Disk usage for root filesystem
+    try:
+        statvfs = os.statvfs("/")
+        total = statvfs.f_blocks * statvfs.f_frsize
+        free = statvfs.f_bfree * statvfs.f_frsize
+        used = total - free
+        health["disk"] = {
+            "total_gb": round(total / (1024**3), 1),
+            "used_gb": round(used / (1024**3), 1),
+            "free_gb": round(free / (1024**3), 1),
+            "percent": round(used / total * 100, 1) if total else 0,
+        }
+    except Exception as e:
+        health["disk"] = {"error": str(e), "percent": 0}
+
+    # CPU usage (simple: from /proc/stat, compare two samples 100ms apart)
+    try:
+        def read_cpu():
+            with open("/proc/stat") as f:
+                line = f.readline()
+            parts = line.split()[1:]
+            return [int(p) for p in parts]
+        cpu1 = read_cpu()
+        time.sleep(0.1)
+        cpu2 = read_cpu()
+        delta = [cpu2[i] - cpu1[i] for i in range(len(cpu1))]
+        idle = delta[3] if len(delta) > 3 else 0
+        total_delta = sum(delta)
+        cpu_percent = round((1 - idle / total_delta) * 100, 1) if total_delta else 0
+        health["cpu"] = {"percent": cpu_percent}
+    except Exception as e:
+        health["cpu"] = {"error": str(e), "percent": 0}
+
+    # Process summary
+    try:
+        ps_out = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, timeout=5
+        ).stdout
+        kiro_chat = sum(1 for l in ps_out.splitlines() if "kiro-cli-chat" in l)
+        kiro_cli = sum(1 for l in ps_out.splitlines() if "kiro-cli acp" in l and "kiro-cli-chat" not in l)
+        mcp_servers = sum(1 for l in ps_out.splitlines() if "mcp_servers/" in l)
+        python_total = sum(1 for l in ps_out.splitlines() if "python" in l.lower() and "grep" not in l)
+        health["processes"] = {
+            "kiro_cli_sessions": kiro_chat,
+            "kiro_cli_wrappers": kiro_cli,
+            "mcp_servers": mcp_servers,
+            "python_total": python_total,
+        }
+    except Exception as e:
+        health["processes"] = {"error": str(e)}
+
+    # Recent log lines
+    log_files = [
+        ("/tmp/fernando-flask.log", "flask"),
+        ("/tmp/fernando-mutate.log", "mutate"),
+    ]
+    health["logs"] = {}
+    for log_path, log_name in log_files:
+        try:
+            with open(log_path, "rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                read_size = min(size, 20000)
+                f.seek(size - read_size)
+                chunk = f.read().decode(errors="replace")
+            lines = chunk.splitlines()[-30:]
+            health["logs"][log_name] = lines
+        except OSError:
+            pass
+
+    # Determine overall health status
+    # Unhealthy if: memory >= 80%, disk >= 80%, cpu >= 80%, or load > 2 per core
+    unhealthy = False
+    reasons = []
+    if health["memory"].get("percent", 0) >= 80:
+        unhealthy = True
+        reasons.append(f"Memory {health['memory']['percent']}%")
+    if health["disk"].get("percent", 0) >= 80:
+        unhealthy = True
+        reasons.append(f"Disk {health['disk']['percent']}%")
+    if health["cpu"].get("percent", 0) >= 80:
+        unhealthy = True
+        reasons.append(f"CPU {health['cpu']['percent']}%")
+    if health["load"].get("per_core_1min", 0) > 2:
+        unhealthy = True
+        reasons.append(f"Load {health['load']['1min']} ({health['load']['per_core_1min']}/core)")
+
+    health["status"] = "unhealthy" if unhealthy else "healthy"
+    health["reasons"] = reasons
+
+    return json.dumps(health), 200, {"Content-Type": "application/json"}
