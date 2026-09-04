@@ -438,3 +438,95 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .auth-dots span:nth-child(2) { animation-delay: 0.2s; }
 .auth-dots span:nth-child(3) { animation-delay: 0.4s; }
 @keyframes authPulse { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
+/* ===== Task bar (todo_list widget) ===== */
+.task-bar {
+    position: relative;
+    z-index: 20;
+    background: #0c2743;
+    border-bottom: 1px solid #143151;
+    flex-shrink: 0;
+    font-size: 13px;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.task-bar-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 16px;
+    cursor: pointer;
+    color: #9fb4cf;
+}
+.task-bar-head:hover { background: #0e2c4b; }
+.tb-arrow { display: inline-flex; color: #5a7a9a; transition: transform 0.15s ease; }
+.task-bar.open .tb-arrow { transform: rotate(90deg); }
+.tb-title { font-weight: 600; color: #cbd6e6; }
+.tb-count { color: #5a7a9a; font-variant-numeric: tabular-nums; font-size: 12px; }
+.tb-summary { margin-left: auto; font-size: 12px; padding: 2px 9px; border-radius: 10px; white-space: nowrap; }
+.tb-summary.pending { color: #dcdcaa; background: rgba(220, 220, 170, 0.13); }
+.tb-summary.done { color: #4ec9b0; background: rgba(78, 201, 176, 0.13); }
+.task-bar-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #0a213d;
+    border-bottom: 1px solid #143151;
+    /* Subtle shadow cast downward only: positive y-offset with negative spread keeps
+       the shadow below the panel's bottom edge (no bleed out the top or sides). */
+    box-shadow: 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    max-height: 50vh;
+    overflow-y: auto;
+    display: none;
+    padding: 6px 0 8px;
+}
+.task-bar.open .task-bar-panel { display: block; }
+.tb-desc {
+    padding: 6px 16px 8px;
+    color: #7f9bbd;
+    font-size: 12px;
+    line-height: 1.45;
+    border-bottom: 1px solid #143151;
+    margin-bottom: 4px;
+}
+.tb-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 5px 16px;
+    line-height: 1.45;
+}
+.tb-check {
+    flex-shrink: 0;
+    width: 15px;
+    height: 15px;
+    margin-top: 2px;
+    border: 1.5px solid #3a577d;
+    border-radius: 3px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #0a213d;
+}
+.tb-check svg { width: 11px; height: 11px; display: none; }
+.tb-check.checked { background: #4ec9b0; border-color: #4ec9b0; }
+.tb-check.checked svg { display: block; }
+.tb-num { color: #5a7a9a; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.tb-text { flex: 1; color: #d4d4d4; min-width: 0; word-wrap: break-word; overflow-wrap: break-word; }
+.tb-row.done .tb-text { text-decoration: line-through; color: #6b7d95; }
+/* Abandoned: tasks from a superseded list that were never completed — crossed off
+   with a muted dash marker, distinct from the teal check of completed tasks. */
+.tb-row.abandoned .tb-text { text-decoration: line-through; color: #6b7488; font-style: italic; }
+.tb-check.abandoned { border-color: #4a5a72; color: #8090a5; background: transparent; }
+.tb-check.abandoned svg { display: block; }
+/* Per-list subheader shown only when a chat accumulates more than one to-do list. */
+.tb-group-desc {
+    padding: 8px 16px 6px;
+    color: #6f8bad;
+    font-size: 11px;
+    font-weight: 600;
+    border-top: 1px solid #143151;
+    margin-top: 4px;
+}
+.tb-list > .tb-group-desc:first-child { border-top: none; margin-top: 0; }
