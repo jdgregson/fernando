@@ -14,6 +14,18 @@
         <span id="statusText">Starting...</span>
         <span class="header-stats" id="headerStats"></span>
     </div>
+    <div class="task-bar" id="taskBar" style="display:none">
+        <div class="task-bar-head" onclick="toggleTaskBar()">
+            <span class="tb-arrow" id="tbArrow"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span>
+            <span class="tb-title">Tasks</span>
+            <span class="tb-count" id="tbCount"></span>
+            <span class="tb-summary" id="tbSummary"></span>
+        </div>
+        <div class="task-bar-panel" id="taskBarPanel">
+            <div class="tb-desc" id="tbDesc"></div>
+            <div class="tb-list" id="tbList"></div>
+        </div>
+    </div>
     <div class="messages" id="messages"></div>
     <div class="input-area">
         <div class="attached-files" id="attachedFiles"></div>
@@ -1983,6 +1995,7 @@
     socket.on('acp_history_batch', (data) => {
         if (data.session_id !== sessionId) return;
         resetStallTimer();
+        resetTaskBar();
         const events = data.events || [];
         if (events.length === 0) {
             setStatus('connecting', 'Starting...');
@@ -2097,6 +2110,140 @@
         processEvent(data);
     });
 
+    // ===== Task bar (todo_list widget) =====
+    // Renders todo_list tool calls as a persistent, collapsible bar under the header.
+    // State is derived by folding the rawInput of each todo_list call (create defines
+    // tasks; complete marks ids done — keeping them; add/remove mutate). The tool's
+    // rawOutput is intentionally ignored: the current Kiro todo_list prunes completed
+    // tasks from its output, which would erase finished work. All source events live in
+    // history and replay through processEvent, so the bar rebuilds on every load path.
+    //
+    // Multiple lists accumulate: each `create` starts a new group, and any still-
+    // incomplete tasks from prior groups are marked "abandoned" (crossed off as never
+    // finished) so nothing is ever lost from the chat's record.
+    let taskGroups = []; // [{ description, tasks:[{id, task_description, completed, abandoned}] }]
+    const todoToolIds = new Set();
+    const TB_KEY = 'fern_taskbar_open_' + sessionId;
+    const TB_CHECK_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>';
+    const TB_DASH_SVG = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="4" y1="8" x2="12" y2="8"/></svg>';
+
+    function isTodoInput(ri) {
+        if (!ri || typeof ri !== 'object') return false;
+        if (!['create', 'complete', 'add', 'remove', 'list'].includes(ri.command)) return false;
+        return ri.command === 'list' || 'tasks' in ri || 'task_list_description' in ri
+            || 'completed_task_ids' in ri || 'new_tasks' in ri || 'remove_task_ids' in ri
+            || 'context_update' in ri;
+    }
+
+    function applyTodo(ri) {
+        if (ri.command === 'create') {
+            // A new list supersedes the old: mark still-incomplete prior tasks as
+            // abandoned, but keep completed ones as the record of what was accomplished.
+            for (const g of taskGroups) for (const t of g.tasks) if (!t.completed) t.abandoned = true;
+            taskGroups.push({
+                description: ri.task_list_description || '',
+                tasks: (ri.tasks || []).map((t, i) => ({ id: String(i + 1), task_description: t.task_description || '', completed: false, abandoned: false })),
+            });
+            return;
+        }
+        let g = taskGroups[taskGroups.length - 1];
+        if (!g) { g = { description: '', tasks: [] }; taskGroups.push(g); }
+        if (ri.command === 'complete') {
+            const ids = new Set((ri.completed_task_ids || []).map(String));
+            for (const t of g.tasks) if (ids.has(t.id)) { t.completed = true; t.abandoned = false; }
+        } else if (ri.command === 'add') {
+            if (ri.new_description) g.description = ri.new_description;
+            let maxId = g.tasks.reduce((m, t) => Math.max(m, parseInt(t.id, 10) || 0), 0);
+            for (const t of (ri.new_tasks || [])) g.tasks.push({ id: String(++maxId), task_description: t.task_description || '', completed: false, abandoned: false });
+        } else if (ri.command === 'remove') {
+            const ids = new Set((ri.remove_task_ids || []).map(String));
+            g.tasks = g.tasks.filter(t => !ids.has(t.id));
+        }
+    }
+
+    function handleTodoCall(toolCallId, rawInput) {
+        if (!rawInput) return;
+        todoToolIds.add(toolCallId);
+        applyTodo(rawInput);
+        renderTaskBar();
+    }
+
+    function isTaskBarOpen() { return localStorage.getItem(TB_KEY) === '1'; }
+    function toggleTaskBar() {
+        const bar = document.getElementById('taskBar');
+        if (!bar) return;
+        const open = !bar.classList.contains('open');
+        localStorage.setItem(TB_KEY, open ? '1' : '0');
+        bar.classList.toggle('open', open);
+    }
+    window.toggleTaskBar = toggleTaskBar;
+
+    function resetTaskBar() {
+        taskGroups = [];
+        todoToolIds.clear();
+        const bar = document.getElementById('taskBar');
+        if (bar) { bar.style.display = 'none'; bar.classList.remove('open'); }
+    }
+
+    function tbTaskRow(t, i) {
+        const done = t.completed;
+        const abandoned = t.abandoned && !t.completed;
+        const row = document.createElement('div');
+        row.className = 'tb-row' + (done ? ' done' : (abandoned ? ' abandoned' : ''));
+        const chk = document.createElement('span');
+        chk.className = 'tb-check' + (done ? ' checked' : (abandoned ? ' abandoned' : ''));
+        chk.innerHTML = abandoned ? TB_DASH_SVG : TB_CHECK_SVG;
+        const num = document.createElement('span');
+        num.className = 'tb-num';
+        num.textContent = (i + 1) + '.';
+        const txt = document.createElement('span');
+        txt.className = 'tb-text';
+        txt.textContent = t.task_description;
+        row.appendChild(chk);
+        row.appendChild(num);
+        row.appendChild(txt);
+        return row;
+    }
+
+    function renderTaskBar() {
+        const bar = document.getElementById('taskBar');
+        if (!bar) return;
+        if (taskGroups.length === 0) { bar.style.display = 'none'; return; }
+        bar.style.display = 'block';
+        bar.classList.toggle('open', isTaskBarOpen());
+        const allTasks = taskGroups.reduce((a, g) => a.concat(g.tasks), []);
+        const total = allTasks.length;
+        const done = allTasks.filter(t => t.completed).length;
+        // Pending = active work in the current list (abandoned tasks don't count).
+        const cur = taskGroups[taskGroups.length - 1];
+        const pending = cur.tasks.filter(t => !t.completed && !t.abandoned).length;
+        const sum = document.getElementById('tbSummary');
+        if (pending > 0) { sum.className = 'tb-summary pending'; sum.textContent = pending + ' pending'; }
+        else { sum.className = 'tb-summary done'; sum.textContent = 'All done'; }
+        document.getElementById('tbCount').textContent = done + '/' + total;
+        const desc = document.getElementById('tbDesc');
+        const list = document.getElementById('tbList');
+        list.innerHTML = '';
+        if (taskGroups.length > 1) {
+            // Multiple lists: render each with its description as a subheader.
+            desc.style.display = 'none';
+            taskGroups.forEach((g) => {
+                if (g.description) {
+                    const h = document.createElement('div');
+                    h.className = 'tb-group-desc';
+                    h.textContent = g.description;
+                    list.appendChild(h);
+                }
+                g.tasks.forEach((t, i) => list.appendChild(tbTaskRow(t, i)));
+            });
+        } else {
+            const g = taskGroups[0];
+            desc.textContent = g.description || '';
+            desc.style.display = g.description ? 'block' : 'none';
+            g.tasks.forEach((t, i) => list.appendChild(tbTaskRow(t, i)));
+        }
+    }
+
     function processEvent(data) {
         const evt = data.event;
 
@@ -2187,6 +2334,11 @@
             closeThought();
             setStatus('working', (update.title || 'Using tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
+            // Also drive the task bar, but keep the inline tool call in the stream
+            // so it's always visible when/where the list was instantiated.
+            if (isTodoInput(update.rawInput)) {
+                handleTodoCall(update.toolCallId, update.rawInput);
+            }
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
             if (st === 'in_progress') setStatus('working', 'Running tool...');
