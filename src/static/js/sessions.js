@@ -182,8 +182,38 @@ function toggleDesktop() {
 let _jupyterCounter = 0;
 let _jupyterPaths = { 1: null, 2: null }; // Track actual Jupyter URL path per pane
 let _jupyterNamePaths = {}; // Track path by session name for sidebar restoration
+
+// Get the group of the session in the active pane (used for default placement)
+// Returns null if the active pane has no session or an ungrouped session
+function getActivePaneGroupId() {
+    const paneSession = paneNotebook[activeTerminal];
+    const termSession = activeTerminal === 1 ? currentSession1 : currentSession2;
+    const sessionKey = paneSession || termSession;
+    console.log('[getActivePaneGroupId]', {
+        activeTerminal,
+        paneSession,
+        termSession,
+        sessionKey,
+        cachedGroups: Object.keys(_cachedSessionGroups || {})
+    });
+    if (sessionKey) {
+        // Check if session is in a group - undefined/null means ungrouped
+        const groupId = _cachedSessionGroups[sessionKey];
+        console.log('[getActivePaneGroupId] lookup', sessionKey, '->', groupId);
+        // Only return a group if the session is actually in one
+        // (absence from cache means ungrouped, not "inherit from somewhere else")
+        if (groupId !== undefined && groupId !== null) {
+            return groupId;
+        }
+    }
+    return null;
+}
+
 function openJupyter(name) {
     closeNewSessionModal();
+    // Get group BEFORE changing paneNotebook
+    const groupId = typeof getActivePaneGroupId === 'function' ? getActivePaneGroupId() : null;
+    
     if (!name) name = 'Jupyter-' + (++_jupyterCounter);
     const activePane = activeTerminal;
     const browser = document.getElementById(`browser${activePane}`);
@@ -222,9 +252,10 @@ function openJupyter(name) {
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
     browser.appendChild(iframe);
     highlightSidebarItem('jupyter:' + name);
+    updatePaneBorders();
     syncUrlParams();
     updateKbdBtn();
-    emitWithCsrf('open_jupyter', { name: name });
+    emitWithCsrf('open_jupyter', { name: name, group_id: groupId });
     emitWithCsrf('get_sessions');
 }
 
@@ -244,21 +275,24 @@ function ensureNotebookIframe(browser, notebook) {
 }
 
 function openNotebook(notebook) {
+    // Capture group BEFORE changing paneNotebook
+    const groupId = getActivePaneGroupId();
     const activePane = activeTerminal;
     const browser = document.getElementById(`browser${activePane}`);
     const terminal = document.getElementById(`terminal${activePane}`);
     paneTypes[activePane] = 'browser';
-    paneNotebook[activePane] = notebook;
+    paneNotebook[activePane] = 'notebook:' + notebook;
     terminal.classList.add('hidden');
     browser.classList.remove('hidden');
     if (activePane === 1) currentSession1 = null;
     else currentSession2 = null;
     browser.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#5a9fd4;font-family:sans-serif">Starting notebook...</div>';
     highlightSidebarItem('notebook:' + notebook);
+    updatePaneBorders();
     syncUrlParams();
     updateKbdBtn();
     // Start the container (if already running, backend returns immediately)
-    emitWithCsrf('start_notebook', { name: notebook });
+    emitWithCsrf('start_notebook', { name: notebook, group_id: groupId });
     emitWithCsrf('get_sessions');
 }
 
@@ -374,7 +408,7 @@ socket.on('notebook_created', (data) => {
 socket.on('notebook_started', (data) => {
     // Find the pane waiting for this notebook and load the iframe
     for (const pn of [1, 2]) {
-        if (paneNotebook[pn] === data.name && paneTypes[pn] === 'browser') {
+        if (paneNotebook[pn] === 'notebook:' + data.name && paneTypes[pn] === 'browser') {
             const browser = document.getElementById(`browser${pn}`);
             ensureNotebookIframe(browser, data.name);
             break;
@@ -439,11 +473,78 @@ function setPaneType(paneNum, type) {
 }
 
 // --- Session List ---
-function highlightSidebarItem(sessionKey) {
-    document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+function highlightSidebarItem(sessionKey, isSecondary) {
+    // Remove active/secondary classes from all items
+    document.querySelectorAll('.session-item').forEach(el => {
+        if (!isSecondary) el.classList.remove('active');
+        el.classList.remove('secondary');
+        // Don't clear --group-color; it's set by createGroupElement
+    });
+    
     const item = document.querySelector(`.session-item[data-session="${sessionKey}"]`);
-    if (item) item.classList.add('active');
+    if (item) {
+        if (isSecondary) {
+            item.classList.add('secondary');
+        } else {
+            item.classList.add('active');
+        }
+    }
 }
+
+function updatePaneBorders() {
+    const c1 = document.getElementById('terminal1-container');
+    const c2 = document.getElementById('terminal2-container');
+    
+    // Reset borders
+    c1.style.removeProperty('border-color');
+    c2.style.removeProperty('border-color');
+    
+    if (!isSplit) return;
+    
+    // Get session keys for both panes
+    const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
+    const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
+    
+    // Apply group colors to pane borders
+    function applyColor(container, sessionKey, isActive) {
+        if (!sessionKey) return;
+        const groupId = _cachedSessionGroups[sessionKey];
+        if (groupId) {
+            const group = _cachedGroups.find(g => g.id === groupId);
+            if (group && group.color) {
+                container.style.borderColor = isActive ? group.color : group.color + '60';
+            }
+        }
+    }
+    
+    const activePane = activeTerminal;
+    applyColor(c1, s1, activePane === 1);
+    applyColor(c2, s2, activePane === 2);
+}
+
+// Override setActiveTerminal to update pane borders
+const _origSetActiveTerminal = setActiveTerminal;
+setActiveTerminal = function(termNum, direct) {
+    _origSetActiveTerminal(termNum, direct);
+    updatePaneBorders();
+    
+    // Update sidebar highlighting for both panes
+    const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
+    const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
+    
+    if (isSplit) {
+        if (termNum === 1) {
+            if (s1) highlightSidebarItem(s1, false);
+            if (s2) highlightSidebarItem(s2, true);
+        } else {
+            if (s2) highlightSidebarItem(s2, false);
+            if (s1) highlightSidebarItem(s1, true);
+        }
+    } else {
+        const s = termNum === 1 ? s1 : s2;
+        if (s) highlightSidebarItem(s, false);
+    }
+};
 
 let sessionListInitialized = false;
 let lastSessionsKey = '';
@@ -459,11 +560,466 @@ socket.on('acp_status_change', (data) => {
     }
 });
 
+// --- Project Groups ---
+// Per-browser expand state: localStorage key -> expanded group IDs set
+// Per-browser group order: localStorage key -> ordered group IDs array
+const GROUP_EXPAND_KEY = 'fernando_group_expanded';
+const GROUP_ORDER_KEY = 'fernando_group_order';
+
+function getExpandedGroups() {
+    try {
+        return new Set(JSON.parse(localStorage.getItem(GROUP_EXPAND_KEY) || '[]'));
+    } catch { return new Set(); }
+}
+function setExpandedGroups(expanded) {
+    localStorage.setItem(GROUP_EXPAND_KEY, JSON.stringify([...expanded]));
+}
+function toggleGroupExpanded(groupId) {
+    const expanded = getExpandedGroups();
+    if (expanded.has(groupId)) expanded.delete(groupId);
+    else expanded.add(groupId);
+    setExpandedGroups(expanded);
+    return expanded.has(groupId);
+}
+
+function getGroupOrder() {
+    try {
+        return JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) || '[]');
+    } catch { return []; }
+}
+function setGroupOrder(order) {
+    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(order));
+}
+
+// Cached group data from server
+let _cachedGroups = [];
+let _cachedSessionGroups = {};
+
+// Pastel color palette for groups
+const GROUP_COLORS = [
+    '#263fce', // blue (default) - vibrant blue
+    '#3d8b40', // green - darker for white text
+    '#b8860b', // yellow/gold - dark goldenrod
+    '#c45c26', // orange - darker
+    '#c44d4d', // red - darker
+    '#8b4dab', // purple - darker
+    '#2a8a8a', // cyan/teal - darker
+    '#a85d8a', // rose - darker
+];
+
+function createGroupElement(group, sessionItems, isExpanded, isFirst) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'group-wrapper';
+    wrapper.dataset.groupId = group.id;
+    
+    const isUngrouped = group.id === '__ungrouped__';
+    
+    // Apply group color as subtle background tint (not for Ungrouped)
+    const color = group.color || '#7ea8e3';
+    if (!isUngrouped) {
+        wrapper.style.setProperty('--group-color', color);
+        wrapper.style.background = color + '33'; // ~20% opacity tint
+    }
+    
+    const header = document.createElement('div');
+    header.className = 'group-header';
+    header.draggable = !isUngrouped; // Can't drag the Ungrouped group
+    header.dataset.groupId = group.id;
+    
+    // First group gets top border for transition from Desktop
+    if (isFirst) {
+        const borderColor = color ? `color-mix(in srgb, ${color} 25%, transparent)` : '#143151';
+        header.style.borderTop = `1px solid ${borderColor}`;
+    }
+    
+    const chevron = document.createElement('span');
+    chevron.className = 'group-chevron' + (isExpanded ? ' expanded' : '');
+    chevron.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 2 7 5 3 8"/></svg>';
+    
+    // Only show color dot for real groups
+    const colorDot = document.createElement('span');
+    colorDot.className = 'group-color-dot';
+    if (!isUngrouped) {
+        colorDot.style.background = color;
+    } else {
+        colorDot.style.display = 'none';
+    }
+    
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'group-name';
+    nameSpan.textContent = group.name;
+    
+    header.appendChild(chevron);
+    header.appendChild(colorDot);
+    header.appendChild(nameSpan);
+    
+    const body = document.createElement('div');
+    body.className = 'group-body' + (isExpanded ? ' expanded' : '');
+    sessionItems.forEach(item => {
+        // Apply group color to session items (not for Ungrouped)
+        if (!isUngrouped) {
+            item.style.setProperty('--group-color', color);
+        }
+        body.appendChild(item);
+    });
+    
+    // Click to expand/collapse
+    header.addEventListener('click', (e) => {
+        if (e.target.closest('.group-color-dot')) return; // handled separately
+        const nowExpanded = toggleGroupExpanded(group.id);
+        chevron.classList.toggle('expanded', nowExpanded);
+        body.classList.toggle('expanded', nowExpanded);
+    });
+    
+    // Double-click to rename (not for Ungrouped)
+    let clickTimer = null;
+    nameSpan.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (e.detail === 2 && !isUngrouped) {
+            clearTimeout(clickTimer);
+            startGroupRename(group.id, nameSpan);
+        } else {
+            clickTimer = setTimeout(() => {
+                const nowExpanded = toggleGroupExpanded(group.id);
+                chevron.classList.toggle('expanded', nowExpanded);
+                body.classList.toggle('expanded', nowExpanded);
+            }, 250);
+        }
+    });
+    
+    // Color picker on dot click (not for Ungrouped)
+    if (!isUngrouped) {
+        colorDot.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showGroupColorPicker(group.id, colorDot);
+        });
+    }
+    
+    // Context menu (right-click) for rename/delete
+    header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showGroupContextMenu(group.id, e.clientX, e.clientY, sessionItems.length);
+    });
+    
+    // Long-press for mobile
+    let holdTimer = null;
+    header.addEventListener('touchstart', (e) => {
+        holdTimer = setTimeout(() => {
+            holdTimer = 'fired';
+            showGroupContextMenu(group.id, e.touches[0].clientX, e.touches[0].clientY, sessionItems.length);
+        }, 500);
+    }, {passive: true});
+    header.addEventListener('touchend', () => { if (holdTimer !== 'fired') clearTimeout(holdTimer); holdTimer = null; });
+    header.addEventListener('touchmove', () => { 
+        if (holdTimer === 'fired') dismissContextMenus();
+        else clearTimeout(holdTimer); 
+    });
+    
+    // Drag-and-drop for group reordering
+    header.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('application/x-group-id', group.id);
+        e.dataTransfer.effectAllowed = 'move';
+        header.classList.add('dragging');
+    });
+    header.addEventListener('dragend', () => header.classList.remove('dragging'));
+    
+    wrapper.appendChild(header);
+    wrapper.appendChild(body);
+    
+    // Drop zone for sessions - on the whole wrapper so it works even when collapsed
+    setupDropZone(wrapper, group.id);
+    setupGroupDropZone(wrapper, group.id);
+    
+    return wrapper;
+}
+
+function startGroupRename(groupId, nameSpan) {
+    const oldName = nameSpan.textContent;
+    const input = document.createElement('input');
+    input.value = oldName;
+    input.className = 'group-rename-input';
+    nameSpan.replaceWith(input);
+    input.focus();
+    input.select();
+    function commit() {
+        if (!input.parentNode) return;
+        const newName = input.value.trim();
+        const newSpan = document.createElement('span');
+        newSpan.className = 'group-name';
+        newSpan.textContent = newName || oldName;
+        input.replaceWith(newSpan);
+        if (newName && newName !== oldName) {
+            emitWithCsrf('group_rename', { group_id: groupId, name: newName });
+        }
+    }
+    input.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        if (e.key === 'Escape') {
+            const newSpan = document.createElement('span');
+            newSpan.className = 'group-name';
+            newSpan.textContent = oldName;
+            input.replaceWith(newSpan);
+        }
+    });
+    input.addEventListener('blur', commit);
+    input.addEventListener('click', (e) => e.stopPropagation());
+}
+
+function showGroupColorPicker(groupId, anchor) {
+    // Remove any existing picker
+    document.querySelectorAll('.group-color-picker').forEach(p => p.remove());
+    
+    const picker = document.createElement('div');
+    picker.className = 'group-color-picker';
+    
+    GROUP_COLORS.forEach(color => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        swatch.style.background = color;
+        swatch.addEventListener('click', () => {
+            emitWithCsrf('group_set_color', { group_id: groupId, color: color });
+            picker.remove();
+        });
+        picker.appendChild(swatch);
+    });
+    
+    document.body.appendChild(picker);
+    const rect = anchor.getBoundingClientRect();
+    picker.style.left = rect.left + 'px';
+    picker.style.top = (rect.bottom + 4) + 'px';
+    
+    // Close on outside click/touch
+    setTimeout(() => {
+        function closePicker(e) {
+            if (!picker.contains(e.target)) {
+                picker.remove();
+                document.removeEventListener('click', closePicker);
+                document.removeEventListener('touchstart', closePicker);
+            }
+        }
+        document.addEventListener('click', closePicker);
+        document.addEventListener('touchstart', closePicker);
+    }, 10);
+}
+
+function dismissContextMenus() {
+    document.querySelectorAll('.group-context-menu').forEach(m => m.remove());
+}
+
+function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep) {
+    dismissContextMenus();
+    
+    const menu = document.createElement('div');
+    menu.className = 'group-context-menu';
+    
+    if (onRename) {
+        const renameBtn = document.createElement('div');
+        renameBtn.className = 'context-menu-item';
+        renameBtn.textContent = 'Rename';
+        renameBtn.onclick = () => { menu.remove(); onRename(); };
+        menu.appendChild(renameBtn);
+    }
+    
+    if (onSleep) {
+        const sleepBtn = document.createElement('div');
+        sleepBtn.className = 'context-menu-item';
+        sleepBtn.textContent = 'Sleep';
+        sleepBtn.onclick = () => { menu.remove(); onSleep(); };
+        menu.appendChild(sleepBtn);
+    }
+    
+    if (onClose) {
+        const closeBtn = document.createElement('div');
+        closeBtn.className = 'context-menu-item danger';
+        closeBtn.textContent = 'Close';
+        closeBtn.onclick = () => { menu.remove(); onClose(); };
+        menu.appendChild(closeBtn);
+    }
+    
+    document.body.appendChild(menu);
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    
+    const menuRect = menu.getBoundingClientRect();
+    if (menuRect.right > window.innerWidth) menu.style.left = (window.innerWidth - menuRect.width - 10) + 'px';
+    if (menuRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - menuRect.height - 10) + 'px';
+    
+    setTimeout(() => {
+        function closeMenu(e) {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', closeMenu);
+                document.removeEventListener('touchstart', closeMenu);
+            }
+        }
+        document.addEventListener('click', closeMenu);
+        document.addEventListener('touchstart', closeMenu);
+    }, 10);
+}
+
+function showGroupContextMenu(groupId, x, y, sessionCount) {
+    // Don't show context menu for the virtual Ungrouped group
+    if (groupId === '__ungrouped__') return;
+    
+    document.querySelectorAll('.group-context-menu').forEach(m => m.remove());
+    
+    const menu = document.createElement('div');
+    menu.className = 'group-context-menu';
+    
+    const renameBtn = document.createElement('div');
+    renameBtn.className = 'context-menu-item';
+    renameBtn.textContent = 'Rename';
+    renameBtn.onclick = () => {
+        menu.remove();
+        const nameSpan = document.querySelector(`.group-wrapper[data-group-id="${groupId}"] .group-name`);
+        if (nameSpan) startGroupRename(groupId, nameSpan);
+    };
+    menu.appendChild(renameBtn);
+    
+    const deleteBtn = document.createElement('div');
+    deleteBtn.className = 'context-menu-item danger';
+    deleteBtn.textContent = sessionCount > 0 ? 'Delete (moves sessions out)' : 'Delete';
+    deleteBtn.onclick = () => {
+        menu.remove();
+        emitWithCsrf('group_delete', { group_id: groupId });
+    };
+    menu.appendChild(deleteBtn);
+    
+    document.body.appendChild(menu);
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    
+    // Keep menu in viewport
+    const menuRect = menu.getBoundingClientRect();
+    if (menuRect.right > window.innerWidth) menu.style.left = (window.innerWidth - menuRect.width - 10) + 'px';
+    if (menuRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - menuRect.height - 10) + 'px';
+    
+    setTimeout(() => {
+        function closeMenu(e) {
+            if (!menu.contains(e.target)) {
+                menu.remove();
+                document.removeEventListener('click', closeMenu);
+                document.removeEventListener('touchstart', closeMenu);
+            }
+        }
+        document.addEventListener('click', closeMenu);
+        document.addEventListener('touchstart', closeMenu);
+    }, 10);
+}
+
+function setupDropZone(element, groupId) {
+    let dragCounter = 0; // Track enter/leave for child elements
+    
+    // Get the group color for this drop zone
+    function getGroupColor() {
+        if (groupId === '__ungrouped__' || !groupId) return '#3465a3'; // default blue
+        const group = _cachedGroups.find(g => g.id === groupId);
+        return group && group.color ? group.color : '#3465a3';
+    }
+    
+    element.addEventListener('dragenter', (e) => {
+        if (e.dataTransfer.types.includes('application/x-session-key')) {
+            e.preventDefault();
+            dragCounter++;
+            element.classList.add('drop-target');
+            // Apply group-colored styling
+            const color = getGroupColor();
+            element.style.outline = `2px dashed ${color}`;
+            element.style.background = `${color}20`;
+        }
+    });
+    element.addEventListener('dragover', (e) => {
+        if (e.dataTransfer.types.includes('application/x-session-key')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        }
+    });
+    element.addEventListener('dragleave', (e) => {
+        dragCounter--;
+        if (dragCounter === 0) {
+            element.classList.remove('drop-target');
+            element.style.removeProperty('outline');
+            element.style.removeProperty('background');
+        }
+    });
+    element.addEventListener('drop', (e) => {
+        dragCounter = 0;
+        element.classList.remove('drop-target');
+        element.style.removeProperty('outline');
+        element.style.removeProperty('background');
+        const sessionKey = e.dataTransfer.getData('application/x-session-key');
+        if (sessionKey) {
+            e.preventDefault();
+            e.stopPropagation();
+            // __ungrouped__ is a virtual group - translate to null for backend
+            const targetGroupId = groupId === '__ungrouped__' ? null : groupId;
+            console.log('[drop] session', sessionKey, 'to group', targetGroupId);
+            emitWithCsrf('group_move_session', { session_key: sessionKey, group_id: targetGroupId });
+        }
+    });
+}
+
+function setupGroupDropZone(wrapper, groupId) {
+    wrapper.addEventListener('dragover', (e) => {
+        if (e.dataTransfer.types.includes('application/x-group-id')) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const rect = wrapper.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            wrapper.classList.remove('drop-above', 'drop-below');
+            wrapper.classList.add(e.clientY < midY ? 'drop-above' : 'drop-below');
+        }
+    });
+    wrapper.addEventListener('dragleave', () => wrapper.classList.remove('drop-above', 'drop-below'));
+    wrapper.addEventListener('drop', (e) => {
+        const draggedGroupId = e.dataTransfer.getData('application/x-group-id');
+        wrapper.classList.remove('drop-above', 'drop-below');
+        if (draggedGroupId && draggedGroupId !== groupId) {
+            e.preventDefault();
+            const rect = wrapper.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            const insertBefore = e.clientY < midY;
+            reorderGroup(draggedGroupId, groupId, insertBefore);
+        }
+    });
+}
+
+function reorderGroup(draggedId, targetId, insertBefore) {
+    const groups = _cachedGroups.map(g => g.id);
+    const currentOrder = getGroupOrder();
+    // Merge: currentOrder first, then any groups not in currentOrder
+    const orderedIds = [...currentOrder.filter(id => groups.includes(id)), ...groups.filter(id => !currentOrder.includes(id))];
+    
+    const dragIdx = orderedIds.indexOf(draggedId);
+    if (dragIdx === -1) return;
+    orderedIds.splice(dragIdx, 1);
+    
+    let targetIdx = orderedIds.indexOf(targetId);
+    if (!insertBefore) targetIdx++;
+    orderedIds.splice(targetIdx, 0, draggedId);
+    
+    setGroupOrder(orderedIds);
+    emitWithCsrf('get_sessions'); // Refresh to apply new order
+}
+
+function makeSessionDraggable(item, sessionKey) {
+    item.draggable = true;
+    item.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('application/x-session-key', sessionKey);
+        e.dataTransfer.effectAllowed = 'move';
+        item.classList.add('dragging');
+    });
+    item.addEventListener('dragend', () => item.classList.remove('dragging'));
+}
+
 function updateSessionList(sessions, chatSessions, data) {
     // Cache for live status updates
     _cachedSessions = sessions;
     _cachedChatSessions = chatSessions;
     _cachedData = data;
+    _cachedGroups = data.groups || [];
+    _cachedSessionGroups = data.session_groups || {};
     
     const sessionList = document.getElementById('sessionList');
 
@@ -508,15 +1064,22 @@ function updateSessionList(sessions, chatSessions, data) {
     }
 
     const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name + ':' + (c.loaded ? '1' : '0') + ':' + (c.status || 'idle'));
-    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort());
+    const groupsKey = JSON.stringify(_cachedGroups) + '|' + JSON.stringify(_cachedSessionGroups);
+    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort()) + '|' + groupsKey;
     if (sessionListInitialized && lastSessionsKey === newKey) return;
-    console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, oldKey: lastSessionsKey, newKey});
+    console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, groups: _cachedGroups.length});
     sessionListInitialized = true;
     lastSessionsKey = newKey;
 
-    sessionList.innerHTML = '';
+    // Build everything in a fragment to avoid flicker
+    const fragment = document.createDocumentFragment();
+    
+    // Build all session items first, then organize by group
+    const allItems = {};  // sessionKey -> {element, groupId}
+    const runningJupyter = data.running_jupyter || [];
+    const runningNotebooks = data.running_notebooks || [];
 
-    // Desktop item
+    // Desktop item (always at top, not groupable)
     const desktopItem = document.createElement('div');
     desktopItem.className = 'session-item';
     desktopItem.dataset.session = 'desktop';
@@ -533,22 +1096,21 @@ function updateSessionList(sessions, chatSessions, data) {
         toggleDesktop();
         if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
     });
-    sessionList.appendChild(desktopItem);
+    fragment.appendChild(desktopItem);
 
-    // Jupyter items (from backend running_jupyter set)
-    const runningJupyter = data.running_jupyter || [];
-    runningJupyter.forEach(jname => {
+    // Helper to create Jupyter item
+    function createJupyterItem(jname) {
         const jItem = document.createElement('div');
         jItem.className = 'session-item';
-        jItem.dataset.session = 'jupyter:' + jname;
+        const sessionKey = 'jupyter:' + jname;
+        jItem.dataset.session = sessionKey;
         const jNameSpan = document.createElement('span');
         jNameSpan.className = 'session-name';
         jNameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:4px"><path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>' + jname;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
-        closeBtn.onclick = (e) => {
-            e.stopPropagation();
+        function closeJupyter() {
             for (const pn of [1, 2]) {
                 if (paneNotebook[pn] === 'jupyter:' + jname) {
                     paneTypes[pn] = 'terminal';
@@ -566,11 +1128,11 @@ function updateSessionList(sessions, chatSessions, data) {
             emitWithCsrf('get_sessions');
             syncUrlParams();
             updateKbdBtn();
-        };
+        }
+        closeBtn.onclick = (e) => { e.stopPropagation(); closeJupyter(); };
         jItem.appendChild(jNameSpan);
         jItem.appendChild(closeBtn);
         jItem.addEventListener('click', function() {
-            // If this Jupyter session is already open in a pane, just switch to it
             for (const pn of [1, 2]) {
                 if (paneNotebook[pn] === 'jupyter:' + jname) {
                     setActiveTerminal(pn, true);
@@ -579,8 +1141,6 @@ function updateSessionList(sessions, chatSessions, data) {
                     return;
                 }
             }
-            console.log('[jupyter-sidebar-click]', {jname, paneNotebook: {...paneNotebook}, namePaths: {..._jupyterNamePaths}, panePaths: {..._jupyterPaths}});
-            // Look up path from pane or name map
             let clickPath = _jupyterNamePaths[jname];
             if (!clickPath) {
                 for (const pn of [1, 2]) {
@@ -590,31 +1150,51 @@ function updateSessionList(sessions, chatSessions, data) {
                     }
                 }
             }
-            if (clickPath) {
-                openJupyter(clickPath);
-            } else {
-                openJupyter(jname);
-            }
+            openJupyter(clickPath || jname);
             if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
         });
-        sessionList.appendChild(jItem);
-    });
+        jItem.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showSessionContextMenu(sessionKey, e.clientX, e.clientY, null, closeJupyter);
+        });
+        let holdTimer = null;
+        let touchMoved = false;
+        jItem.addEventListener('touchstart', function(e) {
+            touchMoved = false;
+            holdTimer = setTimeout(() => { 
+                if (!touchMoved) {
+                    holdTimer = 'fired'; 
+                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, null, closeJupyter);
+                }
+            }, 500);
+        }, {passive: true});
+        jItem.addEventListener('touchend', function(e) {
+            if (holdTimer === 'fired') e.preventDefault();
+            else clearTimeout(holdTimer);
+            holdTimer = null;
+        });
+        jItem.addEventListener('touchmove', function() { 
+            touchMoved = true;
+            if (holdTimer === 'fired') dismissContextMenus();
+            else clearTimeout(holdTimer); 
+        });
+        makeSessionDraggable(jItem, sessionKey);
+        return jItem;
+    }
 
-    // Notebook items (running containers)
-    const runningNotebooks = data.running_notebooks || [];
-    runningNotebooks.forEach(nb => {
+    // Helper to create Notebook item
+    function createNotebookItem(nb) {
         const nbItem = document.createElement('div');
         nbItem.className = 'session-item';
-        nbItem.dataset.session = 'notebook:' + nb;
+        const sessionKey = 'notebook:' + nb;
+        nbItem.dataset.session = sessionKey;
         const nbName = document.createElement('span');
         nbName.className = 'session-name';
         nbName.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-1px;margin-right:4px"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="1" x2="6" y2="15"/><line x1="1" y1="4" x2="3" y2="4"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="1" y1="12" x2="3" y2="12"/></svg>' + nb;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
-        closeBtn.onclick = (e) => {
-            e.stopPropagation();
-            // Close the pane and stop the container
+        function closeNotebook() {
             for (const pn of [1, 2]) {
                 if (paneNotebook[pn] === nb) {
                     paneTypes[pn] = 'terminal';
@@ -631,18 +1211,45 @@ function updateSessionList(sessions, chatSessions, data) {
             emitWithCsrf('get_sessions');
             syncUrlParams();
             updateKbdBtn();
-        };
+        }
+        closeBtn.onclick = (e) => { e.stopPropagation(); closeNotebook(); };
         nbItem.appendChild(nbName);
         nbItem.appendChild(closeBtn);
         nbItem.addEventListener('click', function() {
             openNotebook(nb);
             if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
         });
-        sessionList.appendChild(nbItem);
-    });
+        nbItem.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showSessionContextMenu(sessionKey, e.clientX, e.clientY, null, closeNotebook);
+        });
+        let holdTimer = null;
+        let touchMoved = false;
+        nbItem.addEventListener('touchstart', function(e) {
+            touchMoved = false;
+            holdTimer = setTimeout(() => { 
+                if (!touchMoved) {
+                    holdTimer = 'fired'; 
+                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, null, closeNotebook);
+                }
+            }, 500);
+        }, {passive: true});
+        nbItem.addEventListener('touchend', function(e) {
+            if (holdTimer === 'fired') e.preventDefault();
+            else clearTimeout(holdTimer);
+            holdTimer = null;
+        });
+        nbItem.addEventListener('touchmove', function() { 
+            touchMoved = true;
+            if (holdTimer === 'fired') dismissContextMenus();
+            else clearTimeout(holdTimer); 
+        });
+        makeSessionDraggable(nbItem, sessionKey);
+        return nbItem;
+    }
 
-    // Terminal sessions
-    sessions.forEach(session => {
+    // Helper to create Terminal item
+    function createTerminalItem(session) {
         const item = document.createElement('div');
         item.className = 'session-item';
         item.dataset.session = session;
@@ -663,8 +1270,8 @@ function updateSessionList(sessions, chatSessions, data) {
         function startRename() {
             const oldName = nameSpan.textContent;
             const input = document.createElement('input');
+            input.className = 'session-rename-input';
             input.value = oldName;
-            input.style.cssText = 'background:#3c3c3c;color:#fff;border:1px solid #3465a3;outline:none;padding:2px 4px;font-family:monospace;font-size:inherit;width:calc(100% - 32px)';
             nameSpan.replaceWith(input);
             input.focus();
             input.select();
@@ -689,27 +1296,44 @@ function updateSessionList(sessions, chatSessions, data) {
                 if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
             }, 250);
         });
+        item.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showSessionContextMenu(session, e.clientX, e.clientY, startRename, () => closeSession(e, session));
+        });
         let holdTimer = null;
-        nameSpan.addEventListener('touchstart', function(e) {
-            holdTimer = setTimeout(() => { e.preventDefault(); holdTimer = 'fired'; startRename(); }, 500);
-        }, {passive: false});
-        nameSpan.addEventListener('touchend', function(e) {
-            if (holdTimer === 'fired') e.preventDefault(); else clearTimeout(holdTimer);
+        let touchMoved = false;
+        item.addEventListener('touchstart', function(e) {
+            touchMoved = false;
+            holdTimer = setTimeout(() => { 
+                if (!touchMoved) {
+                    holdTimer = 'fired'; 
+                    showSessionContextMenu(session, e.touches[0].clientX, e.touches[0].clientY, startRename, () => closeSession(e, session));
+                }
+            }, 500);
+        }, {passive: true});
+        item.addEventListener('touchend', function(e) {
+            if (holdTimer === 'fired') e.preventDefault();
+            else clearTimeout(holdTimer);
             holdTimer = null;
         });
-        nameSpan.addEventListener('touchmove', function() { if (holdTimer !== 'fired') clearTimeout(holdTimer); });
-        sessionList.appendChild(item);
-    });
+        item.addEventListener('touchmove', function() { 
+            touchMoved = true;
+            if (holdTimer === 'fired') dismissContextMenus();
+            else clearTimeout(holdTimer); 
+        });
+        makeSessionDraggable(item, session);
+        return item;
+    }
 
-    // Chat sessions
-    chatSessions.forEach(chat => {
+    // Helper to create Chat item
+    function createChatItem(chat) {
         const chatId = chat.id;
+        const sessionKey = 'chat:' + chatId;
         const item = document.createElement('div');
         item.className = 'session-item';
-        item.dataset.session = 'chat:' + chatId;
+        item.dataset.session = sessionKey;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name';
-        // Status-based icon: white (idle/unloaded), blue (unread), throbbing blue (working)
         let chatIconFill, chatIconClass, chatIconColor;
         if (!chat.loaded) {
             chatIconFill = 'none';
@@ -724,7 +1348,6 @@ function updateSessionList(sessions, chatSessions, data) {
             chatIconColor = '#4b8ce0';
             chatIconClass = '';
         } else {
-            // idle
             chatIconFill = 'currentColor';
             chatIconColor = 'currentColor';
             chatIconClass = '';
@@ -741,8 +1364,8 @@ function updateSessionList(sessions, chatSessions, data) {
         function startChatRename() {
             const oldName = nameSpan.textContent;
             const inp = document.createElement('input');
+            inp.className = 'session-rename-input';
             inp.value = oldName;
-            inp.style.cssText = 'background:#3c3c3c;color:#fff;border:1px solid #3465a3;outline:none;padding:2px 4px;font-family:monospace;font-size:inherit;width:calc(100% - 32px)';
             nameSpan.replaceWith(inp);
             inp.focus();
             inp.select();
@@ -770,17 +1393,96 @@ function updateSessionList(sessions, chatSessions, data) {
                 if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
             }, 250);
         });
+        item.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showSessionContextMenu(sessionKey, e.clientX, e.clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }));
+        });
         let holdTimer = null;
-        nameSpan.addEventListener('touchstart', function(e) {
-            holdTimer = setTimeout(() => { e.preventDefault(); holdTimer = 'fired'; startChatRename(); }, 500);
-        }, {passive: false});
-        nameSpan.addEventListener('touchend', function(e) {
-            if (holdTimer === 'fired') e.preventDefault(); else clearTimeout(holdTimer);
+        let touchMoved = false;
+        item.addEventListener('touchstart', function(e) {
+            touchMoved = false;
+            holdTimer = setTimeout(() => { 
+                if (!touchMoved) {
+                    holdTimer = 'fired'; 
+                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }));
+                }
+            }, 500);
+        }, {passive: true});
+        item.addEventListener('touchend', function(e) {
+            if (holdTimer === 'fired') e.preventDefault();
+            else clearTimeout(holdTimer);
             holdTimer = null;
         });
-        nameSpan.addEventListener('touchmove', function() { if (holdTimer !== 'fired') clearTimeout(holdTimer); });
-        sessionList.appendChild(item);
+        item.addEventListener('touchmove', function() { 
+            touchMoved = true;
+            if (holdTimer === 'fired') dismissContextMenus();
+            else clearTimeout(holdTimer); 
+        });
+        makeSessionDraggable(item, sessionKey);
+        return item;
+    }
+
+    // Build all session items
+    runningJupyter.forEach(jname => {
+        const key = 'jupyter:' + jname;
+        allItems[key] = { element: createJupyterItem(jname), groupId: _cachedSessionGroups[key] || null };
     });
+    runningNotebooks.forEach(nb => {
+        const key = 'notebook:' + nb;
+        allItems[key] = { element: createNotebookItem(nb), groupId: _cachedSessionGroups[key] || null };
+    });
+    sessions.forEach(session => {
+        allItems[session] = { element: createTerminalItem(session), groupId: _cachedSessionGroups[session] || null };
+    });
+    chatSessions.forEach(chat => {
+        const key = 'chat:' + chat.id;
+        allItems[key] = { element: createChatItem(chat), groupId: _cachedSessionGroups[key] || null };
+    });
+
+    // Get local group order, merge with server groups
+    const localOrder = getGroupOrder();
+    const serverGroupIds = _cachedGroups.map(g => g.id);
+    const orderedGroupIds = [
+        ...localOrder.filter(id => serverGroupIds.includes(id)),
+        ...serverGroupIds.filter(id => !localOrder.includes(id))
+    ];
+    
+    const expandedGroups = getExpandedGroups();
+
+    // Render groups
+    let isFirstGroup = true;
+    orderedGroupIds.forEach(groupId => {
+        const group = _cachedGroups.find(g => g.id === groupId);
+        if (!group) return;
+        const sessionItems = Object.entries(allItems)
+            .filter(([k, v]) => v.groupId === groupId)
+            .map(([k, v]) => v.element);
+        const groupEl = createGroupElement(group, sessionItems, expandedGroups.has(groupId), isFirstGroup);
+        fragment.appendChild(groupEl);
+        isFirstGroup = false;
+    });
+
+    // Render ungrouped sessions as a collapsible "Other" group
+    const ungroupedItems = Object.entries(allItems)
+        .filter(([k, v]) => !v.groupId)
+        .map(([k, v]) => v.element);
+    
+    if (ungroupedItems.length > 0) {
+        const ungroupedGroup = { id: '__ungrouped__', name: 'Other', color: null };
+        // If no real groups exist, Other is the first group
+        const ungroupedEl = createGroupElement(ungroupedGroup, ungroupedItems, expandedGroups.has('__ungrouped__'), isFirstGroup);
+        fragment.appendChild(ungroupedEl);
+    }
+
+    // New Group button at bottom
+    const newGroupBtn = document.createElement('div');
+    newGroupBtn.className = 'new-group-btn';
+    newGroupBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="5" y1="1" x2="5" y2="9"/><line x1="1" y1="5" x2="9" y2="5"/></svg> New Group';
+    newGroupBtn.onclick = () => emitWithCsrf('group_create', { name: 'New Group' });
+    fragment.appendChild(newGroupBtn);
+
+    // Replace all children at once to avoid flicker
+    sessionList.replaceChildren(fragment);
 
     // Re-highlight
     const hp = isSplit ? activeTerminal : 1;
@@ -789,13 +1491,45 @@ function updateSessionList(sessions, chatSessions, data) {
     } else if (hp === 1 ? currentSession1 : currentSession2) {
         highlightSidebarItem(hp === 1 ? currentSession1 : currentSession2);
     }
+    
+    // Update pane borders with group colors
+    updatePaneBorders();
+    
     if (showArchived) {
         document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = 'none');
         emitWithCsrf('acp_list_archived');
     }
 }
 
-socket.on('sessions_list', data => { updateSessionList(data.sessions, data.chat_sessions || [], data); });
+// Listen for group updates
+socket.on('group_created', () => emitWithCsrf('get_sessions'));
+socket.on('group_updated', () => emitWithCsrf('get_sessions'));
+socket.on('group_deleted', () => emitWithCsrf('get_sessions'));
+socket.on('session_group_changed', () => emitWithCsrf('get_sessions'));
+socket.on('acp_session_slept', () => emitWithCsrf('get_sessions'));
+
+socket.on('sessions_list', data => { 
+    updateSessionList(data.sessions, data.chat_sessions || [], data); 
+    // Push group colors to any loaded chat iframes
+    broadcastGroupColors();
+});
+
+function broadcastGroupColors() {
+    for (const pn of [1, 2]) {
+        const browser = document.getElementById(`browser${pn}`);
+        if (!browser) continue;
+        const iframe = browser.querySelector('iframe');
+        if (!iframe || !iframe.contentWindow) continue;
+        const sessionKey = paneNotebook[pn];
+        if (!sessionKey || !sessionKey.startsWith('chat:')) continue;
+        const groupId = _cachedSessionGroups[sessionKey];
+        if (!groupId) continue;
+        const group = _cachedGroups.find(g => g.id === groupId);
+        if (!group || !group.color) continue;
+        iframe.contentWindow.postMessage({ type: 'group-color', color: group.color, split: isSplit }, window.location.origin);
+    }
+}
+
 setInterval(() => { emitWithCsrf('get_sessions'); }, 2000);
 
 socket.on('session_created', data => {
@@ -859,26 +1593,29 @@ function attachSession(sessionName) {
     entry.firstAttach = false;
     emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName, skip_replay: skipReplay });
     highlightSidebarItem(sessionName);
+    updatePaneBorders();
     if (entry.ready) entry.wterm.focus();
     setTimeout(doFit, 100);
     syncUrlParams();
 }
 
 function getBrowserPaneSession(pane) {
+    // For browser panes, prefer the tracked paneNotebook which is set consistently
+    if (paneNotebook[pane]) {
+        if (paneNotebook[pane].startsWith('jupyter:') || paneNotebook[pane].startsWith('notebook:') || paneNotebook[pane].startsWith('chat:')) {
+            return paneNotebook[pane];
+        }
+        return 'notebook:' + paneNotebook[pane];
+    }
+    // Fallback to parsing iframe src
     const iframe = document.querySelector(`#browser${pane} iframe`);
     if (iframe && iframe.src) {
         const m = iframe.src.match(/\/chat\/([^/?#]+)/);
         if (m) return 'chat:' + m[1];
         const nb = iframe.src.match(/\/notes\/([^/?#]+)\//);
         if (nb) return 'notebook:' + nb[1];
-        if (iframe.src.includes('/jupyter/')) {
-            // Use stored path if available for accurate restoration
-            if (_jupyterPaths[pane]) return 'jupyter:' + _jupyterPaths[pane];
-            if (paneNotebook[pane] && paneNotebook[pane].startsWith('jupyter:')) return paneNotebook[pane];
-            return 'jupyter';
-        }
+        if (iframe.src.includes('/jupyter/')) return 'jupyter:Jupyter';
     }
-    if (paneNotebook[pane]) return paneNotebook[pane].startsWith('jupyter:') ? paneNotebook[pane] : 'notebook:' + paneNotebook[pane];
     return 'desktop';
 }
 
@@ -914,6 +1651,7 @@ function toggleSplit() {
     }
     setTimeout(doFit, 100);
     syncUrlParams();
+    broadcastGroupColors();
 }
 
 // Focus guard: only direct user touch/click can change the active pane.
@@ -1049,9 +1787,10 @@ window.addEventListener('message', (e) => {
                             nameSpan.innerHTML = icon + newName;
                         }
                     }
-                    // Update backend tracking
-                    emitWithCsrf('close_jupyter', { name: oldName });
-                    emitWithCsrf('open_jupyter', { name: newName });
+                    // Update backend tracking - preserve group assignment
+                    const oldGroupId = _cachedSessionGroups['jupyter:' + oldName];
+                    emitWithCsrf('close_jupyter', { name: oldName, preserve_group: true });
+                    emitWithCsrf('open_jupyter', { name: newName, group_id: oldGroupId });
                     highlightSidebarItem('jupyter:' + newName);
                     syncUrlParams();
                 }
@@ -1066,7 +1805,11 @@ function openNewSessionModal() {
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
 function closeNewSessionModal() { document.getElementById('newSessionModal').classList.remove('open'); }
-function createSessionType(type) { emitWithCsrf('create_session', { type: type }); closeNewSessionModal(); }
+function createSessionType(type) { 
+    const groupId = typeof getActivePaneGroupId === 'function' ? getActivePaneGroupId() : null;
+    emitWithCsrf('create_session', { type: type, group_id: groupId }); 
+    closeNewSessionModal(); 
+}
 function closeSession(event, sessionName) {
     event.stopPropagation();
     showConfirm(`Close session "${sessionName}"?`).then(result => {

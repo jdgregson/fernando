@@ -9,7 +9,7 @@
     <script src="/static/js/scroll-pill.js" defer></script>
 </head>
 <body>
-    <div class="chat-header">
+    <div class="chat-header" id="chatHeader">
         <div class="status" id="status"></div>
         <span id="statusText">Starting...</span>
         <span class="header-stats" id="headerStats"></span>
@@ -146,6 +146,64 @@
             window.parent.postMessage({ type: 'acp-chat-focus', sessionId: sessionId }, '*');
         }
     });
+
+    // Apply group color to chat header and task bar
+    function applyGroupColor(groupColor, isSplit) {
+        const header = document.getElementById('chatHeader');
+        const taskBar = document.getElementById('taskBar');
+        if (!header || !groupColor) return;
+        const hex = groupColor.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        // Mix 20% group color with base #0a213d
+        const br = 10, bg = 33, bb = 61;
+        const mr = Math.round(br * 0.8 + r * 0.2);
+        const mg = Math.round(bg * 0.8 + g * 0.2);
+        const mb = Math.round(bb * 0.8 + b * 0.2);
+        header.style.background = `rgb(${mr}, ${mg}, ${mb})`;
+        // Border: 40% mix with #143151
+        const xr = 20, xg = 49, xb = 81;
+        const bdr = Math.round(xr * 0.6 + r * 0.4);
+        const bdg = Math.round(xg * 0.6 + g * 0.4);
+        const bdb = Math.round(xb * 0.6 + b * 0.4);
+        const borderColor = `rgb(${bdr}, ${bdg}, ${bdb})`;
+        // Full border when not split, bottom only when split
+        if (isSplit) {
+            header.style.border = 'none';
+            header.style.borderBottom = `1px solid ${borderColor}`;
+            if (taskBar) taskBar.classList.remove('with-side-borders');
+        } else {
+            header.style.border = `1px solid ${borderColor}`;
+            if (taskBar) taskBar.classList.add('with-side-borders');
+        }
+    }
+
+    // Request group color from parent on load
+    if (window.parent !== window) {
+        function onInitialCtx(e) {
+            if (e.source !== window.parent) return;
+            if (e.data && e.data.type === 'pane-context') {
+                const ctx = e.data.context;
+                if (ctx.group) {
+                    applyGroupColor(ctx.group.color, ctx.split);
+                }
+            }
+            // Also listen for direct group-color pushes from parent
+            if (e.data && e.data.type === 'group-color' && e.data.color) {
+                applyGroupColor(e.data.color, e.data.split);
+            }
+        }
+        window.addEventListener('message', onInitialCtx);
+        // Request context with a small delay to ensure parent has session data
+        setTimeout(() => {
+            window.parent.postMessage({ type: 'get-pane-context' }, '*');
+        }, 100);
+        // Retry after 1s in case parent wasn't ready
+        setTimeout(() => {
+            window.parent.postMessage({ type: 'get-pane-context' }, '*');
+        }, 1000);
+    }
 
     function setStatus(state, text) {
         document.getElementById('status').className = 'status ' + state;
@@ -1970,12 +2028,20 @@
                     const c = e.data.context;
                     const parts = [];
                     for (const [k, v] of Object.entries(c)) {
-                        if (k === 'split') continue;
+                        if (k === 'split' || k === 'group') continue;
                         if (v.type === 'chat') parts.push(`${k}: this chat`);
                         else if (v.type === 'jupyter') parts.push(`${k}: Jupyter notebook "${v.notebook}"`);
                         else if (v.type === 'notebook') parts.push(`${k}: SilverBullet notebook "${v.notebook}"`);
                         else if (v.type === 'terminal') parts.push(`${k}: terminal session "${v.session || 'none'}"`);
                         else if (v.type === 'desktop') parts.push(`${k}: Kasm desktop`);
+                    }
+                    // Add group context if present
+                    if (c.group) {
+                        parts.push(`group: "${c.group.name}" (${c.group.color})`);
+                        if (c.group.sessions && c.group.sessions.length > 0) {
+                            parts.push(`group members: ${c.group.sessions.join(', ')}`);
+                        }
+                        applyGroupColor(c.group.color, c.split);
                     }
                     doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
                 }

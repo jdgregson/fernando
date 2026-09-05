@@ -2,24 +2,28 @@
 
 function createChatSession() {
     closeNewSessionModal();
-    emitWithCsrf('acp_create');
+    const groupId = getActivePaneGroupId();
+    emitWithCsrf('acp_create', groupId ? { group_id: groupId } : {});
 }
 
 function createOpenCodeChatSession() {
     closeNewSessionModal();
+    const groupId = getActivePaneGroupId();
     fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
         .then(r => r.json())
         .then(data => {
             const model = data.opencode_model || 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1';
             emitWithCsrf('acp_create', {
                 backend: 'opencode',
-                model: model
+                model: model,
+                group_id: groupId
             });
         })
         .catch(() => {
             emitWithCsrf('acp_create', {
                 backend: 'opencode',
-                model: 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1'
+                model: 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1',
+                group_id: groupId
             });
         });
 }
@@ -31,6 +35,7 @@ function openChatPane(chatId) {
     const browser = document.getElementById(`browser${pane}`);
     const terminal = document.getElementById(`terminal${pane}`);
     paneTypes[pane] = 'browser';
+    paneNotebook[pane] = 'chat:' + chatId;
     terminal.classList.add('hidden');
     browser.classList.remove('hidden');
     const existing = browser.querySelector('iframe');
@@ -44,6 +49,7 @@ function openChatPane(chatId) {
     if (pane === 1) currentSession1 = null;
     else currentSession2 = null;
     highlightSidebarItem('chat:' + chatId);
+    updatePaneBorders();
     updateKbdBtn();
     syncUrlParams();
 }
@@ -182,16 +188,27 @@ window.addEventListener('message', (e) => {
         const ctx = {};
         for (const pn of [1, 2]) {
             const p = { type: paneTypes[pn] };
+            let sessionKey = null;
             if (paneTypes[pn] === 'terminal') {
                 p.session = pn === 1 ? currentSession1 : currentSession2;
+                sessionKey = p.session;
             } else if (paneTypes[pn] === 'browser') {
                 if (paneNotebook[pn]) {
                     if (paneNotebook[pn].startsWith('jupyter:')) {
                         p.type = 'jupyter';
                         p.notebook = paneNotebook[pn].slice(8);
+                        sessionKey = paneNotebook[pn];
+                    } else if (paneNotebook[pn].startsWith('chat:')) {
+                        p.type = 'chat';
+                        sessionKey = paneNotebook[pn];
+                    } else if (paneNotebook[pn].startsWith('notebook:')) {
+                        p.type = 'notebook';
+                        p.notebook = paneNotebook[pn].slice(9);
+                        sessionKey = paneNotebook[pn];
                     } else {
                         p.type = 'notebook';
                         p.notebook = paneNotebook[pn];
+                        sessionKey = 'notebook:' + paneNotebook[pn];
                     }
                 } else {
                     const iframe = document.getElementById(`browser${pn}`).querySelector('iframe');
@@ -202,6 +219,38 @@ window.addEventListener('message', (e) => {
             ctx[`pane${pn}`] = p;
         }
         ctx.split = isSplit;
+        
+        // Add group context for the requesting chat's pane
+        let requestingPane = null;
+        for (const pn of [1, 2]) {
+            const iframe = document.getElementById(`browser${pn}`).querySelector('iframe');
+            if (iframe && iframe.contentWindow === e.source) {
+                requestingPane = pn;
+                break;
+            }
+        }
+        if (requestingPane && paneNotebook[requestingPane]) {
+            const sessionKey = paneNotebook[requestingPane];
+            const groupId = _cachedSessionGroups[sessionKey];
+            if (groupId) {
+                const group = _cachedGroups.find(g => g.id === groupId);
+                if (group) {
+                    ctx.group = {
+                        id: group.id,
+                        name: group.name,
+                        color: group.color,
+                        sessions: []
+                    };
+                    // Find all other sessions in this group
+                    for (const [key, gid] of Object.entries(_cachedSessionGroups)) {
+                        if (gid === groupId && key !== sessionKey) {
+                            ctx.group.sessions.push(key);
+                        }
+                    }
+                }
+            }
+        }
+        
         e.source.postMessage({ type: 'pane-context', context: ctx }, window.location.origin);
         return;
     }

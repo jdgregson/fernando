@@ -76,8 +76,17 @@ def register_handlers(socketio):
         sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
         from src.services.notebooks import list_notebooks
+        from src.services import groups
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
-        emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks, "running_jupyter": list(_open_jupyter)})
+        group_data = groups.get_all()
+        emit("sessions_list", {
+            "sessions": sessions,
+            "chat_sessions": chat_sessions,
+            "running_notebooks": running_notebooks,
+            "running_jupyter": list(_open_jupyter),
+            "groups": group_data["groups"],
+            "session_groups": group_data["session_groups"],
+        })
 
     @socketio.on("kasm_ws")
     def handle_kasm_ws(data):
@@ -179,7 +188,12 @@ def register_handlers(socketio):
             emit("error", {"message": "Invalid CSRF token"})
             return
         session_type = data.get("type", "shell")
+        group_id = data.get("group_id")
         name = pty_service.create_session(session_type)
+        # Assign to group if specified
+        if group_id:
+            from src.services import groups
+            groups.move_session_to_group(name, group_id)
         emit("session_created", {"name": name, "switch": True})
 
     @socketio.on("detach_viewer")
@@ -302,8 +316,13 @@ def register_handlers(socketio):
             emit("error", {"message": "Invalid CSRF token"})
             return
         name = data.get("name", "")
+        group_id = data.get("group_id")
         logger.info(f"start_notebook requested: name={name}")
         client_sid = request.sid
+        # Assign to group if specified
+        if group_id:
+            from src.services import groups
+            groups.move_session_to_group('notebook:' + name, group_id)
         from src.services.notebooks import start_notebook
         def _start():
             logger.info(f"start_notebook background task running for '{name}'")
@@ -373,14 +392,86 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         name = data.get("name", "Jupyter")
+        group_id = data.get("group_id")
         _open_jupyter.add(name)
+        # Assign to group if specified
+        if group_id:
+            from src.services import groups
+            groups.move_session_to_group('jupyter:' + name, group_id)
 
     @socketio.on("close_jupyter")
     def handle_close_jupyter(data):
         if not validate_csrf(data):
             return
         name = data.get("name", "Jupyter")
+        preserve_group = data.get("preserve_group", False)
         _open_jupyter.discard(name)
+        # Clean up group assignment for this session (unless preserving for rename)
+        if not preserve_group:
+            from src.services import groups
+            groups.move_session_to_group('jupyter:' + name, None)
+
+    # --- Project Group handlers ---
+
+    @socketio.on("group_create")
+    def handle_group_create(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services import groups
+        name = data.get("name", "New Group").strip()
+        color = data.get("color", "#7ea8e3")
+        group = groups.create_group(name, color)
+        emit("group_created", {"group": group}, broadcast=True)
+
+    @socketio.on("group_rename")
+    def handle_group_rename(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services import groups
+        group_id = data.get("group_id")
+        new_name = data.get("name", "").strip()
+        if group_id and new_name:
+            group = groups.rename_group(group_id, new_name)
+            if group:
+                emit("group_updated", {"group": group}, broadcast=True)
+
+    @socketio.on("group_set_color")
+    def handle_group_set_color(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services import groups
+        group_id = data.get("group_id")
+        color = data.get("color")
+        if group_id and color:
+            group = groups.set_group_color(group_id, color)
+            if group:
+                emit("group_updated", {"group": group}, broadcast=True)
+
+    @socketio.on("group_delete")
+    def handle_group_delete(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services import groups
+        group_id = data.get("group_id")
+        if group_id:
+            groups.delete_group(group_id)
+            emit("group_deleted", {"group_id": group_id}, broadcast=True)
+
+    @socketio.on("group_move_session")
+    def handle_group_move_session(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services import groups
+        session_key = data.get("session_key")
+        group_id = data.get("group_id")
+        if session_key:
+            groups.move_session_to_group(session_key, group_id)
+            emit("session_group_changed", {"session_key": session_key, "group_id": group_id}, broadcast=True)
 
     # --- Workflow handlers ---
 
@@ -548,8 +639,17 @@ def register_handlers(socketio):
         sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
         from src.services.notebooks import list_notebooks
+        from src.services import groups
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
-        socketio.emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks, "running_jupyter": list(_open_jupyter)})
+        group_data = groups.get_all()
+        socketio.emit("sessions_list", {
+            "sessions": sessions,
+            "chat_sessions": chat_sessions,
+            "running_notebooks": running_notebooks,
+            "running_jupyter": list(_open_jupyter),
+            "groups": group_data["groups"],
+            "session_groups": group_data["session_groups"],
+        })
 
     def broadcast_status_change(session_id, status):
         """Broadcast session status change to all connected clients."""
@@ -568,7 +668,12 @@ def register_handlers(socketio):
             return
         model = data.get("model")
         backend = data.get("backend", "kiro")
+        group_id = data.get("group_id")
         session_id = acp_manager.create_session(on_event=acp_on_event, model=model, backend=backend)
+        # Assign to group if specified
+        if group_id:
+            from src.services import groups
+            groups.move_session_to_group('chat:' + session_id, group_id)
         emit("acp_created", {"session_id": session_id})
 
     @socketio.on("acp_subscribe")
@@ -893,6 +998,17 @@ def register_handlers(socketio):
         if acp_sid:
             acp_subscribers.pop(acp_sid, None)
             acp_manager.archive_session(acp_sid)
+
+    @socketio.on("acp_sleep")
+    def acp_sleep(data):
+        if not validate_csrf(data):
+            return
+        acp_sid = data.get("session_id")
+        if acp_sid:
+            session = acp_manager.get_session(acp_sid)
+            if session:
+                session.unload()
+                emit("acp_session_slept", {"session_id": acp_sid}, broadcast=True)
 
     @socketio.on("acp_list_archived")
     def acp_list_archived(data):
