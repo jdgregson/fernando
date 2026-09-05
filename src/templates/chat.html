@@ -2028,7 +2028,10 @@
         if (data.sync_seq !== undefined) expectedSeq = data.sync_seq;
         if (data.model) window._sessionModel = data.model;
         if (data.backend) window._sessionBackend = data.backend;
-        if (data.history_length !== undefined) historyOffset = data.history_length;
+        if (data.history_length !== undefined) {
+            historyOffset = data.history_length;
+            sessionEventCount = data.history_length;
+        }
         updateHeaderStats();
 
         // Drain any buffered live events that arrived during load
@@ -2084,10 +2087,13 @@
             // In order — process it and drain buffer
             processEvent(data);
             expectedSeq++;
+            sessionEventCount++;
+            updateHeaderStats();
             while (seqBuffer[expectedSeq]) {
                 processEvent(seqBuffer[expectedSeq]);
                 delete seqBuffer[expectedSeq];
                 expectedSeq++;
+                sessionEventCount++;
             }
             return;
         }
@@ -2261,8 +2267,6 @@
                 const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
                 addUserMessage(display, false, evt.ts);
             }
-            sessionEventCount++;
-            updateHeaderStats();
             return;
         }
 
@@ -2350,15 +2354,7 @@
             }
         }
 
-        // Count events (but not meta events like available_commands_update)
-        if (su && su !== 'available_commands_update' && su !== 'usage_update') {
-            sessionEventCount++;
-            updateHeaderStats();
-        }
-
         if (evt.result && evt.result.stopReason) {
-            sessionEventCount++;
-            updateHeaderStats();
             if (evt.result.stopReason === 'tool_use') {
                 setStatus('working', 'Running tool...');
             } else {
