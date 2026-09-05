@@ -443,7 +443,7 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .task-bar {
     position: relative;
     z-index: 20;
-    background: #0c2743;
+    background: #0a213d;
     border-bottom: 1px solid #143151;
     flex-shrink: 0;
     font-size: 13px;
@@ -457,6 +457,11 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     padding: 7px 16px;
     cursor: pointer;
     color: #9fb4cf;
+    position: relative;
+    z-index: 1;
+}
+.task-bar.open .task-bar-head {
+    box-shadow: 0 4px 8px 0 #0a213d;
 }
 .task-bar-head:hover { background: #0e2c4b; }
 .tb-arrow { display: inline-flex; color: #5a7a9a; transition: transform 0.15s ease; }
@@ -473,9 +478,7 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     right: 0;
     background: #0a213d;
     border-bottom: 1px solid #143151;
-    /* Subtle shadow cast downward only: positive y-offset with negative spread keeps
-       the shadow below the panel's bottom edge (no bleed out the top or sides). */
-    box-shadow: 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 12px 10px 0px rgba(0, 0, 0, 0.3);
     max-height: 50vh;
     overflow-y: auto;
     display: none;
@@ -487,7 +490,6 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     color: #7f9bbd;
     font-size: 12px;
     line-height: 1.45;
-    border-bottom: 1px solid #143151;
     margin-bottom: 4px;
 }
 .tb-row {
