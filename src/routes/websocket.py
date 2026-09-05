@@ -551,9 +551,14 @@ def register_handlers(socketio):
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
         socketio.emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks, "running_jupyter": list(_open_jupyter)})
 
+    def broadcast_status_change(session_id, status):
+        """Broadcast session status change to all connected clients."""
+        socketio.emit("acp_status_change", {"session_id": session_id, "status": status})
+
     # Restore persisted chat sessions on startup
     acp_manager.default_on_event = acp_on_event
     acp_manager.set_on_sessions_change(broadcast_sessions_list)
+    acp_manager.set_on_status_change(broadcast_status_change)
     acp_manager.restore_sessions(lambda sid: acp_on_event)
 
     @socketio.on("acp_create")
@@ -578,6 +583,8 @@ def register_handlers(socketio):
             session = acp_manager.get_session(acp_sid)
             logger.info(f"acp_subscribe: session_id={acp_sid} found={session is not None} ready={session.ready if session else 'N/A'} history_len={len(session.history) if session else 0}")
             if session:
+                # Mark as read when user views the chat
+                session.mark_read()
                 # Update activity timestamp if session is already loaded (opening counts as activity)
                 if session.is_loaded:
                     session._last_activity = time.time()
@@ -728,6 +735,14 @@ def register_handlers(socketio):
         if session:
             session.cancel()
 
+    @socketio.on("acp_mark_read")
+    def acp_mark_read(data):
+        if not validate_csrf(data):
+            return
+        session = acp_manager.get_session(data.get("session_id"))
+        if session:
+            session.mark_read()
+
     # Track active pane sessions per socket connection (for multi-tab support)
     _socket_active_panes = {}  # socket_sid -> set of chat session IDs
 
@@ -745,6 +760,7 @@ def register_handlers(socketio):
             return
         session_ids = set(data.get("session_ids", []))
         socket_sid = request.sid
+        logger.info(f"[active-panes] socket={socket_sid[:8]} sessions={session_ids}")
         
         # Get this socket's previous sessions
         previous = _socket_active_panes.get(socket_sid, set())

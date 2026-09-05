@@ -130,11 +130,14 @@ class ACPSession:
         self._broadcasting = True  # gate for on_event dispatch
         self._last_activity = time.time()  # track last stdout data for stall detection
         self._is_prompting = False  # True while waiting for agent response
+        self._has_unread = False  # True when agent turn completed but user hasn't viewed
+        self._on_status_change = None  # callback for status changes
         self._flushed = 0  # number of history entries already written to disk
         self._retry_count = 0  # current consecutive retry attempts for model unavailability
         self._max_retries = 5  # give up after this many consecutive failures
         self._retry_backoff_base = 5  # seconds, doubles each retry
         self._retry_pending = False  # True while a retry is waiting to fire
+        self._reloading = False  # True while reload is in progress (prevents race)
 
     def _spawn_and_init(self):
         """Spawn kiro-cli or opencode acp and run initialize handshake."""
@@ -317,6 +320,8 @@ class ACPSession:
             self.cancel()
             time.sleep(0.5)
         self._is_prompting = True
+        self._has_unread = False  # User is actively engaged, clear unread
+        self._notify_status_change()
         self._last_activity = time.time()
         self.history.append({"type": "user_prompt", "text": text, "ts": time.time()})
         self._save_history()
@@ -336,6 +341,8 @@ class ACPSession:
             return
         logger.info(f"[{self.id}] send_continuation: {len(text)} chars")
         self._is_prompting = True
+        self._has_unread = False
+        self._notify_status_change()
         self._last_activity = time.time()
         prefixed = "[CONTINUATION] " + text
         evt = {"type": "continuation", "text": prefixed, "ts": time.time()}
@@ -410,6 +417,25 @@ class ACPSession:
             "proc_alive": self.proc is not None and self.proc.poll() is None,
             "proc_poll": self.proc.poll() if self.proc else None,
         }
+
+    def get_status(self):
+        """Return current status: 'working', 'unread', or 'idle'."""
+        if self._is_prompting:
+            return "working"
+        if self._has_unread:
+            return "unread"
+        return "idle"
+
+    def _notify_status_change(self):
+        """Notify listeners that status changed."""
+        if self._on_status_change:
+            self._on_status_change(self.id, self.get_status())
+
+    def mark_read(self):
+        """Clear the unread flag when user views the chat."""
+        if self._has_unread:
+            self._has_unread = False
+            self._notify_status_change()
 
     def _get_id(self):
         with self._lock:
@@ -615,7 +641,9 @@ class ACPSession:
             if stop_reason:
                 logger.info(f"[{self.id}] turn ended: stopReason={stop_reason}")
                 self._is_prompting = False
+                self._has_unread = True  # Agent finished, mark as unread
                 self._retry_count = 0
+                self._notify_status_change()
             self._record_event(msg)
             if self.on_event and self._broadcasting:
                 try:
@@ -633,6 +661,8 @@ class ACPSession:
             err = msg.get("error", {})
             logger.warning(f"[{self.id}] ACP error: {err}")
             self._is_prompting = False
+            self._has_unread = True  # Error is also a turn end
+            self._notify_status_change()
             err_text = str(err.get("data") or err.get("message", ""))
             if "is not available" in err_text:
                 if self._retry_count < self._max_retries:
@@ -677,6 +707,7 @@ class ACPManager:
         self.sessions = {}
         self._lock = threading.Lock()
         self.default_on_event = None  # Set by websocket.py after register_handlers
+        self._on_status_change = None  # Callback for session status changes (working/unread/idle)
         self._reaper_thread = threading.Thread(target=self._idle_reaper_loop, daemon=True)
         self._reaper_thread.start()
         self._active_pane_sessions = set()  # sessions currently open in a UI pane
@@ -726,6 +757,7 @@ class ACPManager:
         session = ACPSession(session_id, on_event=on_event, backend=backend)
         if model:
             session.model = model
+        self._wire_session_status_callback(session)
         with self._lock:
             self.sessions[session_id] = session
         threading.Thread(target=self._start_new, args=(session_id, session), daemon=True).start()
@@ -770,6 +802,7 @@ class ACPManager:
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id), backend=backend)
             session.display_name = name
             session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
+            self._wire_session_status_callback(session)
             with self._lock:
                 self.sessions[fernando_id] = session
             # Only load sessions that were loaded before restart
@@ -865,6 +898,7 @@ class ACPManager:
             logger.info(f"_load_existing: starting for {session_id} acp={acp_session_id}")
             session.load(acp_session_id)
             session.ready = True
+            session._reloading = False
             logger.info(f"_load_existing: session {session_id} ready, history_len={len(session.history)}")
             self._save()  # Persist the loaded=True state
             self._save_pid_map()
@@ -874,6 +908,7 @@ class ACPManager:
             if continuation and continuation.get("session_id") == session_id:
                 session.send_continuation(continuation["message"])
         except Exception as e:
+            session._reloading = False
             logger.error(f"ACP session load failed for {session_id}: {e}", exc_info=True)
             if session.on_event:
                 session.on_event(session_id, {"type": "session_error", "error": str(e)})
@@ -890,8 +925,11 @@ class ACPManager:
             return False
         if session.is_loaded:
             return False
+        if session._reloading:
+            return False  # Already reloading, don't start another
         if not session.acp_session_id:
             return False
+        session._reloading = True  # Set BEFORE spawning thread to prevent race
         logger.info(f"[reload] Reloading unloaded session {session_id}")
         threading.Thread(
             target=self._load_existing,
@@ -1006,6 +1044,7 @@ class ACPManager:
         session = ACPSession(session_id, on_event=on_event, backend=backend)
         session.display_name = info.get("name", "Chat-" + session_id)
         session.model = info.get("model", ACPSession.DEFAULT_MODEL)
+        self._wire_session_status_callback(session)
         with self._lock:
             self.sessions[session_id] = session
         if can_load:
@@ -1047,7 +1086,7 @@ class ACPManager:
 
     def list_sessions(self):
         with self._lock:
-            return [{"id": sid, "name": s.display_name, "history_count": len(s.history), "loaded": s.is_loaded} for sid, s in self.sessions.items()]
+            return [{"id": sid, "name": s.display_name, "history_count": len(s.history), "loaded": s.is_loaded, "status": s.get_status()} for sid, s in self.sessions.items()]
 
     def _broadcast_sessions_list(self):
         """Notify websocket layer to broadcast updated sessions list to all clients."""
@@ -1058,6 +1097,14 @@ class ACPManager:
     def set_on_sessions_change(self, callback):
         """Set callback to be invoked when session list changes (for live UI updates)."""
         self._on_sessions_change = callback
+
+    def set_on_status_change(self, callback):
+        """Set callback for session status changes (working/unread/idle)."""
+        self._on_status_change = callback
+
+    def _wire_session_status_callback(self, session):
+        """Wire up the session's status change callback to the manager's callback."""
+        session._on_status_change = self._on_status_change
 
     def rename_session(self, session_id, new_name):
         with self._lock:

@@ -1490,6 +1490,10 @@
         isWorking = false;
         setStatus('ready', 'Ready');
         resetStallTimer();
+        // Mark as read if user is viewing this chat
+        if (document.visibilityState === 'visible') {
+            socket.emit('acp_mark_read', { session_id: sessionId, csrf_token: csrfToken });
+        }
     }
 
     function renderUserText(text) {

@@ -49,8 +49,23 @@ function _doForeground() {
     }, 400);
 }
 
+function syncActiveChatPanes() {
+    // Collect chat session IDs from both panes and tell backend which are active
+    const chatIds = [];
+    for (const pane of [1, 2]) {
+        if (paneTypes[pane] !== 'browser') continue;
+        const iframe = document.querySelector(`#browser${pane} iframe`);
+        if (!iframe || !iframe.src) continue;
+        const m = iframe.src.match(/\/chat\/([^/?#]+)/);
+        if (m) chatIds.push(m[1]);
+    }
+    emitWithCsrf('acp_set_active_panes', { session_ids: chatIds });
+}
+
 // Called from core.js on socket 'connected'
 function onSocketConnected() {
+    // Re-register active panes on every connect/reconnect to prevent idle reaper killing them
+    syncActiveChatPanes();
     applyProviderSettings();
     if (window._urlParamsProcessed) { handleForeground(); return; }
     const params = new URLSearchParams(window.location.search);
@@ -432,7 +447,24 @@ function highlightSidebarItem(sessionKey) {
 
 let sessionListInitialized = false;
 let lastSessionsKey = '';
+let _cachedChatSessions = [];
+let _cachedSessions = [];
+let _cachedData = {};
+
+socket.on('acp_status_change', (data) => {
+    const session = _cachedChatSessions.find(c => c.id === data.session_id);
+    if (session) {
+        session.status = data.status;
+        updateSessionList(_cachedSessions, _cachedChatSessions, _cachedData);
+    }
+});
+
 function updateSessionList(sessions, chatSessions, data) {
+    // Cache for live status updates
+    _cachedSessions = sessions;
+    _cachedChatSessions = chatSessions;
+    _cachedData = data;
+    
     const sessionList = document.getElementById('sessionList');
 
     if (!currentSession1 && paneTypes[1] !== 'browser' && !window._urlParamsProcessed) {
@@ -475,7 +507,7 @@ function updateSessionList(sessions, chatSessions, data) {
         window._urlParamsProcessed = true;
     }
 
-    const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name + ':' + (c.loaded ? '1' : '0'));
+    const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name + ':' + (c.loaded ? '1' : '0') + ':' + (c.status || 'idle'));
     const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort());
     if (sessionListInitialized && lastSessionsKey === newKey) return;
     console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, oldKey: lastSessionsKey, newKey});
@@ -677,8 +709,27 @@ function updateSessionList(sessions, chatSessions, data) {
         item.dataset.session = 'chat:' + chatId;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name';
-        const chatIconFill = chat.loaded ? 'currentColor' : 'none';
-        nameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
+        // Status-based icon: white (idle/unloaded), blue (unread), throbbing blue (working)
+        let chatIconFill, chatIconClass, chatIconColor;
+        if (!chat.loaded) {
+            chatIconFill = 'none';
+            chatIconColor = 'currentColor';
+            chatIconClass = '';
+        } else if (chat.status === 'working') {
+            chatIconFill = '#4b8ce0';
+            chatIconColor = '#4b8ce0';
+            chatIconClass = 'chat-icon-working';
+        } else if (chat.status === 'unread') {
+            chatIconFill = '#4b8ce0';
+            chatIconColor = '#4b8ce0';
+            chatIconClass = '';
+        } else {
+            // idle
+            chatIconFill = 'currentColor';
+            chatIconColor = 'currentColor';
+            chatIconClass = '';
+        }
+        nameSpan.innerHTML = '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
@@ -841,7 +892,7 @@ function syncUrlParams() {
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     try { history.replaceState(null, '', newUrl); } catch(e) {}
     // Notify backend which chat sessions are in active panes (for idle protection)
-    if (typeof syncActiveChatPanes === 'function') syncActiveChatPanes();
+    syncActiveChatPanes();
 }
 
 // --- Split ---

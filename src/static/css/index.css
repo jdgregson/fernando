@@ -1215,3 +1215,11 @@ button.notebook-delete-btn {
     white-space: pre-wrap;
     word-break: break-all;
 }
+
+@keyframes chat-icon-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+.chat-icon-working {
+    animation: chat-icon-pulse 1.2s ease-in-out infinite;
+}
