@@ -241,6 +241,10 @@ def register_handlers(socketio):
         # Also detach the default _1 and _2 in case they weren't tracked
         pty_service.detach_viewer(f"{sid}_1")
         pty_service.detach_viewer(f"{sid}_2")
+        # Clean up active pane tracking for this socket
+        if sid in _socket_active_panes:
+            del _socket_active_panes[sid]
+            _rebuild_active_pane_sessions()
 
     @socketio.on("restart_desktop")
     def restart_desktop(data={}):
@@ -538,8 +542,18 @@ def register_handlers(socketio):
         for sid in sids:
             socketio.emit("acp_event", {"session_id": session_id, "seq": seq, "event": event}, room=sid)
 
+    def broadcast_sessions_list():
+        """Broadcast updated sessions list to all connected clients."""
+        logger.info("[broadcast] Broadcasting sessions_list update")
+        sessions = pty_service.list_sessions()
+        chat_sessions = acp_manager.list_sessions()
+        from src.services.notebooks import list_notebooks
+        running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
+        socketio.emit("sessions_list", {"sessions": sessions, "chat_sessions": chat_sessions, "running_notebooks": running_notebooks, "running_jupyter": list(_open_jupyter)})
+
     # Restore persisted chat sessions on startup
     acp_manager.default_on_event = acp_on_event
+    acp_manager.set_on_sessions_change(broadcast_sessions_list)
     acp_manager.restore_sessions(lambda sid: acp_on_event)
 
     @socketio.on("acp_create")
@@ -564,6 +578,9 @@ def register_handlers(socketio):
             session = acp_manager.get_session(acp_sid)
             logger.info(f"acp_subscribe: session_id={acp_sid} found={session is not None} ready={session.ready if session else 'N/A'} history_len={len(session.history) if session else 0}")
             if session:
+                # Update activity timestamp if session is already loaded (opening counts as activity)
+                if session.is_loaded:
+                    session._last_activity = time.time()
                 offset = data.get("history_offset", 0)
                 history = session.history[offset:]
                 # Tell client how many events to expect so it can show progress
@@ -625,6 +642,11 @@ def register_handlers(socketio):
                 })
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                elif not session.is_loaded and session.acp_session_id:
+                    # Session was unloaded due to idle timeout — reload it
+                    logger.info(f"acp_subscribe: session {acp_sid} unloaded, triggering reload")
+                    acp_manager.reload_session(acp_sid)
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading"}})
                 elif session.proc is None or session.proc.poll() is not None:
                     if len(session.history) > 0:
                         # Process died after loading — it's actually crashed
@@ -705,6 +727,43 @@ def register_handlers(socketio):
         session = acp_manager.get_session(data.get("session_id"))
         if session:
             session.cancel()
+
+    # Track active pane sessions per socket connection (for multi-tab support)
+    _socket_active_panes = {}  # socket_sid -> set of chat session IDs
+
+    def _rebuild_active_pane_sessions():
+        """Rebuild the union of all active pane sessions across all connections."""
+        all_active = set()
+        for sessions in _socket_active_panes.values():
+            all_active.update(sessions)
+        acp_manager.set_active_pane_sessions(all_active)
+
+    @socketio.on("acp_set_active_panes")
+    def acp_set_active_panes(data):
+        """Update which ACP sessions are currently open in UI panes for this connection."""
+        if not validate_csrf(data):
+            return
+        session_ids = set(data.get("session_ids", []))
+        socket_sid = request.sid
+        
+        # Get this socket's previous sessions
+        previous = _socket_active_panes.get(socket_sid, set())
+        
+        # Update activity for sessions being switched away from (in this tab)
+        for sid in previous - session_ids:
+            session = acp_manager.get_session(sid)
+            if session and session.is_loaded:
+                session._last_activity = time.time()
+        
+        # Update activity for sessions being switched to
+        for sid in session_ids:
+            session = acp_manager.get_session(sid)
+            if session and session.is_loaded:
+                session._last_activity = time.time()
+        
+        # Store this socket's active sessions and rebuild the union
+        _socket_active_panes[socket_sid] = session_ids
+        _rebuild_active_pane_sessions()
 
     @socketio.on("acp_stall_info")
     def acp_stall_info(data):

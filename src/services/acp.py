@@ -379,6 +379,28 @@ class ACPSession:
                     pass
             self.proc = None
 
+    @property
+    def is_loaded(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def unload(self):
+        """Terminate the process but keep session state for later reload."""
+        logger.info(f"[{self.id}] unloading (idle teardown)")
+        self._alive = False
+        self._is_prompting = False
+        self._save_history(index_rag=False)
+        self.ready = False
+        if self.proc:
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+            self.proc = None
+
     def get_stall_info(self):
         """Return diagnostic info about current session state."""
         return {
@@ -648,10 +670,56 @@ class ACPSession:
 
 
 class ACPManager:
+    IDLE_TIMEOUT = 5 * 60  # 5 minutes for testing (change to 60 * 60 for production)
+    REAPER_INTERVAL = 60  # check every 60 seconds
+
     def __init__(self):
         self.sessions = {}
         self._lock = threading.Lock()
         self.default_on_event = None  # Set by websocket.py after register_handlers
+        self._reaper_thread = threading.Thread(target=self._idle_reaper_loop, daemon=True)
+        self._reaper_thread.start()
+        self._active_pane_sessions = set()  # sessions currently open in a UI pane
+        self._on_sessions_change = None  # callback for live UI updates
+
+    def set_active_pane_sessions(self, session_ids):
+        """Update the set of sessions currently open in UI panes."""
+        self._active_pane_sessions = set(session_ids)
+
+    def _idle_reaper_loop(self):
+        """Periodically check for idle sessions and unload them."""
+        while True:
+            time.sleep(self.REAPER_INTERVAL)
+            self._reap_idle_sessions()
+
+    def _reap_idle_sessions(self):
+        """Unload sessions that have been idle longer than IDLE_TIMEOUT."""
+        from src.services.settings import get as get_setting
+        timeout = get_setting("idle_session_timeout")
+        if timeout is None:
+            timeout = self.IDLE_TIMEOUT
+        if timeout <= 0:
+            return  # disabled
+
+        now = time.time()
+        with self._lock:
+            sessions_snapshot = list(self.sessions.items())
+
+        if not sessions_snapshot:
+            return
+
+        for sid, session in sessions_snapshot:
+            if sid in self._active_pane_sessions:
+                continue  # don't unload sessions open in a pane
+            if not session.is_loaded:
+                continue
+            idle_time = now - session._last_activity
+            if idle_time > timeout:
+                logger.info(f"[idle-reaper] Unloading session {sid} (idle {idle_time:.0f}s)")
+                session.unload()
+                self._save()  # Persist the loaded=False state
+                self._save_pid_map()
+                self._broadcast_sessions_list()
 
     def create_session(self, on_event=None, model=None, backend="kiro"):
         session_id = str(uuid.uuid4())[:8]
@@ -686,9 +754,11 @@ class ACPManager:
             # Support old format (string) and new format (dict)
             if isinstance(info, str):
                 acp_id, name, backend = info, "Chat-" + fernando_id, "kiro"
+                was_loaded = True  # Old format, assume loaded
             else:
                 acp_id, name = info["acp_id"], info.get("name", "Chat-" + fernando_id)
                 backend = info.get("backend", "kiro")
+                was_loaded = info.get("loaded", True)  # Default to loaded for backwards compat
             # For Kiro, check if session file exists; for OpenCode, always try to load if we have acp_id
             if backend == "kiro":
                 session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
@@ -702,13 +772,20 @@ class ACPManager:
             session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
             with self._lock:
                 self.sessions[fernando_id] = session
-            if can_load:
+            # Only load sessions that were loaded before restart
+            if can_load and was_loaded:
                 session.acp_session_id = acp_id
+                logger.info(f"[restore] Loading session {fernando_id} (was loaded)")
                 threading.Thread(
                     target=self._load_existing,
                     args=(fernando_id, session, acp_id, continuation),
                     daemon=True,
                 ).start()
+            elif can_load:
+                # Session exists but wasn't loaded — keep it unloaded
+                session.acp_session_id = acp_id
+                session._load_history()  # Load history for display but don't spawn process
+                logger.info(f"[restore] Keeping session {fernando_id} unloaded")
             else:
                 threading.Thread(
                     target=self._start_new,
@@ -789,7 +866,9 @@ class ACPManager:
             session.load(acp_session_id)
             session.ready = True
             logger.info(f"_load_existing: session {session_id} ready, history_len={len(session.history)}")
+            self._save()  # Persist the loaded=True state
             self._save_pid_map()
+            self._broadcast_sessions_list()  # Update sidebar icons
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
@@ -803,6 +882,23 @@ class ACPManager:
     def get_session(self, session_id):
         with self._lock:
             return self.sessions.get(session_id)
+
+    def reload_session(self, session_id):
+        """Reload an unloaded session. Returns True if reload started, False if already loaded or not found."""
+        session = self.get_session(session_id)
+        if not session:
+            return False
+        if session.is_loaded:
+            return False
+        if not session.acp_session_id:
+            return False
+        logger.info(f"[reload] Reloading unloaded session {session_id}")
+        threading.Thread(
+            target=self._load_existing,
+            args=(session_id, session, session.acp_session_id),
+            daemon=True,
+        ).start()
+        return True
 
     def change_model(self, session_id, new_model):
         """Change the model for a session by restarting the kiro-cli process."""
@@ -951,7 +1047,17 @@ class ACPManager:
 
     def list_sessions(self):
         with self._lock:
-            return [{"id": sid, "name": s.display_name, "history_count": len(s.history)} for sid, s in self.sessions.items()]
+            return [{"id": sid, "name": s.display_name, "history_count": len(s.history), "loaded": s.is_loaded} for sid, s in self.sessions.items()]
+
+    def _broadcast_sessions_list(self):
+        """Notify websocket layer to broadcast updated sessions list to all clients."""
+        logger.info("[acp] _broadcast_sessions_list called, callback set: %s", self._on_sessions_change is not None)
+        if self._on_sessions_change:
+            self._on_sessions_change()
+
+    def set_on_sessions_change(self, callback):
+        """Set callback to be invoked when session list changes (for live UI updates)."""
+        self._on_sessions_change = callback
 
     def rename_session(self, session_id, new_name):
         with self._lock:
@@ -963,7 +1069,13 @@ class ACPManager:
     def _save(self):
         with self._lock:
             mapping = {
-                sid: {"acp_id": s.acp_session_id, "name": s.display_name, "model": s.model, "backend": s.backend}
+                sid: {
+                    "acp_id": s.acp_session_id,
+                    "name": s.display_name,
+                    "model": s.model,
+                    "backend": s.backend,
+                    "loaded": s.is_loaded,
+                }
                 for sid, s in self.sessions.items()
                 if s.acp_session_id
             }

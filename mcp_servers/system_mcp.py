@@ -620,6 +620,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"pipeline_id": pipeline_id, "cancelled": cancelled, "steps": results}
     elif name == "mutate":
         save_continuation(arguments.get("continuation"))
+        try:
+            api_key = read_api_key()
+            subprocess.run(["curl", "-s", "-X", "POST", "-H", f"X-API-Key: {api_key}", "http://localhost:5000/api/mutating"], timeout=2)
+        except Exception:
+            pass
         subprocess.Popen(
             [os.path.join(PROJECT_ROOT, "scripts", "mutate.sh")],
             stdout=subprocess.DEVNULL,

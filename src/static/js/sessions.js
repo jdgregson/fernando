@@ -475,7 +475,7 @@ function updateSessionList(sessions, chatSessions, data) {
         window._urlParamsProcessed = true;
     }
 
-    const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name);
+    const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name + ':' + (c.loaded ? '1' : '0'));
     const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort());
     if (sessionListInitialized && lastSessionsKey === newKey) return;
     console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, oldKey: lastSessionsKey, newKey});
@@ -677,7 +677,8 @@ function updateSessionList(sessions, chatSessions, data) {
         item.dataset.session = 'chat:' + chatId;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name';
-        nameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
+        const chatIconFill = chat.loaded ? 'currentColor' : 'none';
+        nameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
@@ -839,6 +840,8 @@ function syncUrlParams() {
     if (isSplit && s2) { params.set('session2', s2); params.set('split', '1'); params.set('active', String(activeTerminal)); }
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     try { history.replaceState(null, '', newUrl); } catch(e) {}
+    // Notify backend which chat sessions are in active panes (for idle protection)
+    if (typeof syncActiveChatPanes === 'function') syncActiveChatPanes();
 }
 
 // --- Split ---

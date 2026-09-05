@@ -1,4 +1,18 @@
 // --- ACP Chat Sessions ---
+
+function syncActiveChatPanes() {
+    // Collect chat session IDs from both panes
+    const chatIds = [];
+    for (const pane of [1, 2]) {
+        if (paneTypes[pane] !== 'browser') continue;
+        const iframe = document.querySelector(`#browser${pane} iframe`);
+        if (!iframe || !iframe.src) continue;
+        const m = iframe.src.match(/\/chat\/([^/?#]+)/);
+        if (m) chatIds.push(m[1]);
+    }
+    emitWithCsrf('acp_set_active_panes', { session_ids: chatIds });
+}
+
 function createChatSession() {
     closeNewSessionModal();
     emitWithCsrf('acp_create');

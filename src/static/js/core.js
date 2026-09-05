@@ -185,6 +185,8 @@ function loadSettings() {
                 });
             const effortSel = document.getElementById('settingsEffort');
             if (effortSel) effortSel.value = data.default_effort || 'max';
+            const idleTimeoutSel = document.getElementById('settingsIdleTimeout');
+            if (idleTimeoutSel) idleTimeoutSel.value = String(data.idle_session_timeout ?? 300);
             const providerOpenCode = document.getElementById('providerOpenCode');
             if (providerOpenCode) providerOpenCode.checked = data.providers_opencode === true;
             // Load health thresholds
@@ -248,6 +250,14 @@ function saveDefaultEffort(value) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'default_effort', value})
+    }).catch(() => {});
+}
+
+function saveIdleTimeout(value) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key: 'idle_session_timeout', value: parseInt(value, 10)})
     }).catch(() => {});
 }
 

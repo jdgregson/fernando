@@ -7,6 +7,7 @@ _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os
 
 DEFAULTS = {
     "default_model": "claude-opus-4.6",
+    "idle_session_timeout": 300,  # 5 minutes (in seconds)
     "health_memory_warning": 65,
     "health_memory_critical": 80,
     "health_disk_warning": 65,
