@@ -65,16 +65,26 @@ function closeChatSession(chatId) {
 
 // --- Archived ---
 let showArchived = false;
-function toggleArchivedInline() {
-    showArchived = !showArchived;
-    document.getElementById('switchLabelActive').classList.toggle('active', !showArchived);
-    document.getElementById('switchLabelArchived').classList.toggle('active', showArchived);
+function switchToActive() {
+    if (!showArchived) return;
+    showArchived = false;
+    document.getElementById('switchLabelActive').classList.add('active');
+    document.getElementById('switchLabelArchived').classList.remove('active');
     const search = document.getElementById('archiveSearch');
-    search.style.display = showArchived ? '' : 'none';
-    if (!showArchived) search.value = '';
-    document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = showArchived ? 'none' : '');
-    if (showArchived) emitWithCsrf('acp_list_archived');
-    else document.querySelectorAll('.archived-item').forEach(el => el.remove());
+    search.style.display = 'none';
+    search.value = '';
+    document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = '');
+    document.querySelectorAll('.archived-item').forEach(el => el.remove());
+}
+function switchToArchived() {
+    if (showArchived) return;
+    showArchived = true;
+    document.getElementById('switchLabelActive').classList.remove('active');
+    document.getElementById('switchLabelArchived').classList.add('active');
+    const search = document.getElementById('archiveSearch');
+    search.style.display = '';
+    document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = 'none');
+    emitWithCsrf('acp_list_archived');
 }
 function filterArchived() {
     const q = document.getElementById('archiveSearch').value.trim();

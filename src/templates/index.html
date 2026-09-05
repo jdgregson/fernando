@@ -48,9 +48,9 @@
             </div>
             <div class="sidebar-fade"></div>
             <input type="text" id="archiveSearch" class="archive-search" placeholder="Search archived…" oninput="filterArchived()" style="display:none">
-            <div class="archive-switch" id="archivedToggleBtn" onclick="toggleArchivedInline()">
-                <span class="archive-switch-label active" id="switchLabelActive">Active</span>
-                <span class="archive-switch-label" id="switchLabelArchived">Archived</span>
+            <div class="archive-switch" id="archivedToggleBtn">
+                <span class="archive-switch-label active" id="switchLabelActive" onclick="switchToActive()">Active</span>
+                <span class="archive-switch-label" id="switchLabelArchived" onclick="switchToArchived()">Archived</span>
             </div>
             <div class="new-session">
                 <button onclick="openNewSessionModal()">New Session</button>

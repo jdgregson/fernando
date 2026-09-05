@@ -184,8 +184,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 .new-session {
-    padding: 15px;
-    border-top: 1px solid #143151;
+    padding: 5px 15px 15px 15px;
     background: #0d2848;
 }
 
@@ -239,7 +238,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 
 .archive-search {
     display: block;
-    margin: 6px 16px 0;
+    margin: 10px 10px 0 15px;
     padding: 5px 8px;
     background: #0a1e3a;
     border: 1px solid #1a3a5c;
@@ -247,7 +246,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     color: #ccd;
     font-size: 12px;
     outline: none;
-    width: calc(100% - 32px);
+    width: calc(100% - 30px);
     box-sizing: border-box;
 }
 
@@ -257,9 +256,10 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     z-index: 1;
     background: #0a1e3a;
     border-radius: 6px;
-    margin: 6px 16px;
+    margin: 10px 15px;
     overflow: hidden;
-    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .archive-switch-label {
@@ -270,10 +270,11 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     color: #667;
     transition: background 0.2s, color 0.2s;
     border-radius: 6px;
+    cursor: pointer;
 }
 
 .archive-switch-label.active {
-    background: #1a3a5c;
+    background: #3465a3;
     color: #ccd;
 }
 
