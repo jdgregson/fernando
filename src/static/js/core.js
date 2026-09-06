@@ -9,7 +9,7 @@ function initMutateHelix() {
     const canvas = document.getElementById('mutateHelix');
     if (!canvas || _helixStrands) return;
     
-    const chars = 'ATCG0123456789MUTATEDNA'.split('');
+    const chars = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'.split('');
     const baseRadius = 60;
     const twists = 2.5;
     

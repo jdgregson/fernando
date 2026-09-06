@@ -38,6 +38,7 @@
                     <div class="plus-menu" id="plusMenu">
                         <div class="plus-menu-item" onclick="plusMenuAttach()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>File or image</div>
                         <div class="plus-menu-item" onclick="plusMenuTool()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>Tool call</div>
+                        <div class="plus-menu-item" onclick="plusMenuReward()"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M8 5v6"/><path d="M5 8h6"/></svg>Reward / Debit</div>
                     </div>
                 </div>
                 <input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">
@@ -72,6 +73,38 @@
                         <button type="button" class="tool-exec-run" id="toolRunBtn" onclick="runSelectedTool()">Run</button>
                         <button type="button" class="tool-exec-attach" id="toolAttachBtn" onclick="attachToolResult()" style="display:none">Attach to message</button>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="tool-modal-overlay" id="rewardModalOverlay" onclick="closeRewardModalChat()">
+        <div class="tool-modal" style="max-width:360px" onclick="event.stopPropagation()">
+            <div class="tool-modal-header">
+                <span class="tool-modal-title">Reward / Debit</span>
+                <span class="tool-modal-close" onclick="closeRewardModalChat()"><svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span>
+            </div>
+            <div class="tool-modal-body" style="padding:16px">
+                <div class="reward-balance-chat" id="rewardBalanceChat">Balance: 0</div>
+                <div class="reward-toggle-chat">
+                    <button class="reward-toggle-btn-chat active" id="rewardToggleRewardChat" onclick="setRewardTypeChat('reward')">Reward</button>
+                    <button class="reward-toggle-btn-chat" id="rewardToggleDebitChat" onclick="setRewardTypeChat('debit')">Debit</button>
+                </div>
+                <div style="margin-bottom:12px">
+                    <div style="font-size:12px;color:#888;margin-bottom:4px">Amount</div>
+                    <input type="number" id="rewardAmountChat" style="width:100%;padding:8px;background:#1e2030;border:1px solid #333a50;border-radius:4px;color:#fff;font-size:14px" placeholder="0" min="1" value="1">
+                </div>
+                <div style="margin-bottom:16px">
+                    <div style="font-size:12px;color:#888;margin-bottom:4px">Note (optional)</div>
+                    <input type="text" id="rewardNoteChat" style="width:100%;padding:8px;background:#1e2030;border:1px solid #333a50;border-radius:4px;color:#fff;font-size:14px" placeholder="What was this for?">
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button onclick="submitRewardChat()" style="flex:1;padding:10px;background:#2a5080;border:none;border-radius:4px;color:#fff;cursor:pointer">Submit</button>
+                    <button onclick="closeRewardModalChat()" style="flex:1;padding:10px;background:#333a50;border:none;border-radius:4px;color:#aaa;cursor:pointer">Cancel</button>
+                </div>
+                <div style="margin-top:16px">
+                    <div style="font-size:12px;color:#888;margin-bottom:8px">Recent Activity</div>
+                    <div id="rewardLedgerChat" style="font-size:12px;color:#666;max-height:150px;overflow-y:auto"></div>
                 </div>
             </div>
         </div>
@@ -130,6 +163,8 @@
         csrfToken = data.csrf_token;
         if (historyOffset === 0) setStatus('connecting', 'Loading...');
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId, history_offset: historyOffset });
+        // Fetch reward balance for context injection
+        socket.emit('reward_get_balance', { csrf_token: csrfToken });
     });
 
     socket.on('disconnect', () => {
@@ -1940,7 +1975,7 @@
         slashIdx = -1;
         const input = document.getElementById('input');
         let text = input.value.trim();
-        if ((!text && attachedFiles.length === 0) || isWorking || !isReady) return;
+        if ((!text && attachedFiles.length === 0 && !_stagedReward) || isWorking || !isReady) return;
 
         // Intercept /model <name> to switch model directly
         const modelMatch = text.match(/^\/model\s+(.+)$/);
@@ -2003,6 +2038,22 @@
             renderAttached();
         }
 
+        // Commit staged reward if present
+        if (_stagedReward) {
+            const amt = _stagedReward.amount;
+            const label = amt >= 0 ? 'Reward' : 'Debit';
+            const noteText = _stagedReward.note ? ` - ${_stagedReward.note}` : '';
+            addSystemMessage(`${label}: ${amt >= 0 ? '+' : ''}${amt}${noteText}`);
+            socket.emit('reward_add', {
+                csrf_token: csrfToken,
+                amount: amt,
+                note: _stagedReward.note,
+                session_id: sessionId,
+            });
+            _stagedReward = null;
+            renderAttached();
+        }
+
         addUserMessage(text, false, Date.now() / 1000);
         _userScrolledUp = false;
 
@@ -2048,13 +2099,22 @@
                         }
                         applyGroupColor(c.group.color, c.split);
                     }
+                    // Build full context text including reward balance in the pane context
+                    if (typeof _rewardBalanceCache === 'number') {
+                        parts.push(`reward balance: ${_rewardBalanceCache}`);
+                    }
                     doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
                 }
             }
             window.addEventListener('message', onCtx);
             window.parent.postMessage({ type: 'get-pane-context' }, '*');
         } else {
-            doSend('');
+            // No parent window, just include reward context in pane context format
+            if (typeof _rewardBalanceCache === 'number') {
+                doSend('[Pane context: reward balance: ' + _rewardBalanceCache + ']');
+            } else {
+                doSend('');
+            }
         }
     }
 
@@ -2567,11 +2627,24 @@
 
     function renderAttached() {
         const container = document.getElementById('attachedFiles');
-        container.innerHTML = attachedFiles.map((f, i) =>
+        let html = attachedFiles.map((f, i) =>
             `<span class="attached-file"><span class="name">${escapeHtml(f.name)}</span><span class="remove" data-idx="${i}"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span></span>`
         ).join('');
+        // Add staged reward crumb
+        if (_stagedReward) {
+            const sign = _stagedReward.amount >= 0 ? '+' : '';
+            const label = _stagedReward.amount >= 0 ? 'Reward' : 'Debit';
+            const noteSnip = _stagedReward.note ? `: "${_stagedReward.note.slice(0, 20)}${_stagedReward.note.length > 20 ? '...' : ''}"` : '';
+            const color = _stagedReward.amount >= 0 ? '#7ea8e3' : '#e37e7e';
+            html += `<span class="attached-file" style="border-color:${color}"><span class="name" style="color:${color}">${sign}${Math.abs(_stagedReward.amount)} ${label}${noteSnip}</span><span class="remove" data-reward="1"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span></span>`;
+        }
+        container.innerHTML = html;
         container.querySelectorAll('.remove').forEach(el => {
-            el.onclick = () => removeAttached(parseInt(el.dataset.idx));
+            if (el.dataset.reward) {
+                el.onclick = () => removeStagedReward();
+            } else {
+                el.onclick = () => removeAttached(parseInt(el.dataset.idx));
+            }
         });
     }
 
@@ -2707,6 +2780,96 @@
         _closePlusMenu();
         openToolModal();
     }
+    function plusMenuReward() {
+        _closePlusMenu();
+        openRewardModalChat();
+    }
+
+    // --- Reward / Debit (chat modal) ---
+    let _rewardTypeChat = 'reward';
+    let _rewardBalanceCache = 0;
+    let _stagedReward = null; // {amount, note, type}
+
+    function openRewardModalChat() {
+        document.getElementById('rewardModalOverlay').classList.add('open');
+        setRewardTypeChat('reward');
+        document.getElementById('rewardAmountChat').value = '1';
+        document.getElementById('rewardNoteChat').value = '';
+        socket.emit('reward_get_balance', { csrf_token: csrfToken });
+        socket.emit('reward_get_ledger', { csrf_token: csrfToken, limit: 15 });
+    }
+
+    function closeRewardModalChat() {
+        document.getElementById('rewardModalOverlay').classList.remove('open');
+    }
+
+    function setRewardTypeChat(type) {
+        _rewardTypeChat = type;
+        const rewardBtn = document.getElementById('rewardToggleRewardChat');
+        const debitBtn = document.getElementById('rewardToggleDebitChat');
+        rewardBtn.classList.toggle('active', type === 'reward');
+        debitBtn.classList.toggle('active', type === 'debit');
+        debitBtn.classList.toggle('debit', type === 'debit');
+    }
+
+    function submitRewardChat() {
+        const amountInput = document.getElementById('rewardAmountChat');
+        const noteInput = document.getElementById('rewardNoteChat');
+        let amount = parseInt(amountInput.value, 10) || 0;
+        if (amount <= 0) {
+            amountInput.focus();
+            return;
+        }
+        if (_rewardTypeChat === 'debit') {
+            amount = -amount;
+        }
+        const note = noteInput.value.trim();
+        // Stage the reward instead of sending immediately
+        _stagedReward = { amount, note, type: _rewardTypeChat };
+        renderAttached();
+        closeRewardModalChat();
+    }
+
+    function removeStagedReward() {
+        _stagedReward = null;
+        renderAttached();
+    }
+
+    socket.on('reward_balance', (data) => {
+        const bal = data.balance || 0;
+        _rewardBalanceCache = bal;
+        const el = document.getElementById('rewardBalanceChat');
+        if (el) {
+            el.textContent = 'Balance: ' + bal;
+            el.style.color = bal >= 0 ? '#7ea8e3' : '#e37e7e';
+        }
+    });
+
+    socket.on('reward_ledger', (data) => {
+        const container = document.getElementById('rewardLedgerChat');
+        if (!container) return;
+        const ledger = data.ledger || [];
+        if (ledger.length === 0) {
+            container.innerHTML = '<div style="color:#555;text-align:center;padding:8px">No activity yet</div>';
+            return;
+        }
+        container.innerHTML = ledger.map(entry => {
+            const amt = entry.amount || 0;
+            const sign = amt >= 0 ? '+' : '';
+            const cls = amt >= 0 ? 'positive' : 'negative';
+            const note = entry.note || '';
+            const ts = entry.timestamp ? new Date(entry.timestamp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+            return `<div class="reward-ledger-entry-chat">
+                <span class="reward-ledger-amount-chat ${cls}">${sign}${amt}</span>
+                <span class="reward-ledger-note-chat">${escapeHtml(note) || '-'}</span>
+                <span class="reward-ledger-time-chat">${ts}</span>
+            </div>`;
+        }).join('');
+    });
+
+    socket.on('reward_added', (data) => {
+        socket.emit('reward_get_balance', { csrf_token: csrfToken });
+    });
 
     async function openToolModal() {
         document.getElementById('toolModalOverlay').classList.add('open');
