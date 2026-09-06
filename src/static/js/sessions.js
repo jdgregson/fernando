@@ -524,16 +524,20 @@ function updatePaneBorders() {
     const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
     const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
     
-    // Apply group colors to pane borders
+    const defaultColor = '#3465a3';
+    
+    // Apply group colors to pane borders (or default blue for ungrouped)
     function applyColor(container, sessionKey, isActive) {
         if (!sessionKey) return;
         const groupId = _cachedSessionGroups[sessionKey];
+        let color = defaultColor;
         if (groupId) {
             const group = _cachedGroups.find(g => g.id === groupId);
             if (group && group.color) {
-                container.style.borderColor = isActive ? group.color : group.color + '60';
+                color = group.color;
             }
         }
+        container.style.borderColor = isActive ? color : color + '60';
     }
     
     const activePane = activeTerminal;
@@ -1675,6 +1679,7 @@ function toggleSplit() {
     setTimeout(doFit, 100);
     syncUrlParams();
     broadcastGroupColors();
+    refreshSidebarHighlights();
 }
 
 // Focus guard: only direct user touch/click can change the active pane.

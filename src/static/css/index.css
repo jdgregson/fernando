@@ -810,6 +810,7 @@ button.notebook-delete-btn {
     border: 2px solid transparent;
     background: #102d50;
     overflow: hidden;
+    z-index: 0; /* Create stacking context to contain scroll-pill */
 }
 
 /* Mac Chrome/Edge/Chromium: round bottom-right corner of bottom pane */
