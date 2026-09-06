@@ -147,10 +147,15 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .session-item.active {
     background: var(--group-color, #3465a3);
 }
+.session-item.active .chat-icon {
+    fill: #fff !important;
+    stroke: #fff !important;
+}
 
 .session-name {
     flex: 1;
-    font-size: 14px;
+    font-size: 12px;
+    font-weight: 400;
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
@@ -1092,6 +1097,7 @@ button.notebook-delete-btn {
 }
 .group-header {
     padding: 10px 15px;
+    min-height: 47px;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1237,9 +1243,10 @@ button.notebook-delete-btn {
     background: #3d1a1a;
 }
 
-/* Secondary pane highlighting */
+/* Secondary pane highlighting (open in other pane) */
 .session-item.secondary {
-    background: color-mix(in srgb, var(--group-color, #3465a3) 25%, transparent);
+    border-left: 3px solid var(--group-color, #3465a3);
+    padding-left: 12px;
 }
 .session-item.active {
     background: var(--group-color, #3465a3);

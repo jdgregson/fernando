@@ -48,7 +48,7 @@ function openChatPane(chatId) {
     }
     if (pane === 1) currentSession1 = null;
     else currentSession2 = null;
-    highlightSidebarItem('chat:' + chatId);
+    refreshSidebarHighlights();
     updatePaneBorders();
     updateKbdBtn();
     syncUrlParams();
@@ -180,7 +180,7 @@ window.addEventListener('message', (e) => {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); highlightSidebarItem('chat:' + e.data.sessionId); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
             }
         }
     }
@@ -258,7 +258,7 @@ window.addEventListener('message', (e) => {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); highlightSidebarItem('notes'); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
             }
         }
     }
@@ -266,7 +266,7 @@ window.addEventListener('message', (e) => {
         for (const paneNum of [1, 2]) {
             if (paneTypes[paneNum] === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); highlightSidebarItem('desktop'); return; }
+                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
             }
         }
     }

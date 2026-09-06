@@ -114,6 +114,7 @@
     });
 
     let isMutating = false;
+    let isActivePane = true; // Assume active unless told otherwise
 
     socket.on('mutating', () => { isMutating = true; });
 
@@ -192,6 +193,10 @@
             // Also listen for direct group-color pushes from parent
             if (e.data && e.data.type === 'group-color' && e.data.color) {
                 applyGroupColor(e.data.color, e.data.split);
+            }
+            // Track if this pane is active (for mark-read logic)
+            if (e.data && e.data.type === 'pane-active') {
+                isActivePane = e.data.active;
             }
         }
         window.addEventListener('message', onInitialCtx);
@@ -2300,24 +2305,16 @@
         const desc = document.getElementById('tbDesc');
         const list = document.getElementById('tbList');
         list.innerHTML = '';
-        if (taskGroups.length > 1) {
-            // Multiple lists: render each with its description as a subheader.
-            desc.style.display = 'none';
-            taskGroups.forEach((g) => {
-                if (g.description) {
-                    const h = document.createElement('div');
-                    h.className = 'tb-group-desc';
-                    h.textContent = g.description;
-                    list.appendChild(h);
-                }
-                g.tasks.forEach((t, i) => list.appendChild(tbTaskRow(t, i)));
-            });
-        } else {
-            const g = taskGroups[0];
-            desc.textContent = g.description || '';
-            desc.style.display = g.description ? 'block' : 'none';
+        desc.style.display = 'none';
+        taskGroups.forEach((g) => {
+            if (g.description) {
+                const h = document.createElement('div');
+                h.className = 'tb-group-desc';
+                h.textContent = g.description;
+                list.appendChild(h);
+            }
             g.tasks.forEach((t, i) => list.appendChild(tbTaskRow(t, i)));
-        }
+        });
     }
 
     function processEvent(data) {

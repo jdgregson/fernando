@@ -101,8 +101,7 @@ function onSocketConnected() {
             }
             const urlActive = parseInt(params.get('active'));
             if (urlActive === 1) setActiveTerminal(1);
-            const activeSession = urlActive === 1 ? urlSession : urlSession2;
-            if (activeSession) highlightSidebarItem(activeSession);
+            refreshSidebarHighlights();
         }
         window._urlParamsProcessed = true;
     } else if (currentSession1) {
@@ -173,7 +172,7 @@ function toggleDesktop() {
         browser.innerHTML = '';
         ensureDesktopIframe(browser);
     }
-    highlightSidebarItem('desktop');
+    refreshSidebarHighlights();
     syncUrlParams();
     updateKbdBtn();
 }
@@ -251,7 +250,7 @@ function openJupyter(name) {
     }
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
     browser.appendChild(iframe);
-    highlightSidebarItem('jupyter:' + name);
+    refreshSidebarHighlights();
     updatePaneBorders();
     syncUrlParams();
     updateKbdBtn();
@@ -275,19 +274,21 @@ function ensureNotebookIframe(browser, notebook) {
 }
 
 function openNotebook(notebook) {
-    // Capture group BEFORE changing paneNotebook
-    const groupId = getActivePaneGroupId();
+    const sessionKey = 'notebook:' + notebook;
+    // Only inherit group if notebook isn't already in one
+    const existingGroup = _cachedSessionGroups[sessionKey];
+    const groupId = existingGroup ? null : getActivePaneGroupId();
     const activePane = activeTerminal;
     const browser = document.getElementById(`browser${activePane}`);
     const terminal = document.getElementById(`terminal${activePane}`);
     paneTypes[activePane] = 'browser';
-    paneNotebook[activePane] = 'notebook:' + notebook;
+    paneNotebook[activePane] = sessionKey;
     terminal.classList.add('hidden');
     browser.classList.remove('hidden');
     if (activePane === 1) currentSession1 = null;
     else currentSession2 = null;
     browser.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#5a9fd4;font-family:sans-serif">Starting notebook...</div>';
-    highlightSidebarItem('notebook:' + notebook);
+    refreshSidebarHighlights();
     updatePaneBorders();
     syncUrlParams();
     updateKbdBtn();
@@ -414,7 +415,7 @@ socket.on('notebook_started', (data) => {
             break;
         }
     }
-    highlightSidebarItem('notebook:' + data.name);
+    refreshSidebarHighlights();
     syncUrlParams();
 });
 
@@ -474,20 +475,38 @@ function setPaneType(paneNum, type) {
 
 // --- Session List ---
 function highlightSidebarItem(sessionKey, isSecondary) {
-    // Remove active/secondary classes from all items
-    document.querySelectorAll('.session-item').forEach(el => {
-        if (!isSecondary) el.classList.remove('active');
-        el.classList.remove('secondary');
-        // Don't clear --group-color; it's set by createGroupElement
-    });
-    
     const item = document.querySelector(`.session-item[data-session="${sessionKey}"]`);
-    if (item) {
-        if (isSecondary) {
-            item.classList.add('secondary');
-        } else {
+    
+    if (isSecondary) {
+        // Remove secondary from all, then add to target
+        document.querySelectorAll('.session-item').forEach(el => el.classList.remove('secondary'));
+        if (item) item.classList.add('secondary');
+    } else {
+        // Remove active from all, then add to target (but preserve secondary on other items)
+        document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+        if (item) {
+            item.classList.remove('secondary');
             item.classList.add('active');
         }
+    }
+}
+
+// Refresh both active and secondary highlights for split mode
+function refreshSidebarHighlights() {
+    const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
+    const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
+    
+    if (isSplit) {
+        if (activeTerminal === 1) {
+            if (s1) highlightSidebarItem(s1, false);
+            if (s2) highlightSidebarItem(s2, true);
+        } else {
+            if (s2) highlightSidebarItem(s2, false);
+            if (s1) highlightSidebarItem(s1, true);
+        }
+    } else {
+        const s = activeTerminal === 1 ? s1 : s2;
+        if (s) highlightSidebarItem(s, false);
     }
 }
 
@@ -527,23 +546,7 @@ const _origSetActiveTerminal = setActiveTerminal;
 setActiveTerminal = function(termNum, direct) {
     _origSetActiveTerminal(termNum, direct);
     updatePaneBorders();
-    
-    // Update sidebar highlighting for both panes
-    const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
-    const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
-    
-    if (isSplit) {
-        if (termNum === 1) {
-            if (s1) highlightSidebarItem(s1, false);
-            if (s2) highlightSidebarItem(s2, true);
-        } else {
-            if (s2) highlightSidebarItem(s2, false);
-            if (s1) highlightSidebarItem(s1, true);
-        }
-    } else {
-        const s = termNum === 1 ? s1 : s2;
-        if (s) highlightSidebarItem(s, false);
-    }
+    refreshSidebarHighlights();
 };
 
 let sessionListInitialized = false;
@@ -1136,7 +1139,6 @@ function updateSessionList(sessions, chatSessions, data) {
             for (const pn of [1, 2]) {
                 if (paneNotebook[pn] === 'jupyter:' + jname) {
                     setActiveTerminal(pn, true);
-                    highlightSidebarItem('jupyter:' + jname);
                     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
                     return;
                 }
@@ -1334,18 +1336,24 @@ function updateSessionList(sessions, chatSessions, data) {
         item.dataset.session = sessionKey;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name';
+        
+        // Get group color for this chat
+        const groupId = _cachedSessionGroups[sessionKey];
+        const group = groupId ? _cachedGroups.find(g => g.id === groupId) : null;
+        const groupColor = group ? group.color : '#4b8ce0';
+        
         let chatIconFill, chatIconClass, chatIconColor;
         if (!chat.loaded) {
             chatIconFill = 'none';
             chatIconColor = 'currentColor';
             chatIconClass = '';
         } else if (chat.status === 'working') {
-            chatIconFill = '#4b8ce0';
-            chatIconColor = '#4b8ce0';
+            chatIconFill = groupColor;
+            chatIconColor = groupColor;
             chatIconClass = 'chat-icon-working';
         } else if (chat.status === 'unread') {
-            chatIconFill = '#4b8ce0';
-            chatIconColor = '#4b8ce0';
+            chatIconFill = groupColor;
+            chatIconColor = groupColor;
             chatIconClass = '';
         } else {
             chatIconFill = 'currentColor';
@@ -1484,13 +1492,8 @@ function updateSessionList(sessions, chatSessions, data) {
     // Replace all children at once to avoid flicker
     sessionList.replaceChildren(fragment);
 
-    // Re-highlight
-    const hp = isSplit ? activeTerminal : 1;
-    if (paneTypes[hp] === 'browser') {
-        highlightSidebarItem(getBrowserPaneSession(hp));
-    } else if (hp === 1 ? currentSession1 : currentSession2) {
-        highlightSidebarItem(hp === 1 ? currentSession1 : currentSession2);
-    }
+    // Re-highlight both panes
+    refreshSidebarHighlights();
     
     // Update pane borders with group colors
     updatePaneBorders();
@@ -1696,6 +1699,20 @@ function setActiveTerminal(termNum, direct) {
     updateKbdBtn();
     updateMobileControls();
     syncUrlParams();
+    broadcastPaneActive();
+}
+
+// Notify chat iframes which pane is active (for mark-read logic)
+function broadcastPaneActive() {
+    for (const pn of [1, 2]) {
+        const browser = document.getElementById(`browser${pn}`);
+        if (!browser) continue;
+        const iframe = browser.querySelector('iframe');
+        if (!iframe || !iframe.contentWindow) continue;
+        const sessionKey = paneNotebook[pn];
+        if (!sessionKey || !sessionKey.startsWith('chat:')) continue;
+        iframe.contentWindow.postMessage({ type: 'pane-active', active: pn === activeTerminal }, window.location.origin);
+    }
 }
 
 // Click handlers
@@ -1711,13 +1728,11 @@ function syncPaneSidebar(paneNum) {
 }
 function activatePane1() {
     setActiveTerminal(1, true);
-    syncPaneSidebar(1);
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
 function activatePane2() {
     if (isSplit) {
         setActiveTerminal(2, true);
-        syncPaneSidebar(2);
     }
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
@@ -1791,7 +1806,7 @@ window.addEventListener('message', (e) => {
                     const oldGroupId = _cachedSessionGroups['jupyter:' + oldName];
                     emitWithCsrf('close_jupyter', { name: oldName, preserve_group: true });
                     emitWithCsrf('open_jupyter', { name: newName, group_id: oldGroupId });
-                    highlightSidebarItem('jupyter:' + newName);
+                    refreshSidebarHighlights();
                     syncUrlParams();
                 }
             } catch(ex) {}
