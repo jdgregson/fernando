@@ -1,6 +1,137 @@
 // --- Utilities ---
 function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
+// --- Mutate Helix Animation ---
+let _helixAnimationId = null;
+let _helixStrands = null;
+
+function initMutateHelix() {
+    const canvas = document.getElementById('mutateHelix');
+    if (!canvas || _helixStrands) return;
+    
+    const chars = 'ATCG0123456789MUTATEDNA'.split('');
+    const baseRadius = 60;
+    const twists = 2.5;
+    
+    const strandConfigs = [
+        { color: '#4da6ff', angleOffset: 0, radiusOffset: 0, size: 16, points: 70 },
+        { color: '#4da6ff', angleOffset: 0.15, radiusOffset: -12, size: 13, points: 55 },
+        { color: '#4da6ff', angleOffset: -0.1, radiusOffset: 8, size: 14, points: 60 },
+        { color: '#4da6ff', angleOffset: 0.25, radiusOffset: -6, size: 12, points: 50 },
+        { color: '#4da6ff', angleOffset: -0.2, radiusOffset: 15, size: 11, points: 45 },
+        { color: '#4da6ff', angleOffset: 0.08, radiusOffset: -18, size: 15, points: 65 },
+        { color: '#4da6ff', angleOffset: 0.3, radiusOffset: 5, size: 12, points: 48 },
+        { color: '#4da6ff', angleOffset: -0.15, radiusOffset: -10, size: 13, points: 52 },
+        { color: '#b388ff', angleOffset: Math.PI, radiusOffset: 0, size: 16, points: 70 },
+        { color: '#b388ff', angleOffset: Math.PI + 0.15, radiusOffset: -12, size: 13, points: 55 },
+        { color: '#b388ff', angleOffset: Math.PI - 0.1, radiusOffset: 8, size: 14, points: 60 },
+        { color: '#b388ff', angleOffset: Math.PI + 0.25, radiusOffset: -6, size: 12, points: 50 },
+        { color: '#b388ff', angleOffset: Math.PI - 0.2, radiusOffset: 15, size: 11, points: 45 },
+        { color: '#b388ff', angleOffset: Math.PI + 0.08, radiusOffset: -18, size: 15, points: 65 },
+        { color: '#b388ff', angleOffset: Math.PI + 0.3, radiusOffset: 5, size: 12, points: 48 },
+        { color: '#b388ff', angleOffset: Math.PI - 0.15, radiusOffset: -10, size: 13, points: 52 },
+    ];
+    
+    _helixStrands = [];
+    strandConfigs.forEach(cfg => {
+        for (let i = 0; i < cfg.points; i++) {
+            const t = i / (cfg.points - 1);
+            const baseAngle = t * twists * Math.PI * 2 + cfg.angleOffset;
+            const r = baseRadius + cfg.radiusOffset;
+            _helixStrands.push({
+                char: chars[Math.floor(Math.random() * chars.length)],
+                t: t,
+                baseAngle: baseAngle,
+                r: r,
+                color: cfg.color,
+                size: cfg.size,
+                bounceAmp: 3 + Math.random() * 6,
+                bounceSpeed: 0.3 + Math.random() * 0.7,
+                bouncePhase: Math.random() * Math.PI * 2
+            });
+        }
+    });
+}
+
+function startMutateHelix() {
+    const canvas = document.getElementById('mutateHelix');
+    if (!canvas) return;
+    
+    initMutateHelix();
+    
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    
+    function resize() {
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        ctx.scale(dpr, dpr);
+    }
+    resize();
+    window._helixResize = resize;
+    window.addEventListener('resize', resize);
+    
+    const baseRadius = 60;
+    let rotation = 0;
+    let time = 0;
+    
+    function draw() {
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const helixHeight = height * 0.75;
+        
+        ctx.clearRect(0, 0, width, height);
+        
+        const sorted = _helixStrands.map(s => {
+            const angle = s.baseAngle + rotation;
+            const x = Math.sin(angle) * s.r;
+            const z = Math.cos(angle) * s.r;
+            const bounce = Math.sin(time * s.bounceSpeed + s.bouncePhase) * s.bounceAmp;
+            const y = (s.t - 0.5) * helixHeight + bounce;
+            return { ...s, x, z, y, angle };
+        }).sort((a, b) => a.z - b.z);
+        
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        sorted.forEach(s => {
+            const depthFade = 0.4 + 0.6 * ((s.z + baseRadius) / (baseRadius * 2));
+            ctx.globalAlpha = depthFade;
+            ctx.fillStyle = s.color;
+            ctx.font = `bold ${s.size}px -apple-system, BlinkMacSystemFont, sans-serif`;
+            ctx.fillText(s.char, centerX + s.x, centerY + s.y);
+        });
+        
+        ctx.globalAlpha = 1;
+        rotation += 0.015;
+        time += 0.03;
+        _helixAnimationId = requestAnimationFrame(draw);
+    }
+    
+    draw();
+}
+
+function stopMutateHelix() {
+    if (_helixAnimationId) {
+        cancelAnimationFrame(_helixAnimationId);
+        _helixAnimationId = null;
+    }
+    if (window._helixResize) {
+        window.removeEventListener('resize', window._helixResize);
+        window._helixResize = null;
+    }
+    // Clear the canvas to free memory
+    const canvas = document.getElementById('mutateHelix');
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+}
+
 function showAlert(message) {
     return new Promise(resolve => {
         document.getElementById('alertMessage').textContent = message;
@@ -92,25 +223,25 @@ socket.on('disconnect', () => {
     window._mutateTimer = setTimeout(() => {
         const overlay = document.getElementById('mutateOverlay');
         const spinner = document.getElementById('overlaySpinner');
-        const icon = document.getElementById('overlayIcon');
+        const helix = document.getElementById('mutateHelix');
         const label = document.getElementById('overlayLabel');
         if (isMutating) {
             spinner.style.display = 'none';
-            icon.style.display = '';
-            icon.textContent = '🧬';
-            icon.classList.add('spin');
+            helix.style.display = '';
+            startMutateHelix();
             label.textContent = 'mutating...';
             window._mutatePoll = setInterval(() => {
                 fetch('/', { method: 'HEAD' }).then(r => {
                     if (r.ok) {
                         clearInterval(window._mutatePoll);
+                        stopMutateHelix();
                         window.location.reload();
                     }
                 }).catch(() => {});
             }, 1500);
         } else {
             spinner.style.display = '';
-            icon.style.display = 'none';
+            helix.style.display = 'none';
             label.textContent = 'connecting...';
         }
         overlay.classList.add('open');
@@ -121,6 +252,7 @@ socket.io.on('reconnect', () => {
     console.log('Socket reconnected');
     clearTimeout(window._mutateTimer);
     clearInterval(window._mutatePoll);
+    stopMutateHelix();
     if (isMutating) {
         window.location.reload();
         return;
