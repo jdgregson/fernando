@@ -675,6 +675,15 @@
         }
     });
 
+    socket.on('acp_restored', (data) => {
+        if (data.session_id !== sessionId) return;
+        if (data.ok) {
+            window.location.reload();
+        } else {
+            addSystemMessage('Failed to restore session.');
+        }
+    });
+
     socket.on('authorization_request', (data) => {
         if (data.session_id !== sessionId) return;
         // Remove any existing prompt for THIS SAME action (prevent duplicates), but keep others
@@ -2179,9 +2188,19 @@
         // Handle archived vs active
         if (data.archived) {
             finishTurn();
-            setStatus('archived', 'Archived — read-only preview');
+            let statusText = 'Archived (read-only)';
+            if (data.group_name) {
+                statusText += `, Group: ${data.group_name}`;
+            }
+            setStatus('archived', statusText);
             document.getElementById('input').disabled = true;
-            document.getElementById('sendBtn').disabled = true;
+            document.getElementById('input').placeholder = 'Restore to message Fernando...';
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.textContent = 'Restore';
+            sendBtn.disabled = false;
+            sendBtn.onclick = function() {
+                socket.emit('acp_restore', {csrf_token: csrfToken, session_id: sessionId});
+            };
         }
 
         // Ask server for any pending auth request now that we've finished rendering
@@ -2407,7 +2426,6 @@
             if (window._waitingForLoad) {
                 window._waitingForLoad = false;
                 socket.emit('acp_subscribe', {csrf_token: csrfToken, session_id: sessionId, history_offset: 0});
-                return;
             }
             finishTurn();
             setStatus('ready', 'Ready');
@@ -2427,7 +2445,7 @@
         }
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
-        if (evt.type === 'archived_preview') { finishTurn(); setStatus('archived', 'Archived — read-only preview'); document.getElementById('input').disabled = true; document.getElementById('sendBtn').disabled = true; return; }
+        if (evt.type === 'archived_preview') { finishTurn(); setStatus('archived', 'Archived (read-only)'); document.getElementById('input').disabled = true; document.getElementById('input').placeholder = 'Restore to message Fernando...'; const sendBtn = document.getElementById('sendBtn'); sendBtn.textContent = 'Restore'; sendBtn.disabled = false; sendBtn.onclick = function() { socket.emit('acp_restore', {csrf_token: csrfToken, session_id: sessionId}); }; return; }
         if (evt.type === 'acp_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); setTimeout(() => setStatus('ready', 'Ready'), 3000); return; }
 
         const update = (evt.params || {}).update || {};

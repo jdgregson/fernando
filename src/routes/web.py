@@ -158,12 +158,16 @@ def api_spawn_subagent():
     name = data.get("name", "")
     model = data.get("model")
     backend = data.get("backend", "kiro")
+    group_id = data.get("group_id")
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
     on_event = acp_manager.default_on_event
     session_id = acp_manager.create_session(on_event=on_event, model=model, backend=backend)
     if name:
         acp_manager.rename_session(session_id, name)
+    if group_id:
+        from src.services import groups
+        groups.move_session_to_group(f"chat:{session_id}", group_id)
 
     def _send_when_ready():
         for _ in range(120):

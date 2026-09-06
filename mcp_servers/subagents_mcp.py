@@ -56,6 +56,7 @@ def create_subagent(
     at_schedule=None,
     cron_schedule=None,
     model=None,
+    group_id=None,
 ):
     """Spawn a subagent with full workspace/instructions, using ACP instead of tmux."""
     task_id, workspace = create_workspace(task_id)
@@ -74,7 +75,7 @@ def create_subagent(
 
     if at_schedule:
         # Rewrite spawn.sh to use ACP API instead of tmux
-        _write_acp_spawn_script(script_path, instructions_file, session_name, model)
+        _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id)
         schedule_at(script_path, at_schedule)
         return {
             "task_id": task_id,
@@ -84,7 +85,7 @@ def create_subagent(
         }
 
     if cron_schedule:
-        _write_acp_spawn_script(script_path, instructions_file, session_name, model)
+        _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id)
         schedule_cron(script_path, cron_schedule)
         return {
             "task_id": task_id,
@@ -99,6 +100,8 @@ def create_subagent(
     payload = {"task": prompt, "name": session_name}
     if model:
         payload["model"] = model
+    if group_id:
+        payload["group_id"] = group_id
     req = urllib.request.Request(
         "http://localhost:5000/api/spawn_subagent",
         data=json.dumps(payload).encode(),
@@ -114,12 +117,14 @@ def create_subagent(
         return {"error": str(e), "task_id": task_id, "workspace": workspace}
 
 
-def _write_acp_spawn_script(script_path, instructions_file, session_name, model=None):
+def _write_acp_spawn_script(script_path, instructions_file, session_name, model=None, group_id=None):
     """Overwrite spawn.sh to use ACP API instead of tmux."""
     os.chmod(script_path, 0o700)
     payload_fields = f'\\"task\\": \\"$TASK\\", \\"name\\": \\"{session_name}\\"'
     if model:
         payload_fields += f', \\"model\\": \\"{model}\\"'
+    if group_id:
+        payload_fields += f', \\"group_id\\": \\"{group_id}\\"'
     with open(script_path, "w") as f:
         f.write(f"""#!/bin/bash
 API_KEY=$(cat /tmp/fernando-api-key 2>/dev/null)
@@ -169,6 +174,10 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": f"Model ID for the subagent (default: {DEFAULT_MODEL})",
                         "enum": AVAILABLE_MODELS,
+                    },
+                    "group_id": {
+                        "type": "string",
+                        "description": "Optional group ID to place the subagent in. If not provided, subagent will be ungrouped.",
                     },
                 },
                 "required": ["task_id", "task"],
@@ -223,6 +232,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments.get("at_schedule"),
             arguments.get("cron_schedule"),
             arguments.get("model"),
+            arguments.get("group_id"),
         )
     elif name == "get_subagent_status":
         result = get_subagent_status(arguments["task_id"])

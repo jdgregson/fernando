@@ -814,6 +814,17 @@ def register_handlers(socketio):
                         if text_buf_model:
                             entry["model"] = text_buf_model
                         collapsed.append(entry)
+                    # Get group info for archived session
+                    from src.services import groups
+                    session_groups = groups.get_session_groups()
+                    all_groups = groups.list_groups()
+                    group_id = session_groups.get(f"chat:{acp_sid}")
+                    group_name = None
+                    if group_id:
+                        for g in all_groups:
+                            if g["id"] == group_id:
+                                group_name = g["name"]
+                                break
                     emit("acp_history_batch", {
                         "session_id": acp_sid,
                         "events": collapsed,
@@ -822,6 +833,7 @@ def register_handlers(socketio):
                         "history_length": len(history),
                         "model": None,
                         "archived": True,
+                        "group_name": group_name,
                     })
 
     @socketio.on("acp_prompt")
@@ -1010,6 +1022,42 @@ def register_handlers(socketio):
                 session.unload()
                 emit("acp_session_slept", {"session_id": acp_sid}, broadcast=True)
 
+    @socketio.on("acp_sleep_group")
+    def acp_sleep_group(data):
+        if not validate_csrf(data):
+            return
+        group_id = data.get("group_id")
+        if not group_id:
+            return
+        from src.services import groups
+        session_groups = groups.get_session_groups()
+        slept = []
+        for key, gid in session_groups.items():
+            if gid == group_id and key.startswith("chat:"):
+                sid = key[5:]
+                session = acp_manager.get_session(sid)
+                if session and session.is_loaded:
+                    session.unload()
+                    slept.append(sid)
+        for sid in slept:
+            emit("acp_session_slept", {"session_id": sid}, broadcast=True)
+
+    @socketio.on("acp_wake_group")
+    def acp_wake_group(data):
+        if not validate_csrf(data):
+            return
+        group_id = data.get("group_id")
+        if not group_id:
+            return
+        from src.services import groups
+        session_groups = groups.get_session_groups()
+        for key, gid in session_groups.items():
+            if gid == group_id and key.startswith("chat:"):
+                sid = key[5:]
+                session = acp_manager.get_session(sid)
+                if session and not session.is_loaded and session.acp_session_id:
+                    acp_manager.reload_session(sid)
+
     @socketio.on("acp_list_archived")
     def acp_list_archived(data):
         if not validate_csrf(data):
@@ -1045,6 +1093,16 @@ def register_handlers(socketio):
         sid = data.get("session_id")
         if sid:
             ok = acp_manager.restore_session(sid, on_event=acp_on_event)
+            if ok:
+                # Check if session's group still exists, remove from group if not
+                from src.services import groups
+                session_groups = groups.get_session_groups()
+                all_groups = groups.list_groups()
+                group_ids = {g["id"] for g in all_groups}
+                session_key = f"chat:{sid}"
+                current_group = session_groups.get(session_key)
+                if current_group and current_group not in group_ids:
+                    groups.move_session_to_group(session_key, None)
             emit("acp_restored", {"session_id": sid, "ok": ok})
 
     @socketio.on("acp_delete_archived")

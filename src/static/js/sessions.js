@@ -880,6 +880,24 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     };
     menu.appendChild(renameBtn);
     
+    const wakeAllBtn = document.createElement('div');
+    wakeAllBtn.className = 'context-menu-item';
+    wakeAllBtn.textContent = 'Wake All Chats';
+    wakeAllBtn.onclick = () => {
+        menu.remove();
+        emitWithCsrf('acp_wake_group', { group_id: groupId });
+    };
+    menu.appendChild(wakeAllBtn);
+    
+    const sleepAllBtn = document.createElement('div');
+    sleepAllBtn.className = 'context-menu-item';
+    sleepAllBtn.textContent = 'Sleep All Chats';
+    sleepAllBtn.onclick = () => {
+        menu.remove();
+        emitWithCsrf('acp_sleep_group', { group_id: groupId });
+    };
+    menu.appendChild(sleepAllBtn);
+    
     const deleteBtn = document.createElement('div');
     deleteBtn.className = 'context-menu-item danger';
     deleteBtn.textContent = sessionCount > 0 ? 'Delete (moves sessions out)' : 'Delete';
@@ -1500,6 +1518,8 @@ function updateSessionList(sessions, chatSessions, data) {
     
     if (showArchived) {
         document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('#sessionList > .group-wrapper').forEach(el => el.style.display = 'none');
+        document.querySelectorAll('#sessionList > .new-group-btn').forEach(el => el.style.display = 'none');
         emitWithCsrf('acp_list_archived');
     }
 }

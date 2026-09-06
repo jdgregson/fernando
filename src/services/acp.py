@@ -276,6 +276,7 @@ class ACPSession:
         if self.backend == "kiro":
             self._patch_incomplete_mutate(acp_session_id)
         self._load_history()
+        self._patch_our_incomplete_mutate()
         self._recording = False  # Don't overwrite rich history with kiro's stripped replay
         self._broadcasting = False  # Don't fire on_event for replay events
         self._spawn_and_init()
@@ -503,6 +504,47 @@ class ACPSession:
     def _load_history(self):
         self.history = load_history_file(self.id)
         self._flushed = len(self.history)
+
+    def _patch_our_incomplete_mutate(self):
+        """If history has a mutate/reboot tool_call without a completed tool_call_update, append one."""
+        if not self.history:
+            return
+        pending_tool_call_id = None
+        pending_tool_title = None
+        completed_tool_ids = set()
+        for evt in self.history:
+            params = evt.get("params", {})
+            update = params.get("update", {})
+            su = update.get("sessionUpdate", "")
+            if su == "tool_call":
+                tool_name = update.get("title", "")
+                if "mutate" in tool_name.lower() or "reboot" in tool_name.lower():
+                    pending_tool_call_id = update.get("toolCallId")
+                    pending_tool_title = tool_name
+            elif su == "tool_call_update":
+                if update.get("status") == "completed":
+                    completed_tool_ids.add(update.get("toolCallId"))
+        if pending_tool_call_id and pending_tool_call_id not in completed_tool_ids:
+            synthetic_event = {
+                "jsonrpc": "2.0",
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": pending_tool_call_id,
+                        "status": "completed",
+                        "title": pending_tool_title or "mutate",
+                        "rawOutput": {"items": [{"Json": {"content": [{"type": "text", "text": json.dumps({
+                            "status": "restart_complete",
+                            "message": "Fernando restarted successfully. This result was backfilled on session reload.",
+                        })}], "isError": False}}]},
+                    }
+                },
+                "ts": time.time(),
+            }
+            self.history.append(synthetic_event)
+            self._save_history()
+            logger.info(f"[{self.id}] Patched incomplete mutate tool call {pending_tool_call_id}")
 
     def _read_loop(self):
         buf = b""

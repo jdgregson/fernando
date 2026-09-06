@@ -81,6 +81,8 @@ function switchToActive() {
     search.style.display = 'none';
     search.value = '';
     document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = '');
+    document.querySelectorAll('#sessionList > .group-wrapper').forEach(el => el.style.display = '');
+    document.querySelectorAll('#sessionList > .new-group-btn').forEach(el => el.style.display = '');
     document.querySelectorAll('.archived-item').forEach(el => el.remove());
 }
 function switchToArchived() {
@@ -91,6 +93,8 @@ function switchToArchived() {
     const search = document.getElementById('archiveSearch');
     search.style.display = '';
     document.querySelectorAll('#sessionList > .session-item:not(.archived-item)').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('#sessionList > .group-wrapper').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('#sessionList > .new-group-btn').forEach(el => el.style.display = 'none');
     emitWithCsrf('acp_list_archived');
 }
 function filterArchived() {
@@ -241,10 +245,24 @@ window.addEventListener('message', (e) => {
                         color: group.color,
                         sessions: []
                     };
-                    // Find all other sessions in this group
+                    // Find all ACTIVE sessions in this group (exclude archived, include self)
+                    // Build map of chat session loaded status
+                    const chatLoadedMap = {};
+                    _cachedChatSessions.forEach(c => { chatLoadedMap['chat:' + c.id] = c.loaded; });
+                    const activeKeys = new Set([
+                        ..._cachedSessions,
+                        ..._cachedChatSessions.map(c => 'chat:' + c.id),
+                        ...(_cachedData.running_notebooks || []).map(n => 'notebook:' + n),
+                        ...(_cachedData.running_jupyter || []).map(j => 'jupyter:' + j)
+                    ]);
                     for (const [key, gid] of Object.entries(_cachedSessionGroups)) {
-                        if (gid === groupId && key !== sessionKey) {
-                            ctx.group.sessions.push(key);
+                        if (gid === groupId && activeKeys.has(key)) {
+                            // Add (sleeping) suffix for unloaded chat sessions
+                            if (key.startsWith('chat:') && chatLoadedMap[key] === false) {
+                                ctx.group.sessions.push(key + ' (sleeping)');
+                            } else {
+                                ctx.group.sessions.push(key);
+                            }
                         }
                     }
                 }
