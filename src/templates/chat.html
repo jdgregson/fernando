@@ -2201,6 +2201,10 @@
             sendBtn.onclick = function() {
                 socket.emit('acp_restore', {csrf_token: csrfToken, session_id: sessionId});
             };
+        } else {
+            // Ensure any in-progress assistant turn from replay is closed
+            // before processing new live events
+            finishTurn();
         }
 
         // Ask server for any pending auth request now that we've finished rendering
