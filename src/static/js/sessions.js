@@ -474,19 +474,31 @@ function setPaneType(paneNum, type) {
 }
 
 // --- Session List ---
-function highlightSidebarItem(sessionKey, isSecondary) {
+function highlightSidebarItem(sessionKey, isSecondary, fast = false) {
     const item = document.querySelector(`.session-item[data-session="${sessionKey}"]`);
     
     if (isSecondary) {
-        // Remove secondary from all, then add to target
         document.querySelectorAll('.session-item').forEach(el => el.classList.remove('secondary'));
         if (item) item.classList.add('secondary');
     } else {
-        // Remove active from all, then add to target (but preserve secondary on other items)
-        document.querySelectorAll('.session-item').forEach(el => el.classList.remove('active'));
+        const currentActive = document.querySelector('.session-item.active');
+        const isFocusSwitch = fast || (item && item.classList.contains('secondary'));
+        const duration = isFocusSwitch ? 50 : 100;
+        
+        if (currentActive && currentActive !== item) {
+            if (isFocusSwitch) currentActive.classList.add('fast');
+            currentActive.classList.add('deselecting');
+            currentActive.classList.remove('active');
+            setTimeout(() => currentActive.classList.remove('deselecting', 'fast'), duration);
+        } else if (currentActive === item) {
+            return;
+        }
+        document.querySelectorAll('.session-item:not(.deselecting)').forEach(el => el.classList.remove('active'));
         if (item) {
-            item.classList.remove('secondary');
+            item.classList.remove('secondary', 'deselecting');
+            if (isFocusSwitch) item.classList.add('fast');
             item.classList.add('active');
+            if (isFocusSwitch) setTimeout(() => item.classList.remove('fast'), duration);
         }
     }
 }

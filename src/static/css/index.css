@@ -138,14 +138,45 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     display: flex;
     justify-content: space-between;
     align-items: center;
+    position: relative;
+    z-index: 0;
+}
+
+.session-item::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 0;
+    background: var(--group-color, #3465a3);
+    z-index: -1;
+    transition: width 100ms ease-out;
+}
+
+.session-item.fast::before {
+    transition-duration: 50ms;
 }
 
 .session-item:hover {
     background: color-mix(in srgb, var(--group-color, #3465a3) 10%, #1a2a3a);
 }
 
+.session-item.active::before {
+    width: 100%;
+}
+
+.session-item.deselecting::before {
+    width: 0;
+    transition: width 100ms ease-in;
+}
+
+.session-item.deselecting.fast::before {
+    transition-duration: 50ms;
+}
+
 .session-item.active {
-    background: var(--group-color, #3465a3);
+    background: transparent;
 }
 .session-item.active .chat-icon {
     fill: #fff !important;
@@ -1248,9 +1279,6 @@ button.notebook-delete-btn {
 .session-item.secondary {
     border-left: 3px solid var(--group-color, #3465a3);
     padding-left: 12px;
-}
-.session-item.active {
-    background: var(--group-color, #3465a3);
 }
 
 /* Health indicator */
