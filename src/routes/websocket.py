@@ -676,6 +676,53 @@ def register_handlers(socketio):
             groups.move_session_to_group('chat:' + session_id, group_id)
         emit("acp_created", {"session_id": session_id})
 
+    @socketio.on("acp_clone")
+    def acp_clone(data):
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        source_id = data.get("session_id")
+        if not source_id:
+            emit("error", {"message": "Missing session_id"})
+            return
+        new_id = acp_manager.clone_session(source_id, on_event=acp_on_event)
+        if not new_id:
+            emit("error", {"message": "Session not found"})
+            return
+        group_id = data.get("group_id")
+        if group_id:
+            from src.services import groups
+            groups.move_session_to_group('chat:' + new_id, group_id)
+        emit("acp_created", {"session_id": new_id})
+
+    @socketio.on("acp_execute_command")
+    def acp_execute_command(data):
+        """Execute a slash command in an ACP session (for testing tangent/rewind)."""
+        logger.info(f"[acp_execute_command] received: {data}")
+        if not validate_csrf(data):
+            logger.warning("[acp_execute_command] CSRF validation failed")
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        session_id = data.get("session_id")
+        command = data.get("command")
+        if not session_id or not command:
+            logger.warning(f"[acp_execute_command] missing params: session_id={session_id}, command={command}")
+            emit("error", {"message": "Missing session_id or command"})
+            return
+        session = acp_manager.get_session(session_id)
+        if not session:
+            logger.warning(f"[acp_execute_command] session not found: {session_id}")
+            emit("error", {"message": "Session not found"})
+            return
+        if not session.is_loaded:
+            logger.warning(f"[acp_execute_command] session not loaded: {session_id}")
+            emit("error", {"message": "Session not loaded"})
+            return
+        logger.info(f"[acp_execute_command] executing '{command}' on session {session_id}")
+        result = session.execute_command(command)
+        logger.info(f"[acp_execute_command] result: {result}")
+        emit("acp_command_result", {"session_id": session_id, "command": command, "result": result})
+
     @socketio.on("acp_subscribe")
     def acp_subscribe(data):
         if not validate_csrf(data):

@@ -108,6 +108,26 @@ def api_models():
 _opencode_models_cache = {"data": None, "ts": 0}
 
 
+@bp.route("/api/test_acp_command", methods=["POST"])
+def api_test_acp_command():
+    """Test endpoint to execute ACP slash commands."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json() or {}
+    session_id = data.get("session_id")
+    command = data.get("command")
+    args = data.get("args")
+    if not session_id or not command:
+        return json.dumps({"error": "Missing session_id or command"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    if not session.is_loaded:
+        return json.dumps({"error": "Session not loaded"}), 400, {"Content-Type": "application/json"}
+    result = session.execute_command(command, args)
+    return json.dumps({"result": result}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/opencode_models")
 def api_opencode_models():
     """Return available models from opencode, cached for 5 minutes."""

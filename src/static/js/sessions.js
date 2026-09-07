@@ -822,7 +822,7 @@ function dismissContextMenus() {
     document.querySelectorAll('.group-context-menu').forEach(m => m.remove());
 }
 
-function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep) {
+function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, onClone) {
     dismissContextMenus();
     
     const menu = document.createElement('div');
@@ -834,6 +834,14 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep) {
         renameBtn.textContent = 'Rename';
         renameBtn.onclick = () => { menu.remove(); onRename(); };
         menu.appendChild(renameBtn);
+    }
+    
+    if (onClone) {
+        const cloneBtn = document.createElement('div');
+        cloneBtn.className = 'context-menu-item';
+        cloneBtn.textContent = 'Fork';
+        cloneBtn.onclick = () => { menu.remove(); onClone(); };
+        menu.appendChild(cloneBtn);
     }
     
     if (onSleep) {
@@ -1443,7 +1451,7 @@ function updateSessionList(sessions, chatSessions, data) {
         });
         item.addEventListener('contextmenu', function(e) {
             e.preventDefault();
-            showSessionContextMenu(sessionKey, e.clientX, e.clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }));
+            showSessionContextMenu(sessionKey, e.clientX, e.clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }));
         });
         let holdTimer = null;
         let touchMoved = false;
@@ -1452,7 +1460,7 @@ function updateSessionList(sessions, chatSessions, data) {
             holdTimer = setTimeout(() => { 
                 if (!touchMoved) {
                     holdTimer = 'fired'; 
-                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }));
+                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }));
                 }
             }, 500);
         }, {passive: true});

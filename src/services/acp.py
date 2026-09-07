@@ -372,6 +372,38 @@ class ACPSession:
             "params": {"sessionId": self.acp_session_id},
         })
 
+    def execute_command(self, command, args=None):
+        """Execute a slash command via ACP _kiro.dev/commands/execute extension.
+        
+        Args:
+            command: Command name (with or without leading slash, e.g. "/tangent" or "tangent")
+            args: Optional dict of command arguments
+        """
+        if not self.acp_session_id:
+            return {"error": "No ACP session"}
+        # Strip leading slash if present
+        cmd_name = command.lstrip("/")
+        logger.info(f"[{self.id}] execute_command: {cmd_name} args={args}")
+        req_id = self._get_id()
+        # TuiCommand is an adjacently tagged enum: {command: string, args: object}
+        tui_command = {"command": cmd_name, "args": args or {}}
+        logger.info(f"[{self.id}] execute_command: req_id={req_id} tui_command={tui_command}")
+        event = threading.Event()
+        with self._lock:
+            self._pending[req_id] = {"event": event, "result": None, "error": None}
+        self._send({"jsonrpc": "2.0", "id": req_id, "method": "_kiro.dev/commands/execute", "params": {
+            "sessionId": self.acp_session_id,
+            "command": tui_command,
+        }})
+        got_response = event.wait(timeout=30)
+        with self._lock:
+            entry = self._pending.pop(req_id, {})
+        if entry.get("error"):
+            logger.warning(f"[{self.id}] execute_command error: {entry['error']}")
+            return {"error": entry["error"]}
+        logger.info(f"[{self.id}] execute_command result: {entry.get('result')}")
+        return entry.get("result")
+
     def stop(self):
         self._alive = False
         self._is_prompting = False
@@ -453,11 +485,13 @@ class ACPSession:
 
     def _request(self, method, params, timeout=30):
         req_id = self._get_id()
+        logger.info(f"[{self.id}] _request: method={method} req_id={req_id}")
         event = threading.Event()
         with self._lock:
             self._pending[req_id] = {"event": event, "result": None}
         self._send({"jsonrpc": "2.0", "id": req_id, "method": method, "params": params})
-        event.wait(timeout=timeout)
+        got_response = event.wait(timeout=timeout)
+        logger.info(f"[{self.id}] _request: req_id={req_id} got_response={got_response}")
         with self._lock:
             entry = self._pending.pop(req_id, {})
         return entry.get("result")
@@ -671,6 +705,11 @@ class ACPSession:
 
     def _dispatch(self, msg):
         msg_id = msg.get("id")
+        method = msg.get("method", "")
+        
+        # Log non-chunk messages for debugging
+        if method != "session/update" or (msg.get("params", {}).get("update", {}).get("sessionUpdate") != "agent_message_chunk"):
+            logger.info(f"[{self.id}] _dispatch: id={msg_id} method={method} keys={list(msg.keys())}")
 
         if msg_id is not None and "result" in msg:
             with self._lock:
@@ -698,6 +737,7 @@ class ACPSession:
             with self._lock:
                 if msg_id in self._pending:
                     self._pending[msg_id]["result"] = None
+                    self._pending[msg_id]["error"] = msg.get("error")
                     self._pending[msg_id]["event"].set()
                     return
             err = msg.get("error", {})
@@ -1154,6 +1194,70 @@ class ACPManager:
         if session:
             session.display_name = new_name
             self._save()
+
+    def clone_session(self, source_session_id, on_event=None):
+        """Clone a session using Kiro's /rewind to fork at the latest turn.
+        
+        This creates a true fork with shared conversation context, not just a UI copy.
+        """
+        source = self.get_session(source_session_id)
+        if not source:
+            logger.warning(f"[clone] Source session {source_session_id} not found")
+            return None
+        if not source.is_loaded:
+            logger.warning(f"[clone] Source session {source_session_id} not loaded")
+            return None
+        
+        # Get list of turns to find the latest one
+        turns_result = source.execute_command("rewind")
+        if not turns_result or not turns_result.get("success"):
+            logger.warning(f"[clone] Failed to get turns: {turns_result}")
+            return None
+        
+        turns = turns_result.get("data", {}).get("turns", [])
+        if not turns:
+            logger.warning(f"[clone] No turns available to fork from")
+            return None
+        
+        # Fork at the latest turn (first in the list, highest logIndex)
+        latest_turn = turns[0]
+        log_index = str(latest_turn.get("logIndex"))
+        logger.info(f"[clone] Forking at turn {log_index}: {latest_turn.get('label', '')[:50]}")
+        
+        fork_result = source.execute_command("rewind", {"value": log_index})
+        if not fork_result or not fork_result.get("success"):
+            logger.warning(f"[clone] Failed to fork: {fork_result}")
+            return None
+        
+        new_acp_id = fork_result.get("data", {}).get("sessionId")
+        if not new_acp_id:
+            logger.warning(f"[clone] No sessionId in fork result")
+            return None
+        
+        logger.info(f"[clone] Kiro created forked session: {new_acp_id}")
+        
+        # Create a new Fernando session that loads the forked Kiro session
+        new_id = str(uuid.uuid4())[:8]
+        
+        # Copy the Fernando history file so UI shows the conversation
+        source_history_path = os.path.join(HISTORY_DIR, f"{source_session_id}.jsonl")
+        new_history_path = os.path.join(HISTORY_DIR, f"{new_id}.jsonl")
+        if os.path.exists(source_history_path):
+            shutil.copy2(source_history_path, new_history_path)
+            os.chmod(new_history_path, 0o600)
+        
+        session = ACPSession(new_id, on_event=on_event, backend=source.backend)
+        session.model = source.model
+        session.display_name = source.display_name + " (fork)"
+        session.acp_session_id = new_acp_id
+        self._wire_session_status_callback(session)
+        
+        with self._lock:
+            self.sessions[new_id] = session
+        
+        # Load the forked session instead of starting fresh
+        threading.Thread(target=self._load_existing, args=(new_id, session, new_acp_id), daemon=True).start()
+        return new_id
 
     def _save(self):
         with self._lock:
