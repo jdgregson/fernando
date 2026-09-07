@@ -763,10 +763,8 @@ function startGroupRename(groupId, nameSpan) {
     function commit() {
         if (!input.parentNode) return;
         const newName = input.value.trim();
-        const newSpan = document.createElement('span');
-        newSpan.className = 'group-name';
-        newSpan.textContent = newName || oldName;
-        input.replaceWith(newSpan);
+        nameSpan.textContent = newName || oldName;
+        input.replaceWith(nameSpan);
         if (newName && newName !== oldName) {
             emitWithCsrf('group_rename', { group_id: groupId, name: newName });
         }
@@ -775,10 +773,8 @@ function startGroupRename(groupId, nameSpan) {
         e.stopPropagation();
         if (e.key === 'Enter') { e.preventDefault(); commit(); }
         if (e.key === 'Escape') {
-            const newSpan = document.createElement('span');
-            newSpan.className = 'group-name';
-            newSpan.textContent = oldName;
-            input.replaceWith(newSpan);
+            nameSpan.textContent = oldName;
+            input.replaceWith(nameSpan);
         }
     });
     input.addEventListener('blur', commit);
@@ -1170,6 +1166,7 @@ function updateSessionList(sessions, chatSessions, data) {
         jItem.appendChild(jNameSpan);
         jItem.appendChild(closeBtn);
         jItem.addEventListener('click', function() {
+            highlightSidebarItem(sessionKey);
             for (const pn of [1, 2]) {
                 if (paneNotebook[pn] === 'jupyter:' + jname) {
                     setActiveTerminal(pn, true);
@@ -1252,6 +1249,7 @@ function updateSessionList(sessions, chatSessions, data) {
         nbItem.appendChild(nbName);
         nbItem.appendChild(closeBtn);
         nbItem.addEventListener('click', function() {
+            highlightSidebarItem(sessionKey);
             openNotebook(nb);
             if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
         });
@@ -1302,7 +1300,6 @@ function updateSessionList(sessions, chatSessions, data) {
         item.appendChild(nameSpan);
         item.appendChild(closeBtn);
 
-        let clickTimer = null;
         function startRename() {
             const oldName = nameSpan.textContent;
             const input = document.createElement('input');
@@ -1326,11 +1323,16 @@ function updateSessionList(sessions, chatSessions, data) {
             input.addEventListener('click', function(ev) { ev.stopPropagation(); });
         }
         item.addEventListener('click', function(e) {
-            if (e.detail === 2) { clearTimeout(clickTimer); e.stopPropagation(); startRename(); return; }
-            clickTimer = setTimeout(() => {
+            const isActive = this.classList.contains('active');
+            if (isActive && e.detail === 2) {
+                startRename();
+                return;
+            }
+            if (!isActive) {
+                highlightSidebarItem(this.dataset.session);
                 attachSession(this.dataset.session);
                 if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-            }, 250);
+            }
         });
         item.addEventListener('contextmenu', function(e) {
             e.preventDefault();
@@ -1402,7 +1404,6 @@ function updateSessionList(sessions, chatSessions, data) {
         item.appendChild(nameSpan);
         item.appendChild(closeBtn);
 
-        let clickTimer = null;
         function startChatRename() {
             const oldName = nameSpan.textContent;
             const inp = document.createElement('input');
@@ -1429,11 +1430,16 @@ function updateSessionList(sessions, chatSessions, data) {
             inp.addEventListener('click', function(ev) { ev.stopPropagation(); });
         }
         item.addEventListener('click', function(e) {
-            if (e.detail === 2) { clearTimeout(clickTimer); e.stopPropagation(); startChatRename(); return; }
-            clickTimer = setTimeout(() => {
+            const isActive = this.classList.contains('active');
+            if (isActive && e.detail === 2) {
+                startChatRename();
+                return;
+            }
+            if (!isActive) {
+                highlightSidebarItem(sessionKey);
                 openChatPane(chatId);
                 if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-            }, 250);
+            }
         });
         item.addEventListener('contextmenu', function(e) {
             e.preventDefault();
