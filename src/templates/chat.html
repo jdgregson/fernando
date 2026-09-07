@@ -213,6 +213,22 @@
             header.style.border = `1px solid ${borderColor}`;
             if (taskBar) taskBar.classList.add('with-side-borders');
         }
+        // Set CSS variables for textarea border (input field)
+        document.documentElement.style.setProperty('--group-border-color', borderColor);
+        // Focus color: brighter version (80% group color)
+        const focusR = Math.round(xr * 0.2 + r * 0.8);
+        const focusG = Math.round(xg * 0.2 + g * 0.8);
+        const focusB = Math.round(xb * 0.2 + b * 0.8);
+        document.documentElement.style.setProperty('--group-border-focus', `rgb(${focusR}, ${focusG}, ${focusB})`);
+        // Button: use the group color directly
+        document.documentElement.style.setProperty('--group-btn-color', groupColor);
+        // Button border: darker version
+        document.documentElement.style.setProperty('--group-btn-border', borderColor);
+        // Button hover: darker (40% group color, 60% dark base)
+        const hoverR = Math.round(br * 0.6 + r * 0.4);
+        const hoverG = Math.round(bg * 0.6 + g * 0.4);
+        const hoverB = Math.round(bb * 0.6 + b * 0.4);
+        document.documentElement.style.setProperty('--group-btn-hover', `rgb(${hoverR}, ${hoverG}, ${hoverB})`);
     }
 
     // Request group color from parent on load

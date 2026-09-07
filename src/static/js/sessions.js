@@ -608,7 +608,7 @@ const GROUP_COLORS = [
     '#3d8b40', // green - darker for white text
     '#b8860b', // yellow/gold - dark goldenrod
     '#c45c26', // orange - darker
-    '#c44d4d', // red - darker
+    '#a62c2c', // red - crimson
     '#8b4dab', // purple - darker
     '#2a8a8a', // cyan/teal - darker
     '#a85d8a', // rose - darker

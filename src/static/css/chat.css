@@ -227,7 +227,7 @@ body { display: flex; flex-direction: column; }
 .textarea-wrap textarea {
     width: 100%;
     background: #091d35;
-    border: 1px solid #143151;
+    border: 1px solid var(--group-border-color, #143151);
     color: #d4d4d4;
     padding: 8px 36px 8px 12px;
     border-radius: 6px;
@@ -239,7 +239,7 @@ body { display: flex; flex-direction: column; }
     max-height: 120px;
     line-height: 22px;
 }
-.textarea-wrap textarea:focus { border-color: #3465a3; }
+.textarea-wrap textarea:focus { border-color: var(--group-border-focus, #3465a3); }
 .attach-btn {
     position: absolute;
     right: 8px;
@@ -253,7 +253,7 @@ body { display: flex; flex-direction: column; }
 }
 .attach-btn:hover { color: #aaa; }
 #sendBtn {
-    background: #3465a3;
+    background: var(--group-btn-color, #3465a3);
     color: #fff;
     transition: background 0.2s;
     padding: 8px 16px;
@@ -261,13 +261,13 @@ body { display: flex; flex-direction: column; }
     cursor: pointer;
     font-size: 14px;
     height: 41px;
-    border: 1px solid #143151;
+    border: 1px solid var(--group-btn-border, #143151);
     margin-bottom: 3px;
     display: flex;
     align-items: center;
     justify-content: center;
 }
-@media (hover: hover) { #sendBtn:hover { background: #143151; } }
+@media (hover: hover) { #sendBtn:hover { background: var(--group-btn-hover, #143151); } }
 @media (max-width: 600px) { .msg { padding: 12px 10px; } .input-area { padding: 10px; } }
 #sendBtn.disabled { background: #555; cursor: not-allowed; pointer-events: none; }
 
