@@ -1145,6 +1145,20 @@ def register_handlers(socketio):
         note = data.get("note", "")
         session_id = data.get("session_id")
         entry, new_balance = rewards.add_entry(amount, note=note, session_id=session_id)
+        # Record in session history so it persists across reloads
+        if session_id:
+            session = acp_manager.get_session(session_id)
+            if session:
+                import time
+                reward_event = {
+                    "type": "reward",
+                    "amount": amount,
+                    "note": note,
+                    "balance": new_balance,
+                    "ts": time.time(),
+                }
+                session.history.append(reward_event)
+                session._save_history()
         emit("reward_added", {"entry": entry, "balance": new_balance}, broadcast=True)
 
     @socketio.on("reward_get_balance")

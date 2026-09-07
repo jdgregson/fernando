@@ -1719,6 +1719,30 @@
         return { paths, body: m[2] };
     }
 
+    function parseRewardPrefix(text) {
+        const m = text.match(/^\[(REWARD|DEBIT): ([+-]?\d+)(?:: ([^\]]*))?\]\n([\s\S]*)$/);
+        if (!m) return null;
+        return {
+            type: m[1].toLowerCase(),
+            amount: parseInt(m[2], 10),
+            note: m[3] || '',
+            body: m[4]
+        };
+    }
+
+    function renderRewardChip(reward, container) {
+        const chip = document.createElement('div');
+        chip.className = 'reward-chip' + (reward.type === 'debit' ? ' debit' : '');
+        const icon = reward.type === 'debit' 
+            ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+            : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>';
+        const label = reward.type === 'debit' ? 'Debit' : 'Reward';
+        const sign = reward.amount >= 0 ? '+' : '';
+        const noteText = reward.note ? `: ${reward.note}` : '';
+        chip.innerHTML = icon + '<span>' + escapeHtml(`${label} ${sign}${reward.amount}${noteText}`) + '</span>';
+        container.appendChild(chip);
+    }
+
     const isIOSPWA = /iPad|iPhone|iPod/.test(navigator.userAgent) && window.navigator.standalone;
 
     const CLIP_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>';
@@ -1954,13 +1978,20 @@
             el.appendChild(preview);
             el.appendChild(full);
         } else {
+            // Check for reward/debit prefix first
+            const reward = parseRewardPrefix(text);
+            if (reward) {
+                renderRewardChip(reward, el);
+                text = reward.body;
+            }
+            // Then check for attached files
             const parsed = parseAttachedFiles(text);
             if (parsed) {
                 renderFileChips(parsed.paths, el);
                 if (parsed.body.trim()) {
                     _renderUserBody(el, parsed.body);
                 }
-            } else {
+            } else if (text.trim()) {
                 _renderUserBody(el, text);
             }
         }
@@ -1971,7 +2002,10 @@
     function addSystemMessage(text, extraClass) {
         const el = document.createElement('div');
         el.className = 'msg system' + (extraClass ? ' ' + extraClass : '');
-        const prefix = extraClass === 'continuation' ? '⟳ Continuation: ' : (text.startsWith('✓') || text.startsWith('✗') ? '' : '⟳ ');
+        let prefix = '⟳ ';
+        if (extraClass === 'continuation') prefix = '⟳ Continuation: ';
+        else if (extraClass === 'reward') prefix = '$ ';
+        else if (text.startsWith('✓') || text.startsWith('✗')) prefix = '';
         const display = text.length > 75 && extraClass === 'continuation' ? text.slice(0, 75) + '…' : text;
         el.textContent = prefix + display;
         document.getElementById('messages').appendChild(el);
@@ -2047,21 +2081,23 @@
             renderAttached();
         }
 
-        // Commit staged reward if present
+        // Commit staged reward if present - prepend to message so agent sees it
+        let rewardPrefix = '';
         if (_stagedReward) {
             const amt = _stagedReward.amount;
-            const label = amt >= 0 ? 'Reward' : 'Debit';
-            const noteText = _stagedReward.note ? ` - ${_stagedReward.note}` : '';
-            addSystemMessage(`${label}: ${amt >= 0 ? '+' : ''}${amt}${noteText}`);
+            const label = amt >= 0 ? 'REWARD' : 'DEBIT';
+            const noteText = _stagedReward.note ? `: ${_stagedReward.note}` : '';
+            rewardPrefix = `[${label}: ${amt >= 0 ? '+' : ''}${amt}${noteText}]\n`;
             socket.emit('reward_add', {
                 csrf_token: csrfToken,
-                amount: amt,
+                amount: _stagedReward.amount,
                 note: _stagedReward.note,
                 session_id: sessionId,
             });
             _stagedReward = null;
             renderAttached();
         }
+        text = rewardPrefix + text;
 
         addUserMessage(text, false, Date.now() / 1000);
         _userScrolledUp = false;
@@ -2140,6 +2176,23 @@
         if (data.session_id !== sessionId) return;
         resetStallTimer();
         resetTaskBar();
+        
+        // Clear _waitingForLoad since we got history - prevents double-subscribe on session_ready
+        window._waitingForLoad = false;
+        
+        // Only clear messages on first full history load this page session
+        // This prevents duplication after mutate while preserving reconnect behavior
+        // (reconnect sends history_offset > 0, which means historyOffset is already set)
+        if (!window._historyLoadedOnce) {
+            window._historyLoadedOnce = true;
+            const messagesContainer = document.getElementById('messages');
+            messagesContainer.innerHTML = '';
+            currentUserMsg = null;
+            currentAssistantMsg = null;
+            currentTurnTs = null;
+            toolCalls = {};
+        }
+        
         const events = data.events || [];
         if (events.length === 0) {
             setStatus('connecting', 'Starting...');
@@ -2426,6 +2479,16 @@
             return;
         }
 
+        // Replay reward/debit from history
+        if (evt.type === 'reward') {
+            const amt = evt.amount || 0;
+            const label = amt >= 0 ? 'Reward' : 'Debit';
+            const noteText = evt.note ? ` - ${evt.note}` : '';
+            const balText = evt.balance !== undefined ? ` (balance: ${evt.balance})` : '';
+            addSystemMessage(`${label}: ${amt >= 0 ? '+' : ''}${amt}${noteText}${balText}`, 'reward');
+            return;
+        }
+
         if (evt.type === 'session_ready') {
             if (window._waitingForLoad) {
                 window._waitingForLoad = false;
@@ -2437,7 +2500,11 @@
         }
         if (evt.type === 'session_loading') {
             setStatus('connecting', 'Loading session...');
-            window._waitingForLoad = true;
+            // Only set _waitingForLoad if we haven't already loaded history
+            // (history batch clears this, but session_loading can come after)
+            if (!window._historyLoadedOnce) {
+                window._waitingForLoad = true;
+            }
             return;
         }
         if (evt.type === 'system_message') {
@@ -2891,6 +2958,15 @@
 
     socket.on('reward_added', (data) => {
         socket.emit('reward_get_balance', { csrf_token: csrfToken });
+        // Show notification in chat if this reward/debit is for this session
+        const entry = data.entry || {};
+        if (entry.session_id === sessionId) {
+            const amt = entry.amount || 0;
+            const label = amt >= 0 ? 'Reward' : 'Debit';
+            const noteText = entry.note ? ` - ${entry.note}` : '';
+            const balText = data.balance !== undefined ? ` (balance: ${data.balance})` : '';
+            addSystemMessage(`${label}: ${amt >= 0 ? '+' : ''}${amt}${noteText}${balText}`, 'reward');
+        }
     });
 
     async function openToolModal() {
