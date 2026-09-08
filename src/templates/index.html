@@ -17,6 +17,24 @@
     <link rel="stylesheet" href="/static/css/index.css">
 </head>
 <body>
+    <script>
+    // OS and browser detection — runs synchronously before CSS renders to avoid FOUC
+    (function() {
+        var ua = navigator.userAgent;
+        var platform = navigator.platform || '';
+        // OS detection
+        if (platform.indexOf('Mac') !== -1 || ua.indexOf('Mac') !== -1) document.body.classList.add('mac');
+        else if (platform.indexOf('Win') !== -1 || ua.indexOf('Windows') !== -1) document.body.classList.add('windows');
+        else if (platform.indexOf('Linux') !== -1 || ua.indexOf('Linux') !== -1) document.body.classList.add('linux');
+        if (/iPhone|iPad|iPod/.test(ua)) document.body.classList.add('ios');
+        if (/Android/.test(ua)) document.body.classList.add('android');
+        // Browser detection
+        if (ua.indexOf('Edg/') !== -1) document.body.classList.add('edge');
+        else if (ua.indexOf('Chrome/') !== -1 && ua.indexOf('Safari/') !== -1) document.body.classList.add('chrome');
+        else if (ua.indexOf('Safari/') !== -1 && ua.indexOf('Chrome/') === -1) document.body.classList.add('safari');
+        else if (ua.indexOf('Firefox/') !== -1) document.body.classList.add('firefox');
+    })();
+    </script>
     <div class="top-bar">
         <div class="top-bar-left">
             <button class="sidebar-toggle" onclick="toggleSidebar()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>

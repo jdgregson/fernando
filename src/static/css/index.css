@@ -846,8 +846,11 @@ button.notebook-delete-btn {
 
 /* Mac Chrome/Edge/Chromium: round bottom-right corner of bottom pane */
 @supports (-webkit-app-region: drag) {
-    #terminal2-container {
+    .edge.mac #terminal2-container {
         border-bottom-right-radius: 16px;
+    }
+    .chrome.mac #terminal2-container {
+        border-bottom-right-radius: 21px;
     }
 }
 

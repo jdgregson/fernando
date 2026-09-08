@@ -2154,9 +2154,10 @@
                     }
                     // Add group context if present
                     if (c.group) {
-                        parts.push(`group: "${c.group.name}" (${c.group.color})`);
+                        const colorWithHash = c.group.color.startsWith('#') ? c.group.color : '#' + c.group.color;
+                        parts.push(`group_name: "${c.group.name}", group_id: ${c.group.id}, group_color: ${colorWithHash}`);
                         if (c.group.sessions && c.group.sessions.length > 0) {
-                            parts.push(`group members: ${c.group.sessions.join(', ')}`);
+                            parts.push(`group_members: ${c.group.sessions.join(', ')}`);
                         }
                         applyGroupColor(c.group.color, c.split);
                     }
