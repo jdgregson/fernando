@@ -1685,7 +1685,12 @@ function getBrowserPaneSession(pane) {
 
 function syncUrlParams() {
     if (!window._urlParamsProcessed) return;
-    const params = new URLSearchParams();
+    const params = new URLSearchParams(window.location.search);
+    // Clear session-related params, preserve others (like collapsed)
+    params.delete('session');
+    params.delete('session2');
+    params.delete('split');
+    params.delete('active');
     const s1 = paneTypes[1] === 'browser' ? getBrowserPaneSession(1) : currentSession1;
     const s2 = paneTypes[2] === 'browser' ? getBrowserPaneSession(2) : currentSession2;
     if (s1) params.set('session', s1);
