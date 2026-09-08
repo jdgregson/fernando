@@ -469,8 +469,6 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     background: #0a213d;
     flex-shrink: 0;
     font-size: 13px;
-    user-select: none;
-    -webkit-user-select: none;
 }
 .task-bar.with-side-borders {
     border-left: 1px solid #143151;
@@ -492,6 +490,8 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     position: relative;
     z-index: 1;
     border-bottom: 1px solid #143151;
+    user-select: none;
+    -webkit-user-select: none;
 }
 .task-bar.open .task-bar-head {
     box-shadow: 0 4px 8px 0 #0a213d;
