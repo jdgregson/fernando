@@ -582,23 +582,36 @@ socket.on('acp_status_change', (data) => {
 // --- Project Groups ---
 // Per-browser expand state: localStorage key -> expanded group IDs set
 // Per-browser group order: localStorage key -> ordered group IDs array
-const GROUP_EXPAND_KEY = 'fernando_group_expanded';
 const GROUP_ORDER_KEY = 'fernando_group_order';
 
-function getExpandedGroups() {
-    try {
-        return new Set(JSON.parse(localStorage.getItem(GROUP_EXPAND_KEY) || '[]'));
-    } catch { return new Set(); }
+function getCollapsedGroups() {
+    const params = new URLSearchParams(window.location.search);
+    const collapsed = params.get('collapsed');
+    if (!collapsed) return new Set();
+    return new Set(collapsed.split(',').filter(id => id));
 }
-function setExpandedGroups(expanded) {
-    localStorage.setItem(GROUP_EXPAND_KEY, JSON.stringify([...expanded]));
+function setCollapsedGroups(collapsed) {
+    const params = new URLSearchParams(window.location.search);
+    if (collapsed.size === 0) {
+        params.delete('collapsed');
+    } else {
+        params.set('collapsed', [...collapsed].join(','));
+    }
+    const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    history.replaceState(null, '', newUrl);
+}
+function isGroupExpanded(groupId) {
+    return !getCollapsedGroups().has(groupId);
 }
 function toggleGroupExpanded(groupId) {
-    const expanded = getExpandedGroups();
-    if (expanded.has(groupId)) expanded.delete(groupId);
-    else expanded.add(groupId);
-    setExpandedGroups(expanded);
-    return expanded.has(groupId);
+    const collapsed = getCollapsedGroups();
+    if (collapsed.has(groupId)) {
+        collapsed.delete(groupId);
+    } else {
+        collapsed.add(groupId);
+    }
+    setCollapsedGroups(collapsed);
+    return !collapsed.has(groupId);
 }
 
 function getGroupOrder() {
@@ -1503,9 +1516,7 @@ function updateSessionList(sessions, chatSessions, data) {
         ...serverGroupIds.filter(id => !localOrder.includes(id))
     ];
     
-    const expandedGroups = getExpandedGroups();
-
-    // Render groups
+    // Render groups (default expanded, URL tracks collapsed)
     let isFirstGroup = true;
     orderedGroupIds.forEach(groupId => {
         const group = _cachedGroups.find(g => g.id === groupId);
@@ -1513,7 +1524,7 @@ function updateSessionList(sessions, chatSessions, data) {
         const sessionItems = Object.entries(allItems)
             .filter(([k, v]) => v.groupId === groupId)
             .map(([k, v]) => v.element);
-        const groupEl = createGroupElement(group, sessionItems, expandedGroups.has(groupId), isFirstGroup);
+        const groupEl = createGroupElement(group, sessionItems, isGroupExpanded(groupId), isFirstGroup);
         fragment.appendChild(groupEl);
         isFirstGroup = false;
     });
@@ -1526,7 +1537,7 @@ function updateSessionList(sessions, chatSessions, data) {
     if (ungroupedItems.length > 0) {
         const ungroupedGroup = { id: '__ungrouped__', name: 'Other', color: null };
         // If no real groups exist, Other is the first group
-        const ungroupedEl = createGroupElement(ungroupedGroup, ungroupedItems, expandedGroups.has('__ungrouped__'), isFirstGroup);
+        const ungroupedEl = createGroupElement(ungroupedGroup, ungroupedItems, isGroupExpanded('__ungrouped__'), isFirstGroup);
         fragment.appendChild(ungroupedEl);
     }
 
