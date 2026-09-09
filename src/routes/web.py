@@ -179,6 +179,7 @@ def api_spawn_subagent():
     model = data.get("model")
     backend = data.get("backend", "kiro")
     group_id = data.get("group_id")
+    parent_session_id = data.get("parent_session_id")  # Optional: who spawned this agent
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
     on_event = acp_manager.default_on_event
@@ -188,6 +189,9 @@ def api_spawn_subagent():
     if group_id:
         from src.services import groups
         groups.move_session_to_group(f"chat:{session_id}", group_id)
+    if parent_session_id:
+        from src.services.acp import set_parent
+        set_parent(session_id, parent_session_id)
 
     def _send_when_ready():
         for _ in range(120):
@@ -199,6 +203,25 @@ def api_spawn_subagent():
     threading.Thread(target=_send_when_ready, daemon=True).start()
 
     return json.dumps({"session_id": session_id}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/send_continuation", methods=["POST"])
+def api_send_continuation():
+    """Send a continuation message to an ACP session (wakes idle agents)."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    message = data.get("message", "")
+    if not session_id or not message:
+        return json.dumps({"error": "Missing session_id or message"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    if not session.ready:
+        return json.dumps({"error": "Session not ready"}), 503, {"Content-Type": "application/json"}
+    session.send_continuation(message)
+    return json.dumps({"ok": True, "session_id": session_id}), 200, {"Content-Type": "application/json"}
 
 
 @bp.route("/api/rename_chat", methods=["POST"])

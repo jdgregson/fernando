@@ -889,7 +889,13 @@ def register_handlers(socketio):
             return
         session = acp_manager.get_session(data.get("session_id"))
         if session:
-            session.send_prompt(data.get("text", ""))
+            text = data.get("text", "")
+            # Inject unread child message count as hidden context
+            from src.services.acp import count_unread_child_messages
+            unread_count = count_unread_child_messages(data.get("session_id"))
+            if unread_count > 0:
+                text = f"[Subagent messages: {unread_count} unread]\n{text}"
+            session.send_prompt(text)
 
     @socketio.on("acp_cancel")
     def acp_cancel(data):

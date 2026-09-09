@@ -119,6 +119,7 @@
     let csrfToken = null;
     let isWorking = false;
     let isReady = false;
+    let _lastSentTs = null;  // Track when we sent a message to dedupe broadcast
 
     // Stats tracking
     let sessionTotalCost = 0;
@@ -2023,8 +2024,41 @@
         else if (text.startsWith('✓') || text.startsWith('✗')) prefix = '';
         const display = text.length > 75 && extraClass === 'continuation' ? text.slice(0, 75) + '…' : text;
         el.textContent = prefix + display;
+        // Store full text and add click handler for continuations
+        if (extraClass === 'continuation') {
+            el.dataset.fullText = text;
+            el.addEventListener('click', () => showContinuationModal(text));
+        }
         document.getElementById('messages').appendChild(el);
         scrollToBottom(true);
+    }
+
+    function showContinuationModal(text) {
+        const overlay = document.createElement('div');
+        overlay.className = 'continuation-modal-overlay';
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        const modal = document.createElement('div');
+        modal.className = 'continuation-modal';
+        modal.onclick = (e) => e.stopPropagation();
+        const header = document.createElement('div');
+        header.className = 'continuation-modal-header';
+        const title = document.createElement('span');
+        title.className = 'continuation-modal-title';
+        title.textContent = 'Continuation Message';
+        const closeBtn = document.createElement('span');
+        closeBtn.className = 'continuation-modal-close';
+        closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+        closeBtn.onclick = () => overlay.remove();
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        const body = document.createElement('div');
+        body.className = 'continuation-modal-body';
+        body.textContent = text;
+        modal.appendChild(header);
+        modal.appendChild(body);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        document.addEventListener('keydown', function _esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', _esc); } });
     }
 
     function sendMessage() {
@@ -2114,6 +2148,7 @@
         }
         text = rewardPrefix + text;
 
+        _lastSentTs = Date.now();  // Track for broadcast deduplication
         addUserMessage(text, false, Date.now() / 1000);
         _userScrolledUp = false;
 
@@ -2479,11 +2514,16 @@
 
         // Handle user prompt from our history
         if (evt.type === 'user_prompt' || evt.type === 'continuation') {
+            // Skip if this is a broadcast of our own message (we already added it locally)
+            if (evt.type === 'user_prompt' && _lastSentTs && evt.ts && Math.abs(evt.ts * 1000 - _lastSentTs) < 3000) {
+                _lastSentTs = null;  // Clear after matching once
+                return;
+            }
             if (currentAssistantMsg) finishTurn();
             if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
                 addSystemMessage(evt.text.slice(15), 'continuation');
             } else {
-                const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
+                const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '').replace(/^\[Subagent messages:[^\]]*\]\n/, '');
                 addUserMessage(display, false, evt.ts);
             }
             return;
@@ -2552,7 +2592,7 @@
                     addSystemMessage(c.text.slice(15), 'continuation');
                 } else {
                     userMsgCount++;
-                    const display = c.text.replace(/^\[Pane context:[^\]]*\]\n/, '');
+                    const display = c.text.replace(/^\[Pane context:[^\]]*\]\n/, '').replace(/^\[Subagent messages:[^\]]*\]\n/, '');
                     addUserMessage(display, userMsgCount === 1);
                 }
             }

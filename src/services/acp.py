@@ -22,6 +22,8 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
 ARCHIVED_FILE = os.path.join(DATA_DIR, "chat_sessions_archived.json")
 PID_MAP_FILE = os.path.join(DATA_DIR, "acp_pid_map.json")
+LINEAGE_FILE = os.path.join(DATA_DIR, "session_lineage.json")
+CHILD_MESSAGES_DIR = os.path.join(DATA_DIR, "child_messages")
 HISTORY_DIR = os.path.join(DATA_DIR, "chat_history")
 KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
 
@@ -74,6 +76,126 @@ def _load_archived_map():
             return json.load(f)
     except Exception:
         return {}
+
+
+_lineage_lock = threading.Lock()
+
+
+def _load_lineage():
+    """Load session lineage map: {session_id: {"parent": parent_id, "children": [child_ids]}}"""
+    try:
+        with open(LINEAGE_FILE) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_lineage(lineage):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = LINEAGE_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(lineage, f, indent=2)
+    os.replace(tmp, LINEAGE_FILE)
+
+
+def set_parent(child_id, parent_id):
+    """Record that parent_id spawned child_id."""
+    with _lineage_lock:
+        lineage = _load_lineage()
+        # Set child's parent
+        if child_id not in lineage:
+            lineage[child_id] = {"parent": None, "children": []}
+        lineage[child_id]["parent"] = parent_id
+        # Add to parent's children
+        if parent_id not in lineage:
+            lineage[parent_id] = {"parent": None, "children": []}
+        if child_id not in lineage[parent_id]["children"]:
+            lineage[parent_id]["children"].append(child_id)
+        _save_lineage(lineage)
+
+
+def get_parent(child_id):
+    """Get the parent session ID for a child, or None if no parent."""
+    with _lineage_lock:
+        lineage = _load_lineage()
+        return lineage.get(child_id, {}).get("parent")
+
+
+def get_children(parent_id):
+    """Get list of child session IDs for a parent."""
+    with _lineage_lock:
+        lineage = _load_lineage()
+        return lineage.get(parent_id, {}).get("children", [])
+
+
+def is_child_of(child_id, parent_id):
+    """Check if child_id is a direct child of parent_id."""
+    with _lineage_lock:
+        lineage = _load_lineage()
+        return lineage.get(child_id, {}).get("parent") == parent_id
+
+
+# --- Child message queue ---
+
+def _get_message_queue_path(parent_id):
+    """Get path to message queue file for a parent session."""
+    return os.path.join(CHILD_MESSAGES_DIR, f"{parent_id}.json")
+
+
+def queue_child_message(parent_id, child_id, message):
+    """Add a message from child to parent's queue. Returns message ID."""
+    os.makedirs(CHILD_MESSAGES_DIR, exist_ok=True)
+    queue_path = _get_message_queue_path(parent_id)
+    with _lineage_lock:  # Reuse lock for simplicity
+        try:
+            with open(queue_path) as f:
+                queue = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            queue = []
+        msg_id = uuid.uuid4().hex[:8]
+        queue.append({
+            "id": msg_id,
+            "from": child_id,
+            "message": message,
+            "ts": time.time(),
+            "read": False,
+        })
+        tmp = queue_path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(queue, f, indent=2)
+        os.replace(tmp, queue_path)
+    return msg_id
+
+
+def get_unread_child_messages(parent_id, mark_read=True):
+    """Get unread messages from children. Optionally marks them as read."""
+    queue_path = _get_message_queue_path(parent_id)
+    with _lineage_lock:
+        try:
+            with open(queue_path) as f:
+                queue = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return []
+        unread = [m for m in queue if not m.get("read")]
+        if mark_read and unread:
+            for m in queue:
+                m["read"] = True
+            tmp = queue_path + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(queue, f, indent=2)
+            os.replace(tmp, queue_path)
+        return unread
+
+
+def count_unread_child_messages(parent_id):
+    """Count unread messages without marking them read."""
+    queue_path = _get_message_queue_path(parent_id)
+    try:
+        with open(queue_path) as f:
+            queue = json.load(f)
+        return sum(1 for m in queue if not m.get("read"))
+    except (OSError, json.JSONDecodeError):
+        return 0
 
 
 def _save_pid_map(sessions):
@@ -324,8 +446,11 @@ class ACPSession:
         self._has_unread = False  # User is actively engaged, clear unread
         self._notify_status_change()
         self._last_activity = time.time()
-        self.history.append({"type": "user_prompt", "text": text, "ts": time.time()})
+        evt = {"type": "user_prompt", "text": text, "ts": time.time()}
+        self.history.append(evt)
         self._save_history()
+        if self.on_event:
+            self.on_event(self.id, evt)
         self._send({
             "jsonrpc": "2.0",
             "id": self._get_id(),

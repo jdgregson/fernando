@@ -180,6 +180,73 @@ body { display: flex; flex-direction: column; }
     border-left: 1px solid #102d50;
 }
 
+.msg.system.continuation {
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .msg.system.continuation:hover {
+        background: #0f2a4d;
+        border-color: #1a3d66;
+    }
+}
+
+.continuation-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.continuation-modal {
+    background: #1e2030;
+    border: 1px solid #3b4261;
+    border-radius: 8px;
+    max-width: 600px;
+    width: 100%;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.continuation-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #3b4261;
+}
+
+.continuation-modal-title {
+    color: #c0caf5;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.continuation-modal-close {
+    cursor: pointer;
+    color: #666;
+    padding: 4px;
+}
+
+.continuation-modal-close:hover {
+    color: #999;
+}
+
+.continuation-modal-body {
+    padding: 16px;
+    overflow-y: auto;
+    color: #a9b1d6;
+    font-size: 13px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 .input-area {
     background: #0d2848;
     padding: 20px;

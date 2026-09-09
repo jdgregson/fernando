@@ -4,7 +4,7 @@
 Tools: spawn_subagent, get_subagent_status, list_subagents, terminate_subagent
 """
 import _mcp_common  # noqa: F401  (activates venv + sys.path)
-from _mcp_common import PROJECT_ROOT, read_api_key
+from _mcp_common import PROJECT_ROOT, read_api_key, find_my_session_id
 
 import asyncio
 import json
@@ -57,6 +57,7 @@ def create_subagent(
     cron_schedule=None,
     model=None,
     group_id=None,
+    parent_session_id=None,
 ):
     """Spawn a subagent with full workspace/instructions, using ACP instead of tmux."""
     task_id, workspace = create_workspace(task_id)
@@ -75,7 +76,7 @@ def create_subagent(
 
     if at_schedule:
         # Rewrite spawn.sh to use ACP API instead of tmux
-        _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id)
+        _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id, parent_session_id)
         schedule_at(script_path, at_schedule)
         return {
             "task_id": task_id,
@@ -85,7 +86,7 @@ def create_subagent(
         }
 
     if cron_schedule:
-        _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id)
+        _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id, parent_session_id)
         schedule_cron(script_path, cron_schedule)
         return {
             "task_id": task_id,
@@ -102,6 +103,8 @@ def create_subagent(
         payload["model"] = model
     if group_id:
         payload["group_id"] = group_id
+    if parent_session_id:
+        payload["parent_session_id"] = parent_session_id
     req = urllib.request.Request(
         "http://localhost:5000/api/spawn_subagent",
         data=json.dumps(payload).encode(),
@@ -117,7 +120,7 @@ def create_subagent(
         return {"error": str(e), "task_id": task_id, "workspace": workspace}
 
 
-def _write_acp_spawn_script(script_path, instructions_file, session_name, model=None, group_id=None):
+def _write_acp_spawn_script(script_path, instructions_file, session_name, model=None, group_id=None, parent_session_id=None):
     """Overwrite spawn.sh to use ACP API instead of tmux."""
     os.chmod(script_path, 0o700)
     payload_fields = f'\\"task\\": \\"$TASK\\", \\"name\\": \\"{session_name}\\"'
@@ -125,6 +128,8 @@ def _write_acp_spawn_script(script_path, instructions_file, session_name, model=
         payload_fields += f', \\"model\\": \\"{model}\\"'
     if group_id:
         payload_fields += f', \\"group_id\\": \\"{group_id}\\"'
+    if parent_session_id:
+        payload_fields += f', \\"parent_session_id\\": \\"{parent_session_id}\\"'
     with open(script_path, "w") as f:
         f.write(f"""#!/bin/bash
 API_KEY=$(cat /tmp/fernando-api-key 2>/dev/null)
@@ -213,6 +218,43 @@ async def list_tools() -> list[Tool]:
                 "required": ["task_id"],
             },
         ),
+        Tool(
+            name="message_parent",
+            description="Send a message to the agent that spawned you. The message is queued for the parent to read. Does NOT end your turn - you can continue working. Fails if you weren't spawned by another agent.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The message to send to your parent agent",
+                    },
+                },
+                "required": ["message"],
+            },
+        ),
+        Tool(
+            name="message_child",
+            description="Send a message to one of your subagents. The message is delivered as a continuation, interrupting the child's current work. Fails if the target session is not your child.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "The session ID of the child to message (8-character hex ID)",
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "The message to send to the child agent",
+                    },
+                },
+                "required": ["session_id", "message"],
+            },
+        ),
+        Tool(
+            name="read_child_messages",
+            description="Read all unread messages from your subagents. Returns a list of messages with sender session IDs, timestamps, and content. Messages are marked as read after retrieval.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -233,6 +275,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments.get("cron_schedule"),
             arguments.get("model"),
             arguments.get("group_id"),
+            parent_session_id=find_my_session_id(),  # Record who spawned this agent
         )
     elif name == "get_subagent_status":
         result = get_subagent_status(arguments["task_id"])
@@ -240,6 +283,68 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = list_subagents()
     elif name == "terminate_subagent":
         result = terminate_subagent(arguments["task_id"])
+    elif name == "message_parent":
+        my_session = find_my_session_id()
+        if not my_session:
+            result = {"error": "Could not determine your session ID"}
+        else:
+            from src.services.acp import get_parent, queue_child_message
+            parent_id = get_parent(my_session)
+            if not parent_id:
+                result = {"error": "You were not spawned by another agent (no parent)"}
+            else:
+                msg_id = queue_child_message(parent_id, my_session, arguments["message"])
+                # Check if parent is idle - if so, wake them via API
+                api_key = read_api_key()
+                wake_msg = f"[Subagent {my_session} sent you a message. Use read_child_messages() to read it.]"
+                req = urllib.request.Request(
+                    "http://localhost:5000/api/send_continuation",
+                    data=json.dumps({"session_id": parent_id, "message": wake_msg}).encode(),
+                    headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                )
+                try:
+                    urllib.request.urlopen(req, timeout=5)
+                except Exception:
+                    pass  # Parent may be busy, that's OK - message is queued
+                result = {"ok": True, "message_id": msg_id, "parent_session": parent_id}
+    elif name == "message_child":
+        my_session = find_my_session_id()
+        if not my_session:
+            result = {"error": "Could not determine your session ID"}
+        else:
+            from src.services.acp import is_child_of
+            child_id = arguments["session_id"]
+            if not is_child_of(child_id, my_session):
+                result = {"error": f"Session {child_id} is not your child"}
+            else:
+                api_key = read_api_key()
+                msg = f"[Message from parent {my_session}]: {arguments['message']}"
+                req = urllib.request.Request(
+                    "http://localhost:5000/api/send_continuation",
+                    data=json.dumps({"session_id": child_id, "message": msg}).encode(),
+                    headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                )
+                try:
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    result = json.loads(resp.read())
+                    if result.get("ok"):
+                        result["child_session"] = child_id
+                except urllib.error.HTTPError as e:
+                    body = e.read().decode() if e.fp else ""
+                    try:
+                        result = json.loads(body)
+                    except (json.JSONDecodeError, ValueError):
+                        result = {"error": f"HTTP {e.code}: {body}"}
+                except Exception as e:
+                    result = {"error": str(e)}
+    elif name == "read_child_messages":
+        my_session = find_my_session_id()
+        if not my_session:
+            result = {"error": "Could not determine your session ID"}
+        else:
+            from src.services.acp import get_unread_child_messages
+            messages = get_unread_child_messages(my_session)
+            result = {"messages": messages, "count": len(messages)}
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
