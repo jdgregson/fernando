@@ -321,6 +321,9 @@ function loadSettings() {
             if (idleTimeoutSel) idleTimeoutSel.value = String(data.idle_session_timeout ?? 300);
             const providerOpenCode = document.getElementById('providerOpenCode');
             if (providerOpenCode) providerOpenCode.checked = data.providers_opencode === true;
+            // Load subagent settings
+            const subagentsCanSpawn = document.getElementById('settingsSubagentsCanSpawn');
+            if (subagentsCanSpawn) subagentsCanSpawn.checked = data.subagents_can_spawn === true;
             // Load health thresholds
             document.getElementById('healthMemWarning').value = data.health_memory_warning ?? 65;
             document.getElementById('healthMemCritical').value = data.health_memory_critical ?? 80;
@@ -390,6 +393,14 @@ function saveIdleTimeout(value) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'idle_session_timeout', value: parseInt(value, 10)})
+    }).catch(() => {});
+}
+
+function saveBoolSetting(key, value) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key, value: !!value})
     }).catch(() => {});
 }
 

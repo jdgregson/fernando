@@ -196,6 +196,10 @@
                             <option value="0">Disabled</option>
                         </select>
                     </div>
+                    <div class="settings-row" style="display:flex;align-items:center;gap:10px;">
+                        <input type="checkbox" id="settingsSubagentsCanSpawn" onchange="saveBoolSetting('subagents_can_spawn', this.checked)">
+                        <label class="settings-label" for="settingsSubagentsCanSpawn" style="cursor:pointer;margin:0;">Allow subagents to spawn subagents</label>
+                    </div>
                 </div>
                 <div class="settings-tab-content" id="settingsTabProviders">
                     <div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:8px;">

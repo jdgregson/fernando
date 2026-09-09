@@ -240,6 +240,40 @@ def api_acp_cancel():
     return json.dumps({"ok": True, "session_id": session_id}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/acp/sleep", methods=["POST"])
+def api_acp_sleep():
+    """Put an ACP session to sleep (unload from memory)."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    if not session_id:
+        return json.dumps({"error": "Missing session_id"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    session.unload()
+    from src.routes.websocket import socketio
+    socketio.emit("acp_session_slept", {"session_id": session_id})
+    return json.dumps({"ok": True, "session_id": session_id}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/acp/terminate", methods=["POST"])
+def api_acp_terminate():
+    """Terminate/archive an ACP session."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    if not session_id:
+        return json.dumps({"error": "Missing session_id"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    acp_manager.archive_session(session_id)
+    return json.dumps({"ok": True, "session_id": session_id, "terminated": True}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/acp/agent_message", methods=["POST"])
 def api_acp_agent_message():
     """Send a message from one agent to another (parent-child messaging)."""

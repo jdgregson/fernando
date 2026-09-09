@@ -212,7 +212,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "task_id": {
                         "type": "string",
-                        "description": "The task ID to terminate",
+                        "description": "The task ID or session ID to terminate",
                     }
                 },
                 "required": ["task_id"],
@@ -255,6 +255,20 @@ async def list_tools() -> list[Tool]:
             description="Read all unread messages from your subagents. Returns a list of messages with sender session IDs, timestamps, and content. Messages are marked as read after retrieval.",
             inputSchema={"type": "object", "properties": {}},
         ),
+        Tool(
+            name="sleep_child",
+            description="Put one of your subagent sessions to sleep (unload from memory). The session is preserved and can be woken later. Fails if the target session is not your child.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "The session ID of the child to sleep (8-character hex ID)",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        ),
     ]
 
 
@@ -291,7 +305,25 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "list_subagents":
         result = list_subagents()
     elif name == "terminate_subagent":
-        result = terminate_subagent(arguments["task_id"])
+        # Try to terminate via ACP API using task_id as session_id
+        session_id = arguments["task_id"]
+        api_key = read_api_key()
+        req = urllib.request.Request(
+            "http://localhost:5000/api/acp/terminate",
+            data=json.dumps({"session_id": session_id}).encode(),
+            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+            result = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode() if e.fp else ""
+            try:
+                result = json.loads(body)
+            except (json.JSONDecodeError, ValueError):
+                result = {"error": f"HTTP {e.code}: {body}"}
+        except Exception as e:
+            result = {"error": str(e)}
     elif name == "message_parent":
         my_session = find_my_session_id()
         if not my_session:
@@ -353,6 +385,35 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             from src.services.acp import get_unread_child_messages
             messages = get_unread_child_messages(my_session)
             result = {"messages": messages, "count": len(messages)}
+    elif name == "sleep_child":
+        my_session = find_my_session_id()
+        if not my_session:
+            result = {"error": "Could not determine your session ID"}
+        else:
+            from src.services.acp import is_child_of
+            child_id = arguments["session_id"]
+            if not is_child_of(child_id, my_session):
+                result = {"error": f"Session {child_id} is not your child"}
+            else:
+                api_key = read_api_key()
+                req = urllib.request.Request(
+                    "http://localhost:5000/api/acp/sleep",
+                    data=json.dumps({"session_id": child_id}).encode(),
+                    headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                )
+                try:
+                    resp = urllib.request.urlopen(req, timeout=10)
+                    result = json.loads(resp.read())
+                    if result.get("ok"):
+                        result["child_session"] = child_id
+                except urllib.error.HTTPError as e:
+                    body = e.read().decode() if e.fp else ""
+                    try:
+                        result = json.loads(body)
+                    except (json.JSONDecodeError, ValueError):
+                        result = {"error": f"HTTP {e.code}: {body}"}
+                except Exception as e:
+                    result = {"error": str(e)}
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
