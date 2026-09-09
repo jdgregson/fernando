@@ -261,6 +261,15 @@ async def list_tools() -> list[Tool]:
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     if name == "spawn_subagent":
+        # Check if caller is a subagent and if spawning is allowed
+        my_session = find_my_session_id()
+        if my_session:
+            from src.services.acp import get_parent
+            from src.services.settings import get as get_setting
+            if get_parent(my_session) and not get_setting("subagents_can_spawn"):
+                return [TextContent(type="text", text=json.dumps({
+                    "error": "Subagents cannot spawn other subagents (subagents_can_spawn setting is disabled)"
+                }))]
         model = arguments.get("model")
         if model and AVAILABLE_MODELS and model not in AVAILABLE_MODELS:
             return [TextContent(type="text", text=json.dumps({
@@ -275,7 +284,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments.get("cron_schedule"),
             arguments.get("model"),
             arguments.get("group_id"),
-            parent_session_id=find_my_session_id(),  # Record who spawned this agent
+            parent_session_id=my_session,  # Record who spawned this agent
         )
     elif name == "get_subagent_status":
         result = get_subagent_status(arguments["task_id"])

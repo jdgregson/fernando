@@ -1393,7 +1393,7 @@ function updateSessionList(sessions, chatSessions, data) {
         item.className = 'session-item';
         item.dataset.session = sessionKey;
         const nameSpan = document.createElement('span');
-        nameSpan.className = 'session-name';
+        nameSpan.className = 'session-name' + (chat._isChild ? ' child-session' : '');
         
         // Get group color for this chat
         const groupId = _cachedSessionGroups[sessionKey];
@@ -1418,7 +1418,9 @@ function updateSessionList(sessions, chatSessions, data) {
             chatIconColor = 'currentColor';
             chatIconClass = '';
         }
-        nameSpan.innerHTML = '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
+        // Tree connector for child sessions (L shape)
+        const treeConnector = chat._isChild ? '<svg class="tree-connector" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1" style="vertical-align:-1px;margin-right:2px;opacity:0.5"><path d="M3 0 L3 6 L10 6"/></svg>' : '';
+        nameSpan.innerHTML = treeConnector + '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
@@ -1504,7 +1506,35 @@ function updateSessionList(sessions, chatSessions, data) {
     sessions.forEach(session => {
         allItems[session] = { element: createTerminalItem(session), groupId: _cachedSessionGroups[session] || null };
     });
+    // Sort chatSessions: children immediately after their parents
+    const sortedChats = [];
+    const childrenByParent = {};
+    const roots = [];
     chatSessions.forEach(chat => {
+        if (chat.parent_id) {
+            if (!childrenByParent[chat.parent_id]) childrenByParent[chat.parent_id] = [];
+            childrenByParent[chat.parent_id].push(chat);
+        } else {
+            roots.push(chat);
+        }
+    });
+    function addWithChildren(chat) {
+        sortedChats.push(chat);
+        const children = childrenByParent[chat.id] || [];
+        children.forEach(child => {
+            child._isChild = true;
+            addWithChildren(child);
+        });
+    }
+    roots.forEach(addWithChildren);
+    // Add orphaned children (parent not in session list) at the end
+    chatSessions.forEach(chat => {
+        if (!sortedChats.includes(chat)) {
+            chat._isChild = !!chat.parent_id;
+            sortedChats.push(chat);
+        }
+    });
+    sortedChats.forEach(chat => {
         const key = 'chat:' + chat.id;
         allItems[key] = { element: createChatItem(chat), groupId: _cachedSessionGroups[key] || null };
     });

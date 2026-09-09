@@ -1324,7 +1324,18 @@ class ACPManager:
 
     def list_sessions(self):
         with self._lock:
-            return [{"id": sid, "name": s.display_name, "history_count": len(s.history), "loaded": s.is_loaded, "status": s.get_status()} for sid, s in self.sessions.items()]
+            result = []
+            for sid, s in self.sessions.items():
+                parent = get_parent(sid)
+                result.append({
+                    "id": sid,
+                    "name": s.display_name,
+                    "history_count": len(s.history),
+                    "loaded": s.is_loaded,
+                    "status": s.get_status(),
+                    "parent_id": parent,
+                })
+            return result
 
     def _broadcast_sessions_list(self):
         """Notify websocket layer to broadcast updated sessions list to all clients."""
