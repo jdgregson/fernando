@@ -29,6 +29,7 @@ body { display: flex; flex-direction: column; }
 
 .messages {
     flex: 1;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: 0;
     display: flex;
@@ -181,7 +182,7 @@ body { display: flex; flex-direction: column; }
     border-left: 1px solid #102d50;
     max-width: 100%;
     white-space: nowrap;
-    overflow: hidden;
+    overflow: clip;
     text-overflow: ellipsis;
 }
 
@@ -260,19 +261,19 @@ body { display: flex; flex-direction: column; }
     font-style: italic;
     background: #0a213d;
     padding: 6px 12px;
-    border-right: 1px solid #2a4a6d;
-    border-left: 1px solid #2a4a6d;
+    border-right: 1px solid #102d50;
+    border-left: 1px solid #102d50;
     cursor: pointer;
     max-width: 100%;
     white-space: nowrap;
-    overflow: hidden;
+    overflow: clip;
     text-overflow: ellipsis;
 }
 
 @media (hover: hover) {
     .msg.agent-message:hover {
         background: #0f2a4d;
-        border-color: #3a5a7d;
+        border-color: #1a3d66;
     }
 }
 
