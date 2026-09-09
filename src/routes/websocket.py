@@ -695,6 +695,30 @@ def register_handlers(socketio):
             groups.move_session_to_group('chat:' + new_id, group_id)
         emit("acp_created", {"session_id": new_id})
 
+    @socketio.on("acp_fork_at_turn")
+    def acp_fork_at_turn(data):
+        """Fork a session at a specific turn index."""
+        if not validate_csrf(data):
+            emit("error", {"message": "Invalid CSRF token"})
+            return
+        source_id = data.get("session_id")
+        turn_index = data.get("turn_index")
+        if not source_id:
+            emit("error", {"message": "Missing session_id"})
+            return
+        if turn_index is None:
+            emit("error", {"message": "Missing turn_index"})
+            return
+        new_id = acp_manager.fork_at_turn(source_id, turn_index, on_event=acp_on_event)
+        if not new_id:
+            emit("error", {"message": "Failed to fork session"})
+            return
+        group_id = data.get("group_id")
+        if group_id:
+            from src.services import groups
+            groups.move_session_to_group('chat:' + new_id, group_id)
+        emit("acp_created", {"session_id": new_id})
+
     @socketio.on("acp_execute_command")
     def acp_execute_command(data):
         """Execute a slash command in an ACP session (for testing tangent/rewind)."""

@@ -802,10 +802,94 @@
     let currentTurnModel = null;
     let toolCalls = {};
     let userMsgCount = 0;
+    let currentTurnIndex = 0;  // 1-based turn index for fork functionality
     let historyOffset = 0;
     let expectedSeq = -1;  // -1 = not yet synced, accept everything
     let seqBuffer = {};    // seq -> data, for out-of-order events
     let _modelListPending = false;  // true when we're collecting a model list response
+
+    // --- Message context menu for Fork ---
+    function showMsgContextMenu(x, y, turnIndex, msgType) {
+        dismissMsgContextMenu();
+        const menu = document.createElement('div');
+        menu.className = 'msg-context-menu';
+        
+        const forkBtn = document.createElement('div');
+        forkBtn.className = 'msg-context-item';
+        forkBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 01-9 9"/><path d="M6 9a9 9 0 009 9"/></svg><span>Fork from here</span>';
+        forkBtn.onclick = () => {
+            menu.remove();
+            forkAtTurn(turnIndex);
+        };
+        menu.appendChild(forkBtn);
+        
+        document.body.appendChild(menu);
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        
+        // Reposition if off-screen
+        const rect = menu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 10) + 'px';
+        if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 10) + 'px';
+        
+        setTimeout(() => {
+            function closeMenu(e) {
+                if (!menu.contains(e.target)) {
+                    menu.remove();
+                    document.removeEventListener('click', closeMenu);
+                    document.removeEventListener('touchstart', closeMenu);
+                }
+            }
+            document.addEventListener('click', closeMenu);
+            document.addEventListener('touchstart', closeMenu);
+        }, 10);
+    }
+    
+    function dismissMsgContextMenu() {
+        document.querySelectorAll('.msg-context-menu').forEach(m => m.remove());
+    }
+    
+    function forkAtTurn(turnIndex) {
+        addSystemMessage('Forking from turn ' + turnIndex + '...');
+        socket.emit('acp_fork_at_turn', {
+            csrf_token: csrfToken,
+            session_id: sessionId,
+            turn_index: turnIndex
+        });
+    }
+    
+    function addMsgLabelContextMenu(label, turnIndex, msgType) {
+        // Right-click on desktop
+        label.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showMsgContextMenu(e.clientX, e.clientY, turnIndex, msgType);
+        });
+        
+        // Long-press on mobile
+        let holdTimer = null;
+        label.addEventListener('touchstart', (e) => {
+            holdTimer = setTimeout(() => {
+                holdTimer = 'fired';
+                const touch = e.touches[0];
+                showMsgContextMenu(touch.clientX, touch.clientY, turnIndex, msgType);
+            }, 500);
+        });
+        label.addEventListener('touchend', () => {
+            if (holdTimer && holdTimer !== 'fired') {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+        });
+        label.addEventListener('touchmove', () => {
+            if (holdTimer && holdTimer !== 'fired') {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+            }
+        });
+        
+        // Style to show it's clickable
+        label.style.cursor = 'context-menu';
+    }
 
     function ensureAssistantMsg(ts) {
         if (!currentAssistantMsg) {
@@ -816,10 +900,16 @@
             currentAssistantMsg = document.createElement('div');
             currentAssistantMsg.className = 'msg assistant';
             if (msgTs) currentAssistantMsg.dataset.ts = msgTs;
+            // Track turn index for fork functionality
+            currentAssistantMsg.dataset.turn = currentTurnIndex;
             const label = document.createElement('div');
             label.className = 'msg-label';
             label.textContent = 'Fernando';
             if (msgTs) _addTimestampSpan(label, msgTs, msgModel);
+            // Add context menu for forking
+            if (currentTurnIndex > 0) {
+                addMsgLabelContextMenu(label, currentTurnIndex, 'assistant');
+            }
             currentAssistantMsg.appendChild(label);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }
@@ -1965,14 +2055,23 @@
         label.appendChild(span);
     }
 
-    function addUserMessage(text, collapsed, ts) {
+    function addUserMessage(text, collapsed, ts, turnIdx) {
+        // Increment turn index for each user message (unless explicitly provided)
+        if (turnIdx !== undefined) {
+            currentTurnIndex = turnIdx;
+        } else {
+            currentTurnIndex++;
+        }
         const el = document.createElement('div');
         el.className = 'msg user';
         if (ts) el.dataset.ts = ts;
+        el.dataset.turn = currentTurnIndex;
         const label = document.createElement('div');
         label.className = 'msg-label';
         label.textContent = 'You';
         if (ts) _addTimestampSpan(label, ts);
+        // Add context menu for forking
+        addMsgLabelContextMenu(label, currentTurnIndex, 'user');
         el.appendChild(label);
         if (collapsed) {
             const preview = document.createElement('span');
@@ -2288,6 +2387,7 @@
             currentUserMsg = null;
             currentAssistantMsg = null;
             currentTurnTs = null;
+            currentTurnIndex = 0;  // Reset turn index for fresh history load
             toolCalls = {};
         }
         

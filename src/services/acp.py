@@ -1426,6 +1426,114 @@ class ACPManager:
         threading.Thread(target=self._load_existing, args=(new_id, session, new_acp_id), daemon=True).start()
         return new_id
 
+    def fork_at_turn(self, source_session_id, turn_index, on_event=None):
+        """Fork a session at a specific turn index.
+        
+        turn_index is the 0-based user message index (1 = first user message).
+        Returns the new Fernando session ID, or None on failure.
+        """
+        source = self.get_session(source_session_id)
+        if not source:
+            logger.warning(f"[fork_at_turn] Source session {source_session_id} not found")
+            return None
+        if not source.is_loaded:
+            logger.warning(f"[fork_at_turn] Source session {source_session_id} not loaded")
+            return None
+        
+        # Get list of turns from Kiro
+        turns_result = source.execute_command("rewind")
+        if not turns_result or not turns_result.get("success"):
+            logger.warning(f"[fork_at_turn] Failed to get turns: {turns_result}")
+            return None
+        
+        turns = turns_result.get("data", {}).get("turns", [])
+        if not turns:
+            logger.warning(f"[fork_at_turn] No turns available to fork from")
+            return None
+        
+        # Find the turn with matching index
+        # Kiro turns are ordered by logIndex descending (newest first)
+        # turn_index is 1-based from the UI (turn 1 = first user message)
+        target_turn = None
+        for turn in turns:
+            if turn.get("logIndex") == turn_index:
+                target_turn = turn
+                break
+        
+        if not target_turn:
+            logger.warning(f"[fork_at_turn] Turn {turn_index} not found in {len(turns)} turns")
+            # Fall back to using the turn_index directly as logIndex
+            log_index = str(turn_index)
+        else:
+            log_index = str(target_turn.get("logIndex"))
+        
+        logger.info(f"[fork_at_turn] Forking at turn {log_index}")
+        
+        fork_result = source.execute_command("rewind", {"value": log_index})
+        if not fork_result or not fork_result.get("success"):
+            logger.warning(f"[fork_at_turn] Failed to fork: {fork_result}")
+            return None
+        
+        new_acp_id = fork_result.get("data", {}).get("sessionId")
+        if not new_acp_id:
+            logger.warning(f"[fork_at_turn] No sessionId in fork result")
+            return None
+        
+        logger.info(f"[fork_at_turn] Kiro created forked session: {new_acp_id}")
+        
+        # Create a new Fernando session that loads the forked Kiro session
+        new_id = str(uuid.uuid4())[:8]
+        
+        # Copy the Fernando history file up to the fork point
+        # We need to truncate history to only include events up to the forked turn
+        source_history_path = os.path.join(HISTORY_DIR, f"{source_session_id}.jsonl")
+        new_history_path = os.path.join(HISTORY_DIR, f"{new_id}.jsonl")
+        if os.path.exists(source_history_path):
+            self._copy_history_up_to_turn(source_history_path, new_history_path, turn_index)
+        
+        session = ACPSession(new_id, on_event=on_event, backend=source.backend)
+        session.model = source.model
+        session.display_name = source.display_name + f" (fork@{turn_index})"
+        session.acp_session_id = new_acp_id
+        self._wire_session_status_callback(session)
+        
+        with self._lock:
+            self.sessions[new_id] = session
+        
+        # Load the forked session instead of starting fresh
+        threading.Thread(target=self._load_existing, args=(new_id, session, new_acp_id), daemon=True).start()
+        return new_id
+
+    def _copy_history_up_to_turn(self, source_path, dest_path, turn_index):
+        """Copy history events up to and including the specified turn."""
+        user_turn_count = 0
+        events_to_copy = []
+        
+        with open(source_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                evt = json.loads(line)
+                evt_type = evt.get("type")
+                
+                # Track user turns
+                if evt_type == "user_prompt":
+                    user_turn_count += 1
+                
+                # Stop after we've passed the target turn
+                if user_turn_count > turn_index:
+                    break
+                
+                events_to_copy.append(line)
+        
+        with open(dest_path, 'w') as f:
+            for line in events_to_copy:
+                f.write(line + '\n')
+        
+        os.chmod(dest_path, 0o600)
+        logger.info(f"[_copy_history_up_to_turn] Copied {len(events_to_copy)} events up to turn {turn_index}")
+
     def _save(self):
         with self._lock:
             mapping = {

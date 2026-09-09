@@ -723,3 +723,33 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     color: #888;
 }
 .reward-ledger-time-chat { color: #555; margin-left: 8px; }
+
+/* Message context menu (fork from message) */
+.msg-context-menu {
+    position: fixed;
+    background: #1a2744;
+    border: 1px solid #283d5b;
+    border-radius: 8px;
+    padding: 4px;
+    min-width: 150px;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.msg-context-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #a9b1d6;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.msg-context-item:hover {
+    background: #283d5b;
+    color: #c0caf5;
+}
+.msg-context-item svg {
+    flex-shrink: 0;
+}
