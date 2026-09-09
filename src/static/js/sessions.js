@@ -173,6 +173,7 @@ function toggleDesktop() {
         ensureDesktopIframe(browser);
     }
     refreshSidebarHighlights();
+    updatePaneBorders();
     syncUrlParams();
     updateKbdBtn();
 }
