@@ -258,6 +258,42 @@ def api_acp_sleep():
     return json.dumps({"ok": True, "session_id": session_id}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/acp/wake", methods=["POST"])
+def api_acp_wake():
+    """Wake a sleeping ACP session (load it back into memory)."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    wait = data.get("wait", False)  # If true, block until session is ready
+    if not session_id:
+        return json.dumps({"error": "Missing session_id"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    if session.is_loaded and session.ready:
+        return json.dumps({"ok": True, "session_id": session_id, "was_sleeping": False}), 200, {"Content-Type": "application/json"}
+    # Get acp_session_id before loading
+    acp_id = session.acp_session_id
+    if not acp_id:
+        return json.dumps({"error": "Session has no acp_session_id - cannot wake"}), 500, {"Content-Type": "application/json"}
+    session._recording = True
+    session._broadcasting = True
+    session._alive = True
+    session.load(acp_id)
+    session.ready = True
+    acp_manager._save_pid_map()
+    if wait:
+        import time
+        for _ in range(60):  # Wait up to 60 seconds
+            if session.ready:
+                break
+            time.sleep(1)
+        if not session.ready:
+            return json.dumps({"error": "Session failed to become ready", "session_id": session_id}), 503, {"Content-Type": "application/json"}
+    return json.dumps({"ok": True, "session_id": session_id, "was_sleeping": True, "ready": session.ready}), 200, {"Content-Type": "application/json"}
+
+
 @bp.route("/api/acp/terminate", methods=["POST"])
 def api_acp_terminate():
     """Terminate/archive an ACP session."""

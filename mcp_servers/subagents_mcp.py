@@ -256,14 +256,28 @@ async def list_tools() -> list[Tool]:
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
-            name="sleep_child",
+            name="sleep_subagent",
             description="Put one of your subagent sessions to sleep (unload from memory). The session is preserved and can be woken later. Fails if the target session is not your child.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
-                        "description": "The session ID of the child to sleep (8-character hex ID)",
+                        "description": "The session ID of the subagent to sleep (8-character hex ID)",
+                    },
+                },
+                "required": ["session_id"],
+            },
+        ),
+        Tool(
+            name="wake_subagent",
+            description="Wake a sleeping subagent session (load it back into memory). Blocks until the session is ready. Fails if the target session is not your child.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "The session ID of the subagent to wake (8-character hex ID)",
                     },
                 },
                 "required": ["session_id"],
@@ -359,6 +373,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = {"error": f"Session {child_id} is not your child"}
             else:
                 api_key = read_api_key()
+                # First try to send the message
                 req = urllib.request.Request(
                     "http://localhost:5000/api/acp/agent_message",
                     data=json.dumps({"session_id": child_id, "from_session": my_session, "message": arguments["message"]}).encode(),
@@ -372,9 +387,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 except urllib.error.HTTPError as e:
                     body = e.read().decode() if e.fp else ""
                     try:
-                        result = json.loads(body)
+                        err_result = json.loads(body)
                     except (json.JSONDecodeError, ValueError):
-                        result = {"error": f"HTTP {e.code}: {body}"}
+                        err_result = {"error": body}
+                    # If session not ready (sleeping), wake it and retry
+                    if e.code == 503 and "not ready" in err_result.get("error", ""):
+                        wake_req = urllib.request.Request(
+                            "http://localhost:5000/api/acp/wake",
+                            data=json.dumps({"session_id": child_id, "wait": True}).encode(),
+                            headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                        )
+                        try:
+                            urllib.request.urlopen(wake_req, timeout=120)
+                            # Retry the message
+                            retry_req = urllib.request.Request(
+                                "http://localhost:5000/api/acp/agent_message",
+                                data=json.dumps({"session_id": child_id, "from_session": my_session, "message": arguments["message"]}).encode(),
+                                headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                            )
+                            resp = urllib.request.urlopen(retry_req, timeout=10)
+                            result = json.loads(resp.read())
+                            if result.get("ok"):
+                                result["child_session"] = child_id
+                                result["woke_agent"] = True
+                        except Exception as wake_err:
+                            result = {"error": f"Failed to wake agent: {wake_err}"}
+                    else:
+                        result = err_result
                 except Exception as e:
                     result = {"error": str(e)}
     elif name == "read_child_messages":
@@ -385,7 +424,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             from src.services.acp import get_unread_child_messages
             messages = get_unread_child_messages(my_session)
             result = {"messages": messages, "count": len(messages)}
-    elif name == "sleep_child":
+    elif name == "sleep_subagent":
         my_session = find_my_session_id()
         if not my_session:
             result = {"error": "Could not determine your session ID"}
@@ -403,6 +442,35 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 )
                 try:
                     resp = urllib.request.urlopen(req, timeout=10)
+                    result = json.loads(resp.read())
+                    if result.get("ok"):
+                        result["child_session"] = child_id
+                except urllib.error.HTTPError as e:
+                    body = e.read().decode() if e.fp else ""
+                    try:
+                        result = json.loads(body)
+                    except (json.JSONDecodeError, ValueError):
+                        result = {"error": f"HTTP {e.code}: {body}"}
+                except Exception as e:
+                    result = {"error": str(e)}
+    elif name == "wake_subagent":
+        my_session = find_my_session_id()
+        if not my_session:
+            result = {"error": "Could not determine your session ID"}
+        else:
+            from src.services.acp import is_child_of
+            child_id = arguments["session_id"]
+            if not is_child_of(child_id, my_session):
+                result = {"error": f"Session {child_id} is not your child"}
+            else:
+                api_key = read_api_key()
+                req = urllib.request.Request(
+                    "http://localhost:5000/api/acp/wake",
+                    data=json.dumps({"session_id": child_id, "wait": True}).encode(),
+                    headers={"Content-Type": "application/json", "X-API-Key": api_key},
+                )
+                try:
+                    resp = urllib.request.urlopen(req, timeout=120)
                     result = json.loads(resp.read())
                     if result.get("ok"):
                         result["child_session"] = child_id
