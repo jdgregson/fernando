@@ -462,10 +462,12 @@ class ACPSession:
         })
 
     def send_continuation(self, text):
-        """Send a prompt that displays as a system message, not a user message."""
+        """Send a prompt that displays as a system message, not a user message.
+        Returns True if agent was idle (immediate delivery), False if busy (queued)."""
         if not self.acp_session_id:
-            return
-        logger.info(f"[{self.id}] send_continuation: {len(text)} chars")
+            return False
+        was_idle = not self._is_prompting
+        logger.info(f"[{self.id}] send_continuation: {len(text)} chars, was_idle={was_idle}")
         self._is_prompting = True
         self._has_unread = False
         self._notify_status_change()
@@ -485,6 +487,35 @@ class ACPSession:
                 "prompt": [{"type": "text", "text": prefixed}],
             },
         })
+        return was_idle
+
+    def send_agent_message(self, from_session, text):
+        """Send a message from another agent (parent). Displays distinctly from continuations.
+        Returns True if agent was idle (immediate delivery), False if busy (queued)."""
+        if not self.acp_session_id:
+            return False
+        was_idle = not self._is_prompting
+        logger.info(f"[{self.id}] agent_message from {from_session}: {len(text)} chars, was_idle={was_idle}")
+        self._is_prompting = True
+        self._has_unread = False
+        self._notify_status_change()
+        self._last_activity = time.time()
+        prefixed = f"[AGENT MESSAGE from {from_session}] {text}"
+        evt = {"type": "agent_message", "from": from_session, "text": text, "ts": time.time()}
+        self.history.append(evt)
+        self._save_history()
+        if self.on_event:
+            self.on_event(self.id, evt)
+        self._send({
+            "jsonrpc": "2.0",
+            "id": self._get_id(),
+            "method": "session/prompt",
+            "params": {
+                "sessionId": self.acp_session_id,
+                "prompt": [{"type": "text", "text": prefixed}],
+            },
+        })
+        return was_idle
 
     def cancel(self):
         if not self.acp_session_id:

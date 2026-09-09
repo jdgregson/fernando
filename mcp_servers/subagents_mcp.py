@@ -294,12 +294,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = {"error": "You were not spawned by another agent (no parent)"}
             else:
                 msg_id = queue_child_message(parent_id, my_session, arguments["message"])
-                # Check if parent is idle - if so, wake them via API
+                # Wake parent via agent_message API
                 api_key = read_api_key()
                 wake_msg = f"[Subagent {my_session} sent you a message. Use read_child_messages() to read it.]"
                 req = urllib.request.Request(
-                    "http://localhost:5000/api/send_continuation",
-                    data=json.dumps({"session_id": parent_id, "message": wake_msg}).encode(),
+                    "http://localhost:5000/api/acp/agent_message",
+                    data=json.dumps({"session_id": parent_id, "from_session": my_session, "message": wake_msg}).encode(),
                     headers={"Content-Type": "application/json", "X-API-Key": api_key},
                 )
                 try:
@@ -318,10 +318,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = {"error": f"Session {child_id} is not your child"}
             else:
                 api_key = read_api_key()
-                msg = f"[Message from parent {my_session}]: {arguments['message']}"
                 req = urllib.request.Request(
-                    "http://localhost:5000/api/send_continuation",
-                    data=json.dumps({"session_id": child_id, "message": msg}).encode(),
+                    "http://localhost:5000/api/acp/agent_message",
+                    data=json.dumps({"session_id": child_id, "from_session": my_session, "message": arguments["message"]}).encode(),
                     headers={"Content-Type": "application/json", "X-API-Key": api_key},
                 )
                 try:

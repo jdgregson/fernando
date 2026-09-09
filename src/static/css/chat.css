@@ -247,6 +247,25 @@ body { display: flex; flex-direction: column; }
     word-break: break-word;
 }
 
+.msg.agent-message {
+    align-self: center;
+    color: #5a9bcf;
+    font-size: 12px;
+    font-style: italic;
+    background: #0a213d;
+    padding: 6px 12px;
+    border-right: 1px solid #2a4a6d;
+    border-left: 1px solid #2a4a6d;
+    cursor: pointer;
+}
+
+@media (hover: hover) {
+    .msg.agent-message:hover {
+        background: #0f2a4d;
+        border-color: #3a5a7d;
+    }
+}
+
 .input-area {
     background: #0d2848;
     padding: 20px;

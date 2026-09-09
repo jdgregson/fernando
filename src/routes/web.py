@@ -220,8 +220,44 @@ def api_send_continuation():
         return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
     if not session.ready:
         return json.dumps({"error": "Session not ready"}), 503, {"Content-Type": "application/json"}
-    session.send_continuation(message)
+    was_idle = session.send_continuation(message)
+    return json.dumps({"ok": True, "session_id": session_id, "delivered_immediately": was_idle, "queued": not was_idle}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/acp/cancel", methods=["POST"])
+def api_acp_cancel():
+    """Cancel/stop an ACP session's current generation."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    if not session_id:
+        return json.dumps({"error": "Missing session_id"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    session.cancel()
     return json.dumps({"ok": True, "session_id": session_id}), 200, {"Content-Type": "application/json"}
+
+
+@bp.route("/api/acp/agent_message", methods=["POST"])
+def api_acp_agent_message():
+    """Send a message from one agent to another (parent-child messaging)."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    data = request.get_json(force=True)
+    session_id = data.get("session_id")
+    from_session = data.get("from_session")
+    message = data.get("message", "")
+    if not session_id or not from_session or not message:
+        return json.dumps({"error": "Missing session_id, from_session, or message"}), 400, {"Content-Type": "application/json"}
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return json.dumps({"error": "Session not found"}), 404, {"Content-Type": "application/json"}
+    if not session.ready:
+        return json.dumps({"error": "Session not ready"}), 503, {"Content-Type": "application/json"}
+    was_idle = session.send_agent_message(from_session, message)
+    return json.dumps({"ok": True, "session_id": session_id, "delivered_immediately": was_idle, "queued": not was_idle}), 200, {"Content-Type": "application/json"}
 
 
 @bp.route("/api/rename_chat", methods=["POST"])

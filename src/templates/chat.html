@@ -164,8 +164,8 @@
         csrfToken = data.csrf_token;
         if (historyOffset === 0) setStatus('connecting', 'Loading...');
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId, history_offset: historyOffset });
-        // Fetch reward balance for context injection
-        socket.emit('reward_get_balance', { csrf_token: csrfToken });
+        // Fetch reward balance and unread child messages for context injection
+        socket.emit('reward_get_balance', { csrf_token: csrfToken, session_id: sessionId });
     });
 
     socket.on('disconnect', () => {
@@ -2061,6 +2061,47 @@
         document.addEventListener('keydown', function _esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', _esc); } });
     }
 
+    function addAgentMessage(fromSession, text, ts) {
+        const el = document.createElement('div');
+        el.className = 'msg agent-message';
+        if (ts) el.dataset.ts = ts;
+        const display = text.length > 75 ? text.slice(0, 75) + '…' : text;
+        el.textContent = '⬡ Agent ' + fromSession + ': ' + display;
+        el.dataset.fullText = text;
+        el.dataset.fromSession = fromSession;
+        el.addEventListener('click', () => showAgentMessageModal(fromSession, text));
+        document.getElementById('messages').appendChild(el);
+        scrollToBottom(true);
+    }
+
+    function showAgentMessageModal(fromSession, text) {
+        const overlay = document.createElement('div');
+        overlay.className = 'continuation-modal-overlay';
+        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        const modal = document.createElement('div');
+        modal.className = 'continuation-modal';
+        modal.onclick = (e) => e.stopPropagation();
+        const header = document.createElement('div');
+        header.className = 'continuation-modal-header';
+        const title = document.createElement('span');
+        title.className = 'continuation-modal-title';
+        title.textContent = 'Agent Message from ' + fromSession;
+        const closeBtn = document.createElement('span');
+        closeBtn.className = 'continuation-modal-close';
+        closeBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+        closeBtn.onclick = () => overlay.remove();
+        header.appendChild(title);
+        header.appendChild(closeBtn);
+        const body = document.createElement('div');
+        body.className = 'continuation-modal-body';
+        body.textContent = text;
+        modal.appendChild(header);
+        modal.appendChild(body);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        document.addEventListener('keydown', function _esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', _esc); } });
+    }
+
     function sendMessage() {
         document.getElementById('sendBtn').blur();
         document.getElementById('slashMenu').style.display = 'none';
@@ -2195,6 +2236,10 @@
                         }
                         applyGroupColor(c.group.color, c.split);
                     }
+                    // Add unread child messages count if any
+                    if (_unreadChildMessagesCache > 0) {
+                        parts.unshift(`subagent_messages: ${_unreadChildMessagesCache} unread`);
+                    }
                     // Build full context text including reward balance in the pane context
                     if (typeof _rewardBalanceCache === 'number') {
                         parts.push(`reward balance: ${_rewardBalanceCache}`);
@@ -2206,11 +2251,14 @@
             window.parent.postMessage({ type: 'get-pane-context' }, '*');
         } else {
             // No parent window, just include reward context in pane context format
-            if (typeof _rewardBalanceCache === 'number') {
-                doSend('[Pane context: reward balance: ' + _rewardBalanceCache + ']');
-            } else {
-                doSend('');
+            const parts = [];
+            if (_unreadChildMessagesCache > 0) {
+                parts.push(`subagent_messages: ${_unreadChildMessagesCache} unread`);
             }
+            if (typeof _rewardBalanceCache === 'number') {
+                parts.push(`reward balance: ${_rewardBalanceCache}`);
+            }
+            doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
         }
     }
 
@@ -2523,9 +2571,16 @@
             if (evt.text && evt.text.startsWith('[CONTINUATION] ')) {
                 addSystemMessage(evt.text.slice(15), 'continuation');
             } else {
-                const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '').replace(/^\[Subagent messages:[^\]]*\]\n/, '');
+                const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
                 addUserMessage(display, false, evt.ts);
             }
+            return;
+        }
+
+        // Handle agent-to-agent messages
+        if (evt.type === 'agent_message') {
+            if (currentAssistantMsg) finishTurn();
+            addAgentMessage(evt.from, evt.text, evt.ts);
             return;
         }
 
@@ -2592,7 +2647,7 @@
                     addSystemMessage(c.text.slice(15), 'continuation');
                 } else {
                     userMsgCount++;
-                    const display = c.text.replace(/^\[Pane context:[^\]]*\]\n/, '').replace(/^\[Subagent messages:[^\]]*\]\n/, '');
+                    const display = c.text.replace(/^\[Pane context:[^\]]*\]\n/, '');
                     addUserMessage(display, userMsgCount === 1);
                 }
             }
@@ -2936,6 +2991,7 @@
     // --- Reward / Debit (chat modal) ---
     let _rewardTypeChat = 'reward';
     let _rewardBalanceCache = 0;
+    let _unreadChildMessagesCache = 0;
     let _stagedReward = null; // {amount, note, type}
 
     function openRewardModalChat() {
@@ -2986,6 +3042,7 @@
     socket.on('reward_balance', (data) => {
         const bal = data.balance || 0;
         _rewardBalanceCache = bal;
+        _unreadChildMessagesCache = data.unread_child_messages || 0;
         const el = document.getElementById('rewardBalanceChat');
         if (el) {
             el.textContent = 'Balance: ' + bal;

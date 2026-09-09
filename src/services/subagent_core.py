@@ -69,6 +69,13 @@ Update {workspace}/status.json frequently:
 === CONTEXT MANAGEMENT ===
 {context_instructions}
 
+=== AGENT MESSAGING ===
+You were spawned by a parent agent. If you receive an [AGENT MESSAGE from ...] prompt:
+- This is a message from your parent agent
+- You MUST reply using the message_parent tool
+- Do NOT just respond in chat - use the tool so your parent receives your reply
+- After replying, continue with your task unless instructed otherwise
+
 === FINAL RESULT ===
 Write {workspace}/results/final.json ONLY after verification passes:
 {{

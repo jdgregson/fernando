@@ -890,11 +890,6 @@ def register_handlers(socketio):
         session = acp_manager.get_session(data.get("session_id"))
         if session:
             text = data.get("text", "")
-            # Inject unread child message count as hidden context
-            from src.services.acp import count_unread_child_messages
-            unread_count = count_unread_child_messages(data.get("session_id"))
-            if unread_count > 0:
-                text = f"[Subagent messages: {unread_count} unread]\n{text}"
             session.send_prompt(text)
 
     @socketio.on("acp_cancel")
@@ -1219,7 +1214,10 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         from src.services import rewards
-        emit("reward_balance", {"balance": rewards.get_balance()})
+        from src.services.acp import count_unread_child_messages
+        session_id = data.get("session_id")
+        unread = count_unread_child_messages(session_id) if session_id else 0
+        emit("reward_balance", {"balance": rewards.get_balance(), "unread_child_messages": unread})
 
     @socketio.on("reward_get_ledger")
     def reward_get_ledger(data={}):
