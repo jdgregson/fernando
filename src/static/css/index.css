@@ -1156,6 +1156,18 @@ button.notebook-delete-btn {
 .group-chevron.expanded {
     transform: rotate(90deg);
 }
+.parent-chevron {
+    color: #6a8caf;
+    transition: transform 0.15s ease;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 2px;
+    margin-right: 8px;
+}
+.parent-chevron.expanded {
+    transform: rotate(90deg);
+}
 .group-color-dot {
     width: 10px;
     height: 10px;

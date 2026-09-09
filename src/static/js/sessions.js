@@ -615,6 +615,31 @@ function toggleGroupExpanded(groupId) {
     return !collapsed.has(groupId);
 }
 
+// Parent agent collapse state (localStorage)
+const COLLAPSED_PARENTS_KEY = 'fernando_collapsed_parents';
+function getCollapsedParents() {
+    try {
+        return new Set(JSON.parse(localStorage.getItem(COLLAPSED_PARENTS_KEY) || '[]'));
+    } catch { return new Set(); }
+}
+function setCollapsedParents(collapsed) {
+    localStorage.setItem(COLLAPSED_PARENTS_KEY, JSON.stringify([...collapsed]));
+}
+function isParentExpanded(parentId) {
+    return !getCollapsedParents().has(parentId);
+}
+function toggleParentExpanded(parentId) {
+    const collapsed = getCollapsedParents();
+    if (collapsed.has(parentId)) {
+        collapsed.delete(parentId);
+    } else {
+        collapsed.add(parentId);
+    }
+    setCollapsedParents(collapsed);
+    emitWithCsrf('get_sessions'); // Refresh sidebar
+    return !collapsed.has(parentId);
+}
+
 function getGroupOrder() {
     try {
         return JSON.parse(localStorage.getItem(GROUP_ORDER_KEY) || '[]');
@@ -836,7 +861,7 @@ function dismissContextMenus() {
     document.querySelectorAll('.group-context-menu').forEach(m => m.remove());
 }
 
-function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, onClone) {
+function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, onClone, onCollapse) {
     dismissContextMenus();
     
     const menu = document.createElement('div');
@@ -856,6 +881,14 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
         cloneBtn.textContent = 'Fork';
         cloneBtn.onclick = () => { menu.remove(); onClone(); };
         menu.appendChild(cloneBtn);
+    }
+    
+    if (onCollapse) {
+        const collapseBtn = document.createElement('div');
+        collapseBtn.className = 'context-menu-item';
+        collapseBtn.textContent = onCollapse.isCollapsed ? 'Expand Subagents' : 'Collapse Subagents';
+        collapseBtn.onclick = () => { menu.remove(); onCollapse.toggle(); };
+        menu.appendChild(collapseBtn);
     }
     
     if (onSleep) {
@@ -1421,11 +1454,22 @@ function updateSessionList(sessions, chatSessions, data) {
         // Tree connector for child sessions (L shape)
         const treeConnector = chat._isChild ? '<svg class="tree-connector" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1" style="vertical-align:-1px;margin-right:2px;opacity:0.5"><path d="M3 0 L3 6 L10 6"/></svg>' : '';
         nameSpan.innerHTML = treeConnector + '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
+        
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         closeBtn.onclick = (e) => { e.stopPropagation(); closeChatSession(chatId); };
+        
         item.appendChild(nameSpan);
+        // Add collapse chevron for parents with children (between name and close button)
+        if (chat._hasChildren) {
+            const chevron = document.createElement('span');
+            chevron.className = 'parent-chevron' + (chat._isCollapsed ? '' : ' expanded');
+            chevron.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 2 7 5 3 8"/></svg>';
+            chevron.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); toggleParentExpanded(chatId); });
+            chevron.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); toggleParentExpanded(chatId); });
+            item.appendChild(chevron);
+        }
         item.appendChild(closeBtn);
 
         function startChatRename() {
@@ -1467,7 +1511,8 @@ function updateSessionList(sessions, chatSessions, data) {
         });
         item.addEventListener('contextmenu', function(e) {
             e.preventDefault();
-            showSessionContextMenu(sessionKey, e.clientX, e.clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }));
+            const collapseOpt = chat._hasChildren ? { isCollapsed: chat._isCollapsed, toggle: () => toggleParentExpanded(chatId) } : null;
+            showSessionContextMenu(sessionKey, e.clientX, e.clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }), collapseOpt);
         });
         let holdTimer = null;
         let touchMoved = false;
@@ -1475,8 +1520,9 @@ function updateSessionList(sessions, chatSessions, data) {
             touchMoved = false;
             holdTimer = setTimeout(() => { 
                 if (!touchMoved) {
-                    holdTimer = 'fired'; 
-                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }));
+                    holdTimer = 'fired';
+                    const collapseOpt = chat._hasChildren ? { isCollapsed: chat._isCollapsed, toggle: () => toggleParentExpanded(chatId) } : null;
+                    showSessionContextMenu(sessionKey, e.touches[0].clientX, e.touches[0].clientY, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }), collapseOpt);
                 }
             }, 500);
         }, {passive: true});
@@ -1518,15 +1564,21 @@ function updateSessionList(sessions, chatSessions, data) {
             roots.push(chat);
         }
     });
-    function addWithChildren(chat) {
-        sortedChats.push(chat);
+    const collapsedParents = getCollapsedParents();
+    function addWithChildren(chat, parentCollapsed = false) {
         const children = childrenByParent[chat.id] || [];
+        chat._hasChildren = children.length > 0;
+        chat._isCollapsed = collapsedParents.has(chat.id);
+        if (!parentCollapsed) {
+            sortedChats.push(chat);
+        }
+        const isCollapsed = parentCollapsed || chat._isCollapsed;
         children.forEach(child => {
             child._isChild = true;
-            addWithChildren(child);
+            addWithChildren(child, isCollapsed);
         });
     }
-    roots.forEach(addWithChildren);
+    roots.forEach(r => addWithChildren(r, false));
     // Add orphaned children (parent not in session list) at the end
     chatSessions.forEach(chat => {
         if (!sortedChats.includes(chat)) {
