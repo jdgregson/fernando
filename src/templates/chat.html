@@ -332,7 +332,6 @@
     });
     function stopGeneration() {
         document.getElementById('sendBtn').blur();
-        if (!isWorking) return;
         // Kill any active pipeline subprocesses so the MCP server unblocks
         for (const widget of Object.values(_pipelines)) {
             if (widget.querySelector('.pw-step.running')) {
@@ -2558,16 +2557,19 @@
                 }
             }
         } else if (su === 'agent_thought_chunk') {
+            isWorking = true;
             setStatus('working', 'Thinking...');
             const c = update.content;
             if (c && c.type === 'text') appendThought(c.text);
         } else if (su === 'agent_message_chunk') {
+            isWorking = true;
             closeThought();
             setStatus('working', 'Responding...');
             const c = update.content;
             if (c && c.type === 'text') appendChunk(c.text);
             else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
         } else if (su === 'tool_call') {
+            isWorking = true;
             closeThought();
             setStatus('working', (update.title || 'Using tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
