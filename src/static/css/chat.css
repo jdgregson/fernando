@@ -173,11 +173,16 @@ body { display: flex; flex-direction: column; }
     align-self: center;
     color: #3465a3;
     font-size: 12px;
+    line-height: 1.4;
     font-style: italic;
     background: #0a213d;
     padding: 6px 12px;
     border-right: 1px solid #102d50;
     border-left: 1px solid #102d50;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .msg.system.continuation {
@@ -251,12 +256,17 @@ body { display: flex; flex-direction: column; }
     align-self: center;
     color: #5a9bcf;
     font-size: 12px;
+    line-height: 1.4;
     font-style: italic;
     background: #0a213d;
     padding: 6px 12px;
     border-right: 1px solid #2a4a6d;
     border-left: 1px solid #2a4a6d;
     cursor: pointer;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 @media (hover: hover) {

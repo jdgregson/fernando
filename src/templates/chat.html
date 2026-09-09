@@ -2022,7 +2022,7 @@
         if (extraClass === 'continuation') prefix = '⟳ Continuation: ';
         else if (extraClass === 'reward') prefix = '$ ';
         else if (text.startsWith('✓') || text.startsWith('✗')) prefix = '';
-        const display = text.length > 75 && extraClass === 'continuation' ? text.slice(0, 75) + '…' : text;
+        const display = text;
         el.textContent = prefix + display;
         // Store full text and add click handler for continuations
         if (extraClass === 'continuation') {
@@ -2065,8 +2065,7 @@
         const el = document.createElement('div');
         el.className = 'msg agent-message';
         if (ts) el.dataset.ts = ts;
-        const display = text.length > 75 ? text.slice(0, 75) + '…' : text;
-        el.textContent = '⬡ Agent ' + fromSession + ': ' + display;
+        el.textContent = '⬡ Agent ' + fromSession + ': ' + text;
         el.dataset.fullText = text;
         el.dataset.fromSession = fromSession;
         el.addEventListener('click', () => showAgentMessageModal(fromSession, text));
