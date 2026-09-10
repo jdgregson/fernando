@@ -158,8 +158,10 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     transition-duration: 50ms;
 }
 
-.session-item:hover {
-    background: color-mix(in srgb, var(--group-color, #3465a3) 10%, #1a2a3a);
+@media (hover: hover) {
+    .session-item:hover {
+        background: color-mix(in srgb, var(--group-color, #3465a3) 10%, #1a2a3a);
+    }
 }
 
 .session-item.active::before {
@@ -191,6 +193,12 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     -webkit-user-select: none;
     -webkit-touch-callout: none;
 }
+.session-name.child-session {
+    color: #a09d9d;
+}
+.session-item.active .session-name.child-session {
+    color: inherit;
+}
 
 .close-btn {
     background: #091d35;
@@ -209,19 +217,20 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     margin-left: 10px;
 }
 
-.close-btn:hover {
-    background: #e81123;
-    color: #ffffff;
-}
-
-.restore-btn:hover {
-    background: rgb(52, 101, 163);
-    color: #ffffff;
-}
-
-
-.session-item[data-session="desktop"] .close-btn:hover {
-    background: #f4c430;
+@media (hover: hover) {
+    .close-btn:hover {
+        background: #e81123;
+        color: #ffffff;
+    }
+    
+    .restore-btn:hover {
+        background: rgb(52, 101, 163);
+        color: #ffffff;
+    }
+    
+    .session-item[data-session="desktop"] .close-btn:hover {
+        background: #f4c430;
+    }
 }
 
 .new-session {
@@ -1157,15 +1166,26 @@ button.notebook-delete-btn {
     transform: rotate(90deg);
 }
 .parent-chevron {
-    color: #6a8caf;
-    transition: transform 0.15s ease;
+    background: #091d35;
+    border: 1px solid #143151;
+    color: #3465a3;
+    border-radius: 3px;
     display: flex;
     align-items: center;
+    justify-content: center;
     cursor: pointer;
-    padding: 2px;
-    margin-right: 8px;
+    padding: 5px;
+    margin-left: 10px;
 }
-.parent-chevron.expanded {
+@media (hover: hover) {
+    .parent-chevron:hover {
+        background: #143151;
+    }
+}
+.parent-chevron svg {
+    transition: transform 0.15s ease;
+}
+.parent-chevron.expanded svg {
     transform: rotate(90deg);
 }
 .group-color-dot {
@@ -1259,8 +1279,10 @@ button.notebook-delete-btn {
     cursor: pointer;
     transition: transform 0.1s ease;
 }
-.color-swatch:hover {
-    transform: scale(1.15);
+@media (hover: hover) {
+    .color-swatch:hover {
+        transform: scale(1.15);
+    }
 }
 
 /* Group context menu */
@@ -1273,6 +1295,8 @@ button.notebook-delete-btn {
     z-index: 2000;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     min-width: 140px;
+    user-select: none;
+    -webkit-user-select: none;
 }
 .context-menu-item {
     padding: 8px 14px;
@@ -1280,14 +1304,16 @@ button.notebook-delete-btn {
     color: #c0caf5;
     cursor: pointer;
 }
-.context-menu-item:hover {
-    background: #143151;
+@media (hover: hover) {
+    .context-menu-item:hover {
+        background: #143151;
+    }
+    .context-menu-item.danger:hover {
+        background: #3d1a1a;
+    }
 }
 .context-menu-item.danger {
     color: #e88b8b;
-}
-.context-menu-item.danger:hover {
-    background: #3d1a1a;
 }
 
 /* Secondary pane highlighting (open in other pane) */

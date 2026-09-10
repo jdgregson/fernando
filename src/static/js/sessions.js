@@ -189,19 +189,8 @@ function getActivePaneGroupId() {
     const paneSession = paneNotebook[activeTerminal];
     const termSession = activeTerminal === 1 ? currentSession1 : currentSession2;
     const sessionKey = paneSession || termSession;
-    console.log('[getActivePaneGroupId]', {
-        activeTerminal,
-        paneSession,
-        termSession,
-        sessionKey,
-        cachedGroups: Object.keys(_cachedSessionGroups || {})
-    });
     if (sessionKey) {
-        // Check if session is in a group - undefined/null means ungrouped
         const groupId = _cachedSessionGroups[sessionKey];
-        console.log('[getActivePaneGroupId] lookup', sessionKey, '->', groupId);
-        // Only return a group if the session is actually in one
-        // (absence from cache means ungrouped, not "inherit from somewhere else")
         if (groupId !== undefined && groupId !== null) {
             return groupId;
         }
@@ -619,7 +608,8 @@ function toggleGroupExpanded(groupId) {
 const COLLAPSED_PARENTS_KEY = 'fernando_collapsed_parents';
 function getCollapsedParents() {
     try {
-        return new Set(JSON.parse(localStorage.getItem(COLLAPSED_PARENTS_KEY) || '[]'));
+        const raw = localStorage.getItem(COLLAPSED_PARENTS_KEY) || '[]';
+        return new Set(JSON.parse(raw));
     } catch { return new Set(); }
 }
 function setCollapsedParents(collapsed) {
@@ -636,7 +626,11 @@ function toggleParentExpanded(parentId) {
         collapsed.add(parentId);
     }
     setCollapsedParents(collapsed);
-    emitWithCsrf('get_sessions'); // Refresh sidebar
+    if (_cachedData && _cachedSessions !== undefined && _cachedChatSessions !== undefined) {
+        updateSessionList(_cachedSessions, _cachedChatSessions, _cachedData);
+    } else {
+        emitWithCsrf('get_sessions');
+    }
     return !collapsed.has(parentId);
 }
 
@@ -749,6 +743,11 @@ function createGroupElement(group, sessionItems, isExpanded, isFirst) {
     if (!isUngrouped) {
         colorDot.addEventListener('click', (e) => {
             e.stopPropagation();
+            showGroupColorPicker(group.id, colorDot);
+        });
+        colorDot.addEventListener('touchend', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
             showGroupColorPicker(group.id, colorDot);
         });
     }
@@ -1040,9 +1039,7 @@ function setupDropZone(element, groupId) {
         if (sessionKey) {
             e.preventDefault();
             e.stopPropagation();
-            // __ungrouped__ is a virtual group - translate to null for backend
             const targetGroupId = groupId === '__ungrouped__' ? null : groupId;
-            console.log('[drop] session', sessionKey, 'to group', targetGroupId);
             emitWithCsrf('group_move_session', { session_key: sessionKey, group_id: targetGroupId });
         }
     });
@@ -1153,9 +1150,9 @@ function updateSessionList(sessions, chatSessions, data) {
 
     const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name + ':' + (c.loaded ? '1' : '0') + ':' + (c.status || 'idle'));
     const groupsKey = JSON.stringify(_cachedGroups) + '|' + JSON.stringify(_cachedSessionGroups);
-    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort()) + '|' + groupsKey;
+    const collapsedKey = JSON.stringify([...getCollapsedParents()].sort());
+    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort()) + '|' + groupsKey + '|' + collapsedKey;
     if (sessionListInitialized && lastSessionsKey === newKey) return;
-    console.log('[sidebar-rebuild]', {sessions, chatSessions, notebooks: data.running_notebooks, groups: _cachedGroups.length});
     sessionListInitialized = true;
     lastSessionsKey = newKey;
 
@@ -1178,6 +1175,8 @@ function updateSessionList(sessions, chatSessions, data) {
     restartBtn.className = 'close-btn';
     restartBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg>';
     restartBtn.onclick = (e) => { e.stopPropagation(); restartDesktop(); };
+    restartBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
+    restartBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); restartDesktop(); });
     desktopItem.appendChild(desktopName);
     desktopItem.appendChild(restartBtn);
     desktopItem.addEventListener('click', function() {
@@ -1218,6 +1217,8 @@ function updateSessionList(sessions, chatSessions, data) {
             updateKbdBtn();
         }
         closeBtn.onclick = (e) => { e.stopPropagation(); closeJupyter(); };
+        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
+        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeJupyter(); });
         jItem.appendChild(jNameSpan);
         jItem.appendChild(closeBtn);
         jItem.addEventListener('click', function() {
@@ -1301,6 +1302,8 @@ function updateSessionList(sessions, chatSessions, data) {
             updateKbdBtn();
         }
         closeBtn.onclick = (e) => { e.stopPropagation(); closeNotebook(); };
+        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
+        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeNotebook(); });
         nbItem.appendChild(nbName);
         nbItem.appendChild(closeBtn);
         nbItem.addEventListener('click', function() {
@@ -1352,6 +1355,8 @@ function updateSessionList(sessions, chatSessions, data) {
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         closeBtn.onclick = (e) => closeSession(e, session);
+        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
+        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeSession(e, session); });
         item.appendChild(nameSpan);
         item.appendChild(closeBtn);
 
@@ -1459,6 +1464,8 @@ function updateSessionList(sessions, chatSessions, data) {
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
         closeBtn.onclick = (e) => { e.stopPropagation(); closeChatSession(chatId); };
+        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
+        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeChatSession(chatId); });
         
         item.appendChild(nameSpan);
         // Add collapse chevron for parents with children (between name and close button)
@@ -1467,6 +1474,7 @@ function updateSessionList(sessions, chatSessions, data) {
             chevron.className = 'parent-chevron' + (chat._isCollapsed ? '' : ' expanded');
             chevron.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 2 7 5 3 8"/></svg>';
             chevron.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); toggleParentExpanded(chatId); });
+            chevron.addEventListener('touchstart', (e) => { e.stopPropagation(); });
             chevron.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); toggleParentExpanded(chatId); });
             item.appendChild(chevron);
         }
@@ -1565,7 +1573,9 @@ function updateSessionList(sessions, chatSessions, data) {
         }
     });
     const collapsedParents = getCollapsedParents();
+    const processedChats = new Set();
     function addWithChildren(chat, parentCollapsed = false) {
+        processedChats.add(chat.id);
         const children = childrenByParent[chat.id] || [];
         chat._hasChildren = children.length > 0;
         chat._isCollapsed = collapsedParents.has(chat.id);
@@ -1579,9 +1589,8 @@ function updateSessionList(sessions, chatSessions, data) {
         });
     }
     roots.forEach(r => addWithChildren(r, false));
-    // Add orphaned children (parent not in session list) at the end
     chatSessions.forEach(chat => {
-        if (!sortedChats.includes(chat)) {
+        if (!processedChats.has(chat.id)) {
             chat._isChild = !!chat.parent_id;
             sortedChats.push(chat);
         }

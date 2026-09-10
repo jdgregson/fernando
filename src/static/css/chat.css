@@ -737,6 +737,8 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     min-width: 150px;
     z-index: 1000;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    user-select: none;
+    -webkit-user-select: none;
 }
 .msg-context-item {
     display: flex;
@@ -749,9 +751,11 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     cursor: pointer;
     white-space: nowrap;
 }
-.msg-context-item:hover {
-    background: #283d5b;
-    color: #c0caf5;
+@media (hover: hover) {
+    .msg-context-item:hover {
+        background: #283d5b;
+        color: #c0caf5;
+    }
 }
 .msg-context-item svg {
     flex-shrink: 0;
