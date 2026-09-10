@@ -112,6 +112,25 @@ def _notes_write(notebook, page, content):
         return {"error": str(e)}
 
 
+def _notes_replace(notebook, page, old_str, new_str, replace_all=False):
+    read_result = _notes_read(notebook, page)
+    if "error" in read_result:
+        return read_result
+    content = read_result["content"]
+    if old_str not in content:
+        return {"error": f"String not found in page '{page}'"}
+    if replace_all:
+        new_content = content.replace(old_str, new_str)
+        count = content.count(old_str)
+    else:
+        new_content = content.replace(old_str, new_str, 1)
+        count = 1
+    write_result = _notes_write(notebook, page, new_content)
+    if "error" in write_result:
+        return write_result
+    return {"status": "replaced", "notebook": notebook, "page": page, "replacements": count}
+
+
 def _notes_search(notebook, query):
     d = _nb_dir(notebook)
     if not d:
@@ -212,6 +231,21 @@ async def list_tools() -> list[Tool]:
                 "required": ["notebook", "query"],
             },
         ),
+        Tool(
+            name="notes_replace",
+            description="Replace text in a note page. Reads the page, performs string replacement, and writes back. More efficient than rewriting the entire page.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "notebook": {"type": "string", "description": "Notebook name (e.g. 'default', 'recipes')"},
+                    "page": {"type": "string", "description": "Page name (e.g. 'index', 'Research/AWS Bedrock')"},
+                    "old_str": {"type": "string", "description": "The exact string to find and replace"},
+                    "new_str": {"type": "string", "description": "The replacement string"},
+                    "replace_all": {"type": "boolean", "description": "If true, replace all occurrences. Default: false (replace first only)"},
+                },
+                "required": ["notebook", "page", "old_str", "new_str"],
+            },
+        ),
     ]
 
 
@@ -239,6 +273,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         result = _notes_write(arguments["notebook"], arguments["page"], arguments["content"])
     elif name == "notes_search":
         result = _notes_search(arguments["notebook"], arguments["query"])
+    elif name == "notes_replace":
+        result = _notes_replace(
+            arguments["notebook"],
+            arguments["page"],
+            arguments["old_str"],
+            arguments["new_str"],
+            arguments.get("replace_all", False),
+        )
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]
