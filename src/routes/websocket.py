@@ -698,25 +698,43 @@ def register_handlers(socketio):
     @socketio.on("acp_fork_at_turn")
     def acp_fork_at_turn(data):
         """Fork a session at a specific turn index."""
+        logger.info(f"[acp_fork_at_turn] received: {data}")
         if not validate_csrf(data):
+            logger.warning("[acp_fork_at_turn] CSRF validation failed")
             emit("error", {"message": "Invalid CSRF token"})
             return
         source_id = data.get("session_id")
         turn_index = data.get("turn_index")
         if not source_id:
+            logger.warning("[acp_fork_at_turn] Missing session_id")
             emit("error", {"message": "Missing session_id"})
             return
         if turn_index is None:
+            logger.warning("[acp_fork_at_turn] Missing turn_index")
             emit("error", {"message": "Missing turn_index"})
             return
+        logger.info(f"[acp_fork_at_turn] Forking session {source_id} at turn {turn_index}")
         new_id = acp_manager.fork_at_turn(source_id, turn_index, on_event=acp_on_event)
         if not new_id:
+            logger.warning(f"[acp_fork_at_turn] fork_at_turn returned None")
             emit("error", {"message": "Failed to fork session"})
             return
-        group_id = data.get("group_id")
-        if group_id:
-            from src.services import groups
-            groups.move_session_to_group('chat:' + new_id, group_id)
+        logger.info(f"[acp_fork_at_turn] Fork created: {new_id}")
+        
+        # Fork inherits the source session's group
+        from src.services import groups
+        from src.services.acp import set_parent
+        session_groups = groups.get_session_groups()
+        source_key = 'chat:' + source_id
+        source_group = session_groups.get(source_key)
+        if source_group:
+            groups.move_session_to_group('chat:' + new_id, source_group)
+            logger.info(f"[acp_fork_at_turn] Moved fork {new_id} to group {source_group}")
+        
+        # Fork becomes a child of the source session
+        set_parent(new_id, source_id)
+        logger.info(f"[acp_fork_at_turn] Set parent of {new_id} to {source_id}")
+        
         emit("acp_created", {"session_id": new_id})
 
     @socketio.on("acp_execute_command")

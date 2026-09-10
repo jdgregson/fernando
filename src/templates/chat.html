@@ -233,12 +233,15 @@
     }
 
     // Request group color from parent on load
+    let _currentGroupId = null;  // Store group ID for fork operations
+
     if (window.parent !== window) {
         function onInitialCtx(e) {
             if (e.source !== window.parent) return;
             if (e.data && e.data.type === 'pane-context') {
                 const ctx = e.data.context;
                 if (ctx.group) {
+                    _currentGroupId = ctx.group.id;
                     applyGroupColor(ctx.group.color, ctx.split);
                 }
             }
@@ -810,6 +813,11 @@
 
     // --- Message context menu for Fork ---
     function showMsgContextMenu(x, y, turnIndex, msgType) {
+        // Don't allow forking while agent is working
+        if (isWorking) return;
+        // Only allow forking from user messages (natural conversation boundaries)
+        if (msgType !== 'user') return;
+        
         dismissMsgContextMenu();
         const menu = document.createElement('div');
         menu.className = 'msg-context-menu';
@@ -851,11 +859,15 @@
     
     function forkAtTurn(turnIndex) {
         addSystemMessage('Forking from turn ' + turnIndex + '...');
-        socket.emit('acp_fork_at_turn', {
+        const payload = {
             csrf_token: csrfToken,
             session_id: sessionId,
             turn_index: turnIndex
-        });
+        };
+        if (_currentGroupId) {
+            payload.group_id = _currentGroupId;
+        }
+        socket.emit('acp_fork_at_turn', payload);
     }
     
     function addMsgLabelContextMenu(label, turnIndex, msgType) {
@@ -886,9 +898,6 @@
                 holdTimer = null;
             }
         });
-        
-        // Style to show it's clickable
-        label.style.cursor = 'context-menu';
     }
 
     function ensureAssistantMsg(ts) {
@@ -900,16 +909,13 @@
             currentAssistantMsg = document.createElement('div');
             currentAssistantMsg.className = 'msg assistant';
             if (msgTs) currentAssistantMsg.dataset.ts = msgTs;
-            // Track turn index for fork functionality
+            // Track turn index for reference
             currentAssistantMsg.dataset.turn = currentTurnIndex;
             const label = document.createElement('div');
             label.className = 'msg-label';
             label.textContent = 'Fernando';
             if (msgTs) _addTimestampSpan(label, msgTs, msgModel);
-            // Add context menu for forking
-            if (currentTurnIndex > 0) {
-                addMsgLabelContextMenu(label, currentTurnIndex, 'assistant');
-            }
+            // No context menu on assistant labels - fork only from user messages
             currentAssistantMsg.appendChild(label);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }

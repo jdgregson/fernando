@@ -1429,8 +1429,10 @@ class ACPManager:
     def fork_at_turn(self, source_session_id, turn_index, on_event=None):
         """Fork a session at a specific turn index.
         
-        turn_index is the 0-based user message index (1 = first user message).
-        Returns the new Fernando session ID, or None on failure.
+        turn_index is the 1-based user message index from the UI (1 = first user message).
+        The UI only counts user_prompt events, not continuations.
+        Kiro's turns include both user_prompts and continuations.
+        We need to map the UI turn_index to the correct Kiro logIndex by matching content.
         """
         source = self.get_session(source_session_id)
         if not source:
@@ -1451,23 +1453,38 @@ class ACPManager:
             logger.warning(f"[fork_at_turn] No turns available to fork from")
             return None
         
-        # Find the turn with matching index
-        # Kiro turns are ordered by logIndex descending (newest first)
-        # turn_index is 1-based from the UI (turn 1 = first user message)
-        target_turn = None
-        for turn in turns:
-            if turn.get("logIndex") == turn_index:
-                target_turn = turn
-                break
+        # Log the turns structure for debugging
+        logger.info(f"[fork_at_turn] Got {len(turns)} turns from Kiro, requested turn_index={turn_index}")
         
-        if not target_turn:
-            logger.warning(f"[fork_at_turn] Turn {turn_index} not found in {len(turns)} turns")
-            # Fall back to using the turn_index directly as logIndex
-            log_index = str(turn_index)
-        else:
-            log_index = str(target_turn.get("logIndex"))
+        # Kiro's turns list is ordered by logIndex descending (newest first)
+        # We need to find the turn that corresponds to the Nth user_prompt (non-continuation)
+        # Continuations have labels starting with "[CONTINUATION]"
         
-        logger.info(f"[fork_at_turn] Forking at turn {log_index}")
+        # First, build a list of non-continuation turns in chronological order
+        user_turns = []
+        for turn in reversed(turns):
+            label = turn.get("label", "")
+            if not label.startswith("[CONTINUATION]"):
+                user_turns.append(turn)
+        
+        logger.info(f"[fork_at_turn] Found {len(user_turns)} non-continuation turns out of {len(turns)} total")
+        for i, t in enumerate(user_turns[:5]):
+            logger.info(f"[fork_at_turn] User turn {i+1}: logIndex={t.get('logIndex')}, label={t.get('label', '')[:50]}")
+        
+        # "Fork from turn N" means fork BEFORE that turn, so we want the turn at N-1
+        # turn_index is 1-based, so to get the turn BEFORE turn N, we use index N-2
+        # (turn 1 maps to user_turns[0], so turn N-1 maps to user_turns[N-2])
+        target_idx = turn_index - 2
+        if target_idx < 0:
+            logger.warning(f"[fork_at_turn] Cannot fork before turn 1 (turn_index={turn_index})")
+            return None
+        if target_idx >= len(user_turns):
+            logger.warning(f"[fork_at_turn] turn_index {turn_index} out of range (have {len(user_turns)} user turns)")
+            return None
+        
+        target_turn = user_turns[target_idx]
+        log_index = str(target_turn.get("logIndex"))
+        logger.info(f"[fork_at_turn] Forking BEFORE turn {turn_index}, using Kiro logIndex={log_index} (turn {target_idx + 1}: {target_turn.get('label', '')[:50]})")
         
         fork_result = source.execute_command("rewind", {"value": log_index})
         if not fork_result or not fork_result.get("success"):
@@ -1485,7 +1502,7 @@ class ACPManager:
         new_id = str(uuid.uuid4())[:8]
         
         # Copy the Fernando history file up to the fork point
-        # We need to truncate history to only include events up to the forked turn
+        # turn_index matches our user_prompt counting (1-based, excludes continuations)
         source_history_path = os.path.join(HISTORY_DIR, f"{source_session_id}.jsonl")
         new_history_path = os.path.join(HISTORY_DIR, f"{new_id}.jsonl")
         if os.path.exists(source_history_path):
@@ -1505,24 +1522,32 @@ class ACPManager:
         return new_id
 
     def _copy_history_up_to_turn(self, source_path, dest_path, turn_index):
-        """Copy history events up to and including the specified turn."""
+        """Copy history events up to but NOT including the specified turn.
+        
+        "Fork from turn N" means fork BEFORE that user message, so you can
+        re-ask or take a different path. We copy turns 1 through N-1.
+        """
         user_turn_count = 0
         events_to_copy = []
+        total_events = 0
         
         with open(source_path, 'r') as f:
             for line in f:
                 line = line.strip()
                 if not line:
                     continue
+                total_events += 1
                 evt = json.loads(line)
                 evt_type = evt.get("type")
                 
-                # Track user turns
+                # Track user turns - user_prompt marks start of a new turn
                 if evt_type == "user_prompt":
                     user_turn_count += 1
+                    logger.debug(f"[_copy_history_up_to_turn] Found user_prompt #{user_turn_count}")
                 
-                # Stop after we've passed the target turn
-                if user_turn_count > turn_index:
+                # Stop BEFORE the selected turn (fork point is just before this message)
+                if user_turn_count >= turn_index:
+                    logger.info(f"[_copy_history_up_to_turn] Stopping before user_prompt #{user_turn_count} (target was {turn_index})")
                     break
                 
                 events_to_copy.append(line)
@@ -1532,7 +1557,7 @@ class ACPManager:
                 f.write(line + '\n')
         
         os.chmod(dest_path, 0o600)
-        logger.info(f"[_copy_history_up_to_turn] Copied {len(events_to_copy)} events up to turn {turn_index}")
+        logger.info(f"[_copy_history_up_to_turn] Copied {len(events_to_copy)} events (turns 1-{turn_index - 1}) for fork at turn {turn_index}")
 
     def _save(self):
         with self._lock:

@@ -52,6 +52,9 @@ body { display: flex; flex-direction: column; }
     letter-spacing: 0.5px;
     margin-bottom: 6px;
     opacity: 0.6;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: context-menu;
 }
 .msg .msg-label .msg-ts {
     font-weight: 400;
