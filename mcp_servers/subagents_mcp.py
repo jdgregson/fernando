@@ -60,6 +60,18 @@ def create_subagent(
     parent_session_id=None,
 ):
     """Spawn a subagent with full workspace/instructions, using ACP instead of tmux."""
+    # If no group specified but we have a parent, inherit the parent's group
+    if not group_id and parent_session_id:
+        try:
+            from src.services.groups import get_session_groups
+            session_groups = get_session_groups()
+            parent_key = 'chat:' + parent_session_id
+            parent_group = session_groups.get(parent_key)
+            if parent_group:
+                group_id = parent_group
+        except Exception:
+            pass  # Fall through to ungrouped if lookup fails
+    
     task_id, workspace = create_workspace(task_id)
     context_file = resolve_context_path(context_path)
     session_name = f"subagent-{task_id}"
