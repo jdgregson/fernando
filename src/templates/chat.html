@@ -2459,9 +2459,24 @@
                 socket.emit('acp_restore', {csrf_token: csrfToken, session_id: sessionId});
             };
         } else {
-            // Ensure any in-progress assistant turn from replay is closed
-            // before processing new live events
-            finishTurn();
+            // Clean up any in-progress assistant turn from replay WITHOUT setting ready.
+            // The ready state is ONLY set by session_ready event — not by history load.
+            // This prevents a race where history batch (deferred via RAF) overwrites
+            // the session_loading status that arrived immediately after.
+            if (currentAssistantMsg) {
+                if (_chunkRenderPending) _renderCurrentChunk();
+                if (_canvasTimer) { clearTimeout(_canvasTimer); _canvasTimer = null; }
+                _activateCanvases();
+                collapseCodeBlocks(currentAssistantMsg, 30);
+                highlightDiffs(currentAssistantMsg);
+            }
+            currentAssistantMsg = null;
+            currentContentDiv = null;
+            currentText = '';
+            closeThought();
+            toolCalls = {};
+            isWorking = false;
+            // Do NOT call setStatus here — wait for session_ready or session_loading
         }
 
         // Ask server for any pending auth request now that we've finished rendering
