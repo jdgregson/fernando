@@ -813,8 +813,6 @@
 
     // --- Message context menu for Fork ---
     function showMsgContextMenu(x, y, turnIndex, msgType) {
-        // Don't allow forking while agent is working
-        if (isWorking) return;
         // Only allow forking from user messages (natural conversation boundaries)
         if (msgType !== 'user') return;
         
