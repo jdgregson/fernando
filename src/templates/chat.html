@@ -810,6 +810,7 @@
     let expectedSeq = -1;  // -1 = not yet synced, accept everything
     let seqBuffer = {};    // seq -> data, for out-of-order events
     let _modelListPending = false;  // true when we're collecting a model list response
+    let _replayingHistory = false;
 
     // --- Message context menu for Fork ---
     function showMsgContextMenu(x, y, turnIndex, msgType) {
@@ -1170,7 +1171,7 @@
         } else if (rawInput && typeof rawInput === 'object' && Object.keys(rawInput).length === 0) {
             const note = document.createElement('div');
             note.className = 'tc-note';
-            note.textContent = 'OpenCode does not send tool input data';
+            note.textContent = 'Waiting for tool input data...';
             panelInPretty.appendChild(note);
         } else if (rawInput) {
             const row = document.createElement('div');
@@ -1252,7 +1253,7 @@
             }
         }
 
-        toolCalls[toolCallId] = { div, statusSpan, body, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
+        toolCalls[toolCallId] = { div, statusSpan, body, panelInPretty, panelInRaw, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
 
         const isTimedTool = (title && (title.includes('run_command') || title.includes('run_daemon'))) && rawInput && rawInput.timeout;
         if (isTimedTool && status !== 'completed' && status !== 'failed') {
@@ -1387,7 +1388,7 @@
         }
     }
 
-    function updateToolCall(toolCallId, status, content, rawOutput) {
+    function updateToolCall(toolCallId, status, content, rawOutput, rawInput) {
         const tc = toolCalls[toolCallId];
         if (!tc) return;
         if (status) {
@@ -1429,6 +1430,26 @@
             let obj = rawOutput;
             if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(e) {} }
             _renderOutPretty(tc.panelOutPretty, obj, rawOutput);
+        }
+        if (rawInput && typeof rawInput === 'object' && Object.keys(rawInput).length > 0) {
+            tc.tcState.rawInput = rawInput;
+            tc.rawInput = rawInput;
+            tc.panelInPretty.innerHTML = '';
+            for (const [k, v] of Object.entries(rawInput)) {
+                const row = document.createElement('div');
+                row.className = 'tc-param';
+                const key = document.createElement('div');
+                key.className = 'tc-param-key';
+                key.textContent = k;
+                key.appendChild(createCopyBtn(v));
+                const val = document.createElement('div');
+                val.className = 'tc-param-val';
+                val.textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2);
+                row.appendChild(key);
+                row.appendChild(val);
+                tc.panelInPretty.appendChild(row);
+            }
+            tc.panelInRaw.textContent = JSON.stringify(rawInput, null, 2);
         }
         // Render attach_file output as a downloadable chip
         if (status === 'completed' && tc.title.includes('attach_file')) {
@@ -2404,6 +2425,7 @@
 
         // Let the browser repaint to show the loading status before processing
         requestAnimationFrame(() => {
+        _replayingHistory = true;
 
         // Suppress per-message scroll during batch rendering
         _suppressScroll = true;
@@ -2422,6 +2444,8 @@
         // Restore scroll and scroll once
         _suppressScroll = false;
         scrollToBottom(true);
+
+        _replayingHistory = false;
 
         // Apply sync state
         if (data.sync_seq !== undefined) expectedSeq = data.sync_seq;
@@ -2563,13 +2587,64 @@
 
     function isTodoInput(ri) {
         if (!ri || typeof ri !== 'object') return false;
+        if (Array.isArray(ri)) return ri.every(t => t && typeof t === 'object' && typeof t.content === 'string' && typeof t.status === 'string');
         if (!['create', 'complete', 'add', 'remove', 'list'].includes(ri.command)) return false;
         return ri.command === 'list' || 'tasks' in ri || 'task_list_description' in ri
             || 'completed_task_ids' in ri || 'new_tasks' in ri || 'remove_task_ids' in ri
             || 'context_update' in ri;
     }
 
+    function isOpenCodeTodoInput(ri) {
+        return isTodoListArray(ri);
+    }
+
+    function isTaskToolCall(update) {
+        return isTodoInput(update.rawInput) || (update.title === 'todowrite' && isOpenCodeTodoInput(update.rawInput));
+    }
+
+    function todoListArray(ri) {
+        if (Array.isArray(ri)) return ri;
+        if (!ri || typeof ri !== 'object') return null;
+        for (const key of ['todos', 'tasks', 'items']) {
+            if (Array.isArray(ri[key])) return ri[key];
+        }
+        return null;
+    }
+
+    function isTodoListArray(ri) {
+        const tasks = todoListArray(ri);
+        return tasks !== null && tasks.length > 0 && tasks.every(t => t && typeof t === 'object' && typeof t.content === 'string' && typeof t.status === 'string');
+    }
+
     function applyTodo(ri) {
+        if (Array.isArray(ri) || (ri && typeof ri === 'object' && !ri.command && isTodoListArray(ri))) {
+            const tasks = todoListArray(ri);
+            let group = taskGroups.find(g => g.openCode);
+            if (!group) {
+                group = { description: '', tasks: [], openCode: true };
+                taskGroups.push(group);
+            }
+            const previous = new Map(group.tasks.map(t => [t.task_description, t]));
+            const current = new Set(tasks.map(t => t.content));
+            for (const old of group.tasks) {
+                if (!current.has(old.task_description) && !old.completed) old.abandoned = true;
+            }
+            for (const t of tasks) {
+                const old = previous.get(t.content);
+                if (old) {
+                    old.completed = t.status === 'completed';
+                    old.abandoned = false;
+                } else {
+                    group.tasks.push({
+                        id: String(group.tasks.length + 1),
+                        task_description: t.content,
+                        completed: t.status === 'completed',
+                        abandoned: false,
+                    });
+                }
+            }
+            return;
+        }
         if (ri.command === 'create') {
             // A new list supersedes the old: mark still-incomplete prior tasks as
             // abandoned, but keep completed ones as the record of what was accomplished.
@@ -2597,6 +2672,9 @@
 
     function handleTodoCall(toolCallId, rawInput) {
         if (!rawInput) return;
+        if (typeof rawInput === 'string') {
+            try { rawInput = JSON.parse(rawInput); } catch (e) { return; }
+        }
         todoToolIds.add(toolCallId);
         applyTodo(rawInput);
         renderTaskBar();
@@ -2649,7 +2727,7 @@
         const total = allTasks.length;
         const done = allTasks.filter(t => t.completed).length;
         // Pending = active work in the current list (abandoned tasks don't count).
-        const cur = taskGroups[taskGroups.length - 1];
+        const cur = taskGroups.find(g => g.openCode) || taskGroups[taskGroups.length - 1];
         const pending = cur.tasks.filter(t => !t.completed && !t.abandoned).length;
         const sum = document.getElementById('tbSummary');
         if (pending > 0) { sum.className = 'tb-summary pending'; sum.textContent = pending + ' pending'; }
@@ -2659,14 +2737,20 @@
         const list = document.getElementById('tbList');
         list.innerHTML = '';
         desc.style.display = 'none';
-        taskGroups.forEach((g) => {
+        let taskNumber = 0;
+        taskGroups.forEach((g, groupIndex) => {
+            if (groupIndex > 0) {
+                const separator = document.createElement('div');
+                separator.className = 'tb-group-separator';
+                list.appendChild(separator);
+            }
             if (g.description) {
                 const h = document.createElement('div');
                 h.className = 'tb-group-desc';
                 h.textContent = g.description;
                 list.appendChild(h);
             }
-            g.tasks.forEach((t, i) => list.appendChild(tbTaskRow(t, i)));
+            g.tasks.forEach((t) => list.appendChild(tbTaskRow(t, taskNumber++)));
         });
     }
 
@@ -2771,30 +2855,33 @@
             }
         } else if (su === 'agent_thought_chunk') {
             isWorking = true;
-            setStatus('working', 'Thinking...');
+            if (!_replayingHistory) setStatus('working', 'Thinking...');
             const c = update.content;
             if (c && c.type === 'text') appendThought(c.text);
         } else if (su === 'agent_message_chunk') {
             isWorking = true;
             closeThought();
-            setStatus('working', 'Responding...');
+            if (!_replayingHistory) setStatus('working', 'Responding...');
             const c = update.content;
             if (c && c.type === 'text') appendChunk(c.text);
             else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
         } else if (su === 'tool_call') {
             isWorking = true;
             closeThought();
-            setStatus('working', (update.title || 'Using tool') + '...');
+            if (!_replayingHistory) setStatus('working', (update.title || 'Using tool') + '...');
             addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
             // Also drive the task bar, but keep the inline tool call in the stream
             // so it's always visible when/where the list was instantiated.
-            if (isTodoInput(update.rawInput)) {
+            if (isTaskToolCall(update)) {
                 handleTodoCall(update.toolCallId, update.rawInput);
             }
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
-            if (st === 'in_progress') setStatus('working', 'Running tool...');
-            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput);
+            if (st === 'in_progress' && !_replayingHistory) setStatus('working', 'Running tool...');
+            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput, update.rawInput);
+            if (isTaskToolCall(update) && !todoToolIds.has(update.toolCallId)) {
+                handleTodoCall(update.toolCallId, update.rawInput);
+            }
         } else if (su === 'usage_update') {
             if (update.cost && update.cost.amount) {
                 sessionTotalCost = update.cost.amount;

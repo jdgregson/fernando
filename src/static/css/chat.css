@@ -667,6 +667,7 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     border-top: 1px solid #143151;
     margin-top: 4px;
 }
+.tb-group-separator { border-top: 1px solid #143151; margin: 8px 0; }
 .tb-list > .tb-group-desc:first-child { border-top: none; margin-top: 0; }
 
 
