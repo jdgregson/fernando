@@ -1,0 +1,66 @@
+#messages img { cursor: zoom-in; }
+#messages img[role="button"]:focus:not(:focus-visible) { outline: none; }
+#messages img[role="button"]:focus-visible { outline: 2px solid #9bbcff; outline-offset: 2px; }
+.image-viewer {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: #101319;
+    color: #e8eaf0;
+    overflow: hidden;
+    overscroll-behavior: contain;
+}
+.image-viewer[open] { display: flex; flex-direction: column; }
+.image-viewer::backdrop { background: #000c; }
+.image-viewer-toolbar {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 10px max(12px, env(safe-area-inset-left));
+    background: transparent;
+    pointer-events: none;
+    color: #fff;
+    text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+}
+.image-viewer.controls-hidden .image-viewer-toolbar { visibility: hidden; }
+.image-viewer-toolbar button {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid #fff;
+    border-radius: 6px;
+    background: transparent;
+    box-shadow: 0 0 0 1px #000, inset 0 0 0 1px #000;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    pointer-events: auto;
+    text-shadow: inherit;
+}
+.image-viewer-toolbar svg { filter: drop-shadow(1px 0 0 #000) drop-shadow(-1px 0 0 #000) drop-shadow(0 1px 0 #000) drop-shadow(0 -1px 0 #000); }
+.image-viewer-toolbar button:focus-visible { outline: 2px solid #9bbcff; outline-offset: 2px; }
+.image-viewer-zoom { flex: 1; text-align: center; font: 13px system-ui; }
+.image-viewer-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; cursor: grab; }
+.image-viewer-stage:active { cursor: grabbing; }
+.image-viewer-stage img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    max-width: none;
+    max-height: none;
+    transform-origin: center;
+    user-select: none;
+    -webkit-user-select: none;
+    pointer-events: none;
+}

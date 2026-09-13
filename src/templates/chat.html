@@ -6,6 +6,8 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/image-viewer.css">
+    <script src="/static/js/image-viewer.js" defer></script>
     <script src="/static/js/scroll-pill.js" defer></script>
 </head>
 <body>
@@ -1045,6 +1047,7 @@
         // Handle "paths" array (e.g. fs_read) or "path" string
         if (Array.isArray(input.paths)) return input.paths;
         if (typeof input.path === 'string') return [input.path];
+        if (typeof input.filePath === 'string') return [input.filePath];
         // Try nested in operations array
         if (Array.isArray(input.operations)) {
             const paths = [];
@@ -1074,8 +1077,37 @@
     };
     function toolDisplayName(title) {
         if (!title) return title;
+        const qualified = title.match(/^(system|chat|automation|notes|docs|jupyter|web|microsoft|desktop|govee|subagents|fernando)_(.+)$/);
+        if (qualified) return '@' + qualified[1] + '/' + qualified[2];
         const server = TOOL_SERVERS[title] || (title.startsWith('microsoft_') ? 'microsoft' : null);
         return server ? '@' + server + '/' + title : title;
+    }
+
+    function toolPreview(title, rawInput, reportedTitle) {
+        const name = toolDisplayName(title) || 'Tool';
+        const input = rawInput && typeof rawInput === 'object' ? rawInput : {};
+        let detail = '';
+        if (typeof input.patchText === 'string') {
+            detail = [...new Set([...input.patchText.matchAll(/^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/gm)].map(match => match[1]))].join(', ');
+        } else if (typeof input.command === 'string') {
+            detail = input.command;
+        } else if (Array.isArray(input.steps)) {
+            detail = input.steps.map(step => step.label || step.command).filter(value => typeof value === 'string').join('; ');
+        } else if (typeof input.pattern === 'string') {
+            detail = input.pattern + (input.path ? ' in ' + input.path : '');
+        } else {
+            detail = extractFilePaths(input).filter(path => typeof path === 'string').join(', ');
+            if (!detail) {
+                for (const key of ['url', 'query', 'search', 'subject', 'name', 'action', 'session_id', 'task_id']) {
+                    if (typeof input[key] === 'string' && input[key]) {
+                        detail = input[key];
+                        break;
+                    }
+                }
+            }
+        }
+        if (!detail && reportedTitle && reportedTitle !== title) detail = reportedTitle;
+        return detail ? name + ': ' + detail : name;
     }
 
     function createCopyBtn(value) {
@@ -1111,7 +1143,7 @@
 
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tool-name';
-        nameSpan.textContent = toolDisplayName(title) || toolCallId;
+        nameSpan.textContent = toolPreview(title, rawInput);
 
         const statusSpan = document.createElement('span');
         statusSpan.className = 'tool-status ' + (status || 'pending');
@@ -1239,21 +1271,8 @@
 
         currentAssistantMsg.appendChild(div);
 
-        // Show image previews for file read tools in an always-visible section
-        const paths = extractFilePaths(rawInput);
-        for (const p of paths) {
-            if (IMAGE_EXTS.test(p)) {
-                const preview = document.createElement('div');
-                preview.className = 'tool-call-images';
-                const img = document.createElement('img');
-                img.src = fileUrl(p);
-                img.style.cssText = 'width:100%;border-radius:4px;display:block';
-                preview.appendChild(img);
-                div.appendChild(preview);
-            }
-        }
-
-        toolCalls[toolCallId] = { div, statusSpan, body, panelInPretty, panelInRaw, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
+        toolCalls[toolCallId] = { div, nameSpan, statusSpan, body, panelInPretty, panelInRaw, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
+        renderToolImages(toolCalls[toolCallId]);
 
         const isTimedTool = (title && (title.includes('run_command') || title.includes('run_daemon'))) && rawInput && rawInput.timeout;
         if (isTimedTool && status !== 'completed' && status !== 'failed') {
@@ -1270,6 +1289,34 @@
     }
 
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
+
+    function renderToolImages(tc, content) {
+        const images = (content || [])
+            .filter(item => item.type === 'content' && item.content?.type === 'image')
+            .map(item => item.content)
+            .filter(image => typeof image.data === 'string' && /^image\/(png|jpeg|gif|webp|svg\+xml|bmp)$/i.test(image.mimeType));
+        if (images.length) tc.imageSources = images.map(image => 'data:' + image.mimeType + ';base64,' + image.data);
+        const sources = tc.imageSources || extractFilePaths(tc.rawInput)
+            .filter(path => typeof path === 'string' && IMAGE_EXTS.test(path))
+            .map(fileUrl);
+        if (!sources.length) return;
+        if (tc.renderedImageSources && sources.length === tc.renderedImageSources.length && sources.every((src, i) => src === tc.renderedImageSources[i])) return;
+        if (!tc.imagePreview) {
+            tc.imagePreview = document.createElement('div');
+            tc.imagePreview.className = 'tool-call-images';
+            tc.div.appendChild(tc.imagePreview);
+        }
+        tc.imagePreview.replaceChildren();
+        for (const src of sources) {
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Tool image';
+            img.style.cssText = 'width:100%;border-radius:4px;display:block';
+            img.addEventListener('load', scrollToBottom);
+            tc.imagePreview.appendChild(img);
+        }
+        tc.renderedImageSources = sources;
+    }
 
     function _renderOutPretty(container, obj, raw) {
         // OpenCode format: { output: "...", metadata: {...} }
@@ -1388,7 +1435,7 @@
         }
     }
 
-    function updateToolCall(toolCallId, status, content, rawOutput, rawInput) {
+    function updateToolCall(toolCallId, status, content, rawOutput, rawInput, reportedTitle) {
         const tc = toolCalls[toolCallId];
         if (!tc) return;
         if (status) {
@@ -1451,13 +1498,18 @@
             }
             tc.panelInRaw.textContent = JSON.stringify(rawInput, null, 2);
         }
+        if (reportedTitle) tc.reportedTitle = reportedTitle;
+        tc.nameSpan.textContent = toolPreview(tc.title, tc.rawInput, tc.reportedTitle);
+        renderToolImages(tc, content);
         // Render attach_file output as a downloadable chip
-        if (status === 'completed' && tc.title.includes('attach_file')) {
+        if (status === 'completed' && tc.title.includes('attach_file') && !tc.attachmentRendered) {
             try {
                 let obj = tc.tcState.rawOutput;
                 if (typeof obj === 'string') { try { obj = JSON.parse(obj); } catch(e) {} }
                 let out = obj;
-                if (typeof out === 'object' && out.items) {
+                if (out && typeof out.output === 'string' && out.metadata !== undefined) {
+                    out = JSON.parse(out.output);
+                } else if (typeof out === 'object' && out.items) {
                     const first = (out.items[0] || {}).Json || {};
                     out = JSON.parse(((first.content || [])[0] || {}).text || '{}');
                 } else if (typeof out === 'object' && out.content && Array.isArray(out.content)) {
@@ -1466,7 +1518,7 @@
                     out = JSON.parse(out);
                 }
                 if (out.url_path) {
-                    const url = '/api/files/' + out.url_path + '?api_key=' + apiKey;
+                    const url = '/api/files/' + out.url_path + '?api_key=' + apiKey + '&session=' + sessionId;
                     const chipWrap = document.createElement('div');
                     chipWrap.className = 'file-chips';
                     chipWrap.style.margin = '6px 0';
@@ -1481,6 +1533,7 @@
                     currentContentDiv = null;
                     currentText = '';
                     currentAssistantMsg.appendChild(chipWrap);
+                    tc.attachmentRendered = true;
                 }
             } catch(e) {}
         }
@@ -2878,7 +2931,7 @@
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
             if (st === 'in_progress' && !_replayingHistory) setStatus('working', 'Running tool...');
-            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput, update.rawInput);
+            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput, update.rawInput, update.title);
             if (isTaskToolCall(update) && !todoToolIds.has(update.toolCallId)) {
                 handleTodoCall(update.toolCallId, update.rawInput);
             }
