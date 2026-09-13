@@ -63,6 +63,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 .sidebar {
+    position: relative;
     width: 250px;
     background: #0d2848;
     border-right: 1px solid #143151;
@@ -853,13 +854,20 @@ button.notebook-delete-btn {
     z-index: 0; /* Create stacking context to contain scroll-pill */
 }
 
-/* Mac Chrome/Edge/Chromium: round bottom-right corner of bottom pane */
+/* Mac Chrome/Edge/Chromium: round bottom-right corner of bottom pane to match window chrome */
 @supports (-webkit-app-region: drag) {
     .edge.mac #terminal2-container {
         border-bottom-right-radius: 16px;
     }
     .chrome.mac #terminal2-container {
         border-bottom-right-radius: 21px;
+    }
+    /* When sidebar is collapsed, also round bottom-left corner */
+    .edge.mac .content-wrapper:has(.sidebar.collapsed) #terminal2-container {
+        border-bottom-left-radius: 16px;
+    }
+    .chrome.mac .content-wrapper:has(.sidebar.collapsed) #terminal2-container {
+        border-bottom-left-radius: 21px;
     }
 }
 
