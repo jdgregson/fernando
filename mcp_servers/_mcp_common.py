@@ -8,6 +8,7 @@ network-scraping, or system-control code — those live only in the servers that
 need them (fernando_system, fernando_web).
 """
 import os
+import subprocess
 import sys
 
 # Activate the project venv so transitive deps (Flask etc.) are available
@@ -39,9 +40,15 @@ def find_my_session_id():
     try:
         with open(os.path.join(PROJECT_ROOT, "data", "acp_pid_map.json")) as f:
             pid_map = json.load(f)
-        pid = os.getpid()
+        pid = str(os.getpid())
         for _ in range(5):
-            pid = os.popen(f"ps -o ppid= -p {pid}").read().strip()
+            try:
+                pid = subprocess.check_output(
+                    ["ps", "-o", "ppid=", "-p", pid],
+                    text=True, stderr=subprocess.DEVNULL
+                ).strip()
+            except subprocess.CalledProcessError:
+                break
             if not pid:
                 break
             session_id = pid_map.get(pid)

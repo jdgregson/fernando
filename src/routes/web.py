@@ -1283,6 +1283,16 @@ def api_step_progress():
     # even if the pipeline hung mid-way (bounded: ~2 events per step).
     session = acp_manager.get_session(session_id)
     if session:
+        data["running_started_at"] = time.time()
+        for previous in reversed(session.history):
+            if previous.get("type") != "step_progress":
+                continue
+            progress = previous.get("data") or {}
+            if progress.get("pipeline_id") != data.get("pipeline_id"):
+                continue
+            if progress.get("running_index") == data.get("running_index"):
+                data["running_started_at"] = progress.get("running_started_at", data["running_started_at"])
+            break
         evt = {"type": "step_progress", "data": data}
         session.history.append(evt)
         session._save_history()

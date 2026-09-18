@@ -20,6 +20,8 @@ import base64
 import secrets
 import logging
 import uuid
+from requests.exceptions import RequestException
+from psutil import Error as ProcessError
 
 logger = logging.getLogger("fernando.websocket")
 
@@ -685,7 +687,12 @@ def register_handlers(socketio):
         if not source_id:
             emit("error", {"message": "Missing session_id"})
             return
-        new_id = acp_manager.clone_session(source_id, on_event=acp_on_event)
+        try:
+            new_id = acp_manager.clone_session(source_id, on_event=acp_on_event)
+        except (ValueError, RuntimeError, RequestException, ProcessError) as error:
+            logger.exception('Session clone failed')
+            emit('error', {'message': str(error)})
+            return
         if not new_id:
             emit("error", {"message": "Session not found"})
             return
@@ -709,12 +716,17 @@ def register_handlers(socketio):
             logger.warning("[acp_fork_at_turn] Missing session_id")
             emit("error", {"message": "Missing session_id"})
             return
-        if turn_index is None:
+        if type(turn_index) is not int or turn_index < 1:
             logger.warning("[acp_fork_at_turn] Missing turn_index")
-            emit("error", {"message": "Missing turn_index"})
+            emit("error", {"message": "turn_index must be a positive integer"})
             return
         logger.info(f"[acp_fork_at_turn] Forking session {source_id} at turn {turn_index}")
-        new_id = acp_manager.fork_at_turn(source_id, turn_index, on_event=acp_on_event)
+        try:
+            new_id = acp_manager.fork_at_turn(source_id, turn_index, on_event=acp_on_event)
+        except (ValueError, RuntimeError, RequestException, ProcessError) as error:
+            logger.exception('Session fork failed')
+            emit('error', {'message': str(error)})
+            return
         if not new_id:
             logger.warning(f"[acp_fork_at_turn] fork_at_turn returned None")
             emit("error", {"message": "Failed to fork session"})
@@ -1111,6 +1123,16 @@ def register_handlers(socketio):
             if session:
                 session.unload()
                 emit("acp_session_slept", {"session_id": acp_sid}, broadcast=True)
+
+    @socketio.on("acp_wake")
+    def acp_wake(data):
+        if not validate_csrf(data):
+            return
+        acp_sid = data.get("session_id")
+        if acp_sid:
+            session = acp_manager.get_session(acp_sid)
+            if session and not session.is_loaded and session.acp_session_id:
+                acp_manager.reload_session(acp_sid)
 
     @socketio.on("acp_sleep_group")
     def acp_sleep_group(data):

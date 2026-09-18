@@ -131,6 +131,31 @@ def _notes_replace(notebook, page, old_str, new_str, replace_all=False):
     return {"status": "replaced", "notebook": notebook, "page": page, "replacements": count}
 
 
+def _notes_delete(notebook, page):
+    api = _nb_api(notebook)
+    if not api:
+        d = _nb_dir(notebook)
+        if not d:
+            return {"error": f"Notebook '{notebook}' not found"}
+        fpath = os.path.join(d, page + ".md")
+        fpath = os.path.realpath(fpath)
+        if not fpath.startswith(os.path.realpath(d) + "/"):
+            return {"error": "Invalid page path"}
+        if not os.path.isfile(fpath):
+            return {"error": f"Page not found: {page}"}
+        os.remove(fpath)
+        return {"status": "deleted", "notebook": notebook, "page": page}
+    try:
+        encoded = urllib.parse.quote(page + ".md", safe="/")
+        req = urllib.request.Request(f"{api}/{encoded}", method="DELETE")
+        urllib.request.urlopen(req, timeout=5)
+        return {"status": "deleted", "notebook": notebook, "page": page}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"error": f"Page not found: {page}"}
+        return {"error": f"HTTP {e.code}: {e.reason}"}
+
+
 def _notes_search(notebook, query):
     d = _nb_dir(notebook)
     if not d:
@@ -246,6 +271,18 @@ async def list_tools() -> list[Tool]:
                 "required": ["notebook", "page", "old_str", "new_str"],
             },
         ),
+        Tool(
+            name="notes_delete",
+            description="Delete a note page from a notebook. This permanently removes the page.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "notebook": {"type": "string", "description": "Notebook name (e.g. 'default', 'recipes')"},
+                    "page": {"type": "string", "description": "Page name to delete (e.g. 'old-notes', 'Archive/deprecated')"},
+                },
+                "required": ["notebook", "page"],
+            },
+        ),
     ]
 
 
@@ -281,6 +318,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments["new_str"],
             arguments.get("replace_all", False),
         )
+    elif name == "notes_delete":
+        result = _notes_delete(arguments["notebook"], arguments["page"])
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     return [TextContent(type="text", text=json.dumps(result, indent=2))]

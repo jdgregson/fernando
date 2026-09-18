@@ -29,3 +29,25 @@ html {
     --ui-accent-color: #3465a3;
 }
 ```
+
+
+```space-lua
+-- Override Ctrl-C to copy rendered text instead of raw markdown
+command.define {
+  name = "Edit: Copy Rendered",
+  key = "Ctrl-c",
+  mac = "Cmd-c",
+  run = function()
+    local selection = editor.getSelection()
+    if selection.text == "" then
+      return
+    end
+    local mdTree = markdown.parseMarkdown(selection.text)
+    mdTree = markdown.expandMarkdown(mdTree)
+    local html = markdown.markdownToHtml(markdown.renderParseTree(mdTree))
+    -- Match exact syntax from Library/Std/Infrastructure/Export
+    editor.copyToClipboard(js.new(js.window.Blob, {html}, {type = "text/html"}))
+    editor.flashNotification("Copied as rich text")
+  end
+}
+```

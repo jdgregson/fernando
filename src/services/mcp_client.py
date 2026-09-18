@@ -13,6 +13,7 @@ from mcp.client.stdio import stdio_client
 logger = logging.getLogger(__name__)
 
 MCP_CONFIG_PATH = os.path.expanduser("~/.kiro/settings/mcp.json")
+OPENCODE_CONFIG_PATH = os.path.expanduser("~/.config/opencode/opencode.jsonc")
 _REPO_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _MCP_DIR = os.path.join(_REPO_DIR, "mcp_servers")
 
@@ -142,19 +143,40 @@ def list_bundled_servers():
 
 
 def set_server_enabled(name, enabled):
-    """Enable or disable a bundled MCP server in the Kiro CLI config."""
+    """Enable or disable a bundled MCP server in both Kiro CLI and OpenCode configs."""
     if name not in BUNDLED_SERVERS:
         return {"error": f"Unknown bundled server: {name}"}
+    
+    info = BUNDLED_SERVERS[name]
+    
     with open(MCP_CONFIG_PATH) as f:
-        cfg = json.load(f)
-    servers = cfg.setdefault("mcpServers", {})
+        kiro_cfg = json.load(f)
+    servers = kiro_cfg.setdefault("mcpServers", {})
     if enabled:
-        info = BUNDLED_SERVERS[name]
         servers[name] = {"command": info["command"], "args": info["args"]}
     else:
         servers.pop(name, None)
     with open(MCP_CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
+        json.dump(kiro_cfg, f, indent=2)
+    
+    if os.path.exists(OPENCODE_CONFIG_PATH):
+        with open(OPENCODE_CONFIG_PATH) as f:
+            content = f.read()
+        lines = content.split("\n")
+        filtered = [line for line in lines if not line.strip().startswith("//")]
+        oc_cfg = json.loads("\n".join(filtered))
+        mcp = oc_cfg.setdefault("mcp", {})
+        if name in mcp:
+            mcp[name]["enabled"] = enabled
+        elif enabled:
+            mcp[name] = {
+                "type": "local",
+                "command": [info["command"]] + info["args"],
+                "enabled": True,
+            }
+        with open(OPENCODE_CONFIG_PATH, "w") as f:
+            json.dump(oc_cfg, f, indent=2)
+    
     return {"ok": True, "name": name, "enabled": enabled}
 
 

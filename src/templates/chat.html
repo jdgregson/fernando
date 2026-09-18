@@ -436,7 +436,7 @@
         }
         if (running !== widget._prevRunning) {
             widget._prevRunning = running;
-            widget._runStartTime = Date.now();
+            widget._runStartTime = data.running_started_at ? data.running_started_at * 1000 : Date.now();
         }
 
         const existingSteps = widget.querySelectorAll('.pw-step');
@@ -468,9 +468,7 @@
                     stepEl.style = '';
                     if (iconEl) iconEl.innerHTML = _pwIcons[status] || _pwIcons.pending;
                     if (durationEl && r && r.duration != null) durationEl.textContent = r.duration + 's';
-                    const elapsed = (Date.now() - widget._runStartTime) / 1000;
-                    const stepTimeout = timeouts[i] || 30;
-                    const fromPct = Math.min(Math.round((elapsed / stepTimeout) * 100), 95);
+                    const fromPct = justCompletedIdx === i ? completedFromPct : 0;
                     if (bar && !_isReplay && fromPct < 90) {
                         bar.className = 'pw-bar';
                         bar.style.width = fromPct + '%';
@@ -572,6 +570,11 @@
                     }, 370);
                 });
             }
+        }
+        const runningBar = widget.querySelector('.pw-bar-running');
+        if (runningBar && widget._runStartTime && !runningBar.style.animationDelay) {
+            const elapsed = Math.max(0, (Date.now() - widget._runStartTime) / 1000);
+            runningBar.style.animationDelay = `-${elapsed}s`;
         }
         if (widget._skipReveal && widget._skipReveal.length) {
             widget._skipAnimating = true;
@@ -1124,7 +1127,7 @@
         return btn;
     }
 
-    function addToolCall(toolCallId, title, status, rawInput) {
+    function addToolCall(toolCallId, title, status, rawInput, startedAt) {
         ensureAssistantMsg();
         // Flush any pending text before sealing
         if (_chunkRenderPending) _renderCurrentChunk();
@@ -1279,9 +1282,11 @@
             const bar = document.createElement('span');
             bar.className = 'tc-bar tc-bar-running';
             bar.style.setProperty('--tc-timeout', rawInput.timeout + 's');
+            const barStart = startedAt ? startedAt * 1000 : Date.now();
+            bar.style.animationDelay = `-${Math.max(0, (Date.now() - barStart) / 1000)}s`;
             header.appendChild(bar);
             toolCalls[toolCallId]._bar = bar;
-            toolCalls[toolCallId]._barStart = Date.now();
+            toolCalls[toolCallId]._barStart = barStart;
             toolCalls[toolCallId]._barTimeout = rawInput.timeout;
         }
 
@@ -1435,7 +1440,7 @@
         }
     }
 
-    function updateToolCall(toolCallId, status, content, rawOutput, rawInput, reportedTitle) {
+    function updateToolCall(toolCallId, status, content, rawOutput, rawInput, reportedTitle, updatedAt) {
         const tc = toolCalls[toolCallId];
         if (!tc) return;
         if (status) {
@@ -1462,7 +1467,7 @@
             tc._bar = null;
         }
         if ((status === 'completed' || status === 'failed') && tc._barStart) {
-            const dur = ((Date.now() - tc._barStart) / 1000).toFixed(1);
+            const dur = (Math.max(0, (updatedAt ? updatedAt * 1000 : Date.now()) - tc._barStart) / 1000).toFixed(1);
             const durSpan = document.createElement('span');
             durSpan.className = 'tool-duration';
             durSpan.textContent = dur + 's';
@@ -2883,7 +2888,13 @@
         if (evt.type === 'session_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); return; }
         if (evt.type === 'session_ended') { finishTurn(); setStatus('error', 'Session ended'); return; }
         if (evt.type === 'archived_preview') { finishTurn(); setStatus('archived', 'Archived (read-only)'); document.getElementById('input').disabled = true; document.getElementById('input').placeholder = 'Restore to message Fernando...'; const sendBtn = document.getElementById('sendBtn'); sendBtn.textContent = 'Restore'; sendBtn.disabled = false; sendBtn.onclick = function() { socket.emit('acp_restore', {csrf_token: csrfToken, session_id: sessionId}); }; return; }
-        if (evt.type === 'acp_error') { finishTurn(); setStatus('error', 'Error: ' + (evt.error || 'unknown')); setTimeout(() => setStatus('ready', 'Ready'), 3000); return; }
+        if (evt.type === 'acp_error') {
+            finishTurn();
+            addSystemMessage('Error: ' + (evt.error || 'unknown'), 'error');
+            setStatus('error', 'Error');
+            setTimeout(() => setStatus('ready', 'Ready'), 3000);
+            return;
+        }
 
         const update = (evt.params || {}).update || {};
         const su = update.sessionUpdate;
@@ -2922,7 +2933,7 @@
             isWorking = true;
             closeThought();
             if (!_replayingHistory) setStatus('working', (update.title || 'Using tool') + '...');
-            addToolCall(update.toolCallId, update.title, update.status, update.rawInput);
+            addToolCall(update.toolCallId, update.title, update.status, update.rawInput, evt.ts);
             // Also drive the task bar, but keep the inline tool call in the stream
             // so it's always visible when/where the list was instantiated.
             if (isTaskToolCall(update)) {
@@ -2931,7 +2942,7 @@
         } else if (su === 'tool_call_update') {
             const st = update.status || '';
             if (st === 'in_progress' && !_replayingHistory) setStatus('working', 'Running tool...');
-            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput, update.rawInput, update.title);
+            updateToolCall(update.toolCallId, update.status, update.content, update.rawOutput, update.rawInput, update.title, evt.ts);
             if (isTaskToolCall(update) && !todoToolIds.has(update.toolCallId)) {
                 handleTodoCall(update.toolCallId, update.rawInput);
             }

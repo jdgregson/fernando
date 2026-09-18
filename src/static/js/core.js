@@ -348,7 +348,10 @@ function saveOpenCodeModel(value) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'opencode_model', value})
-    }).catch(() => {});
+    }).then(response => {
+        if (!response.ok) throw new Error('Failed to save OpenCode model');
+        applyProviderSettings();
+    });
 }
 
 function saveProviderSetting(provider, enabled) {
@@ -365,8 +368,13 @@ function applyProviderSettings() {
     fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
         .then(r => r.json())
         .then(data => {
+            const kiroChatTile = document.getElementById('kiroChatTile');
+            if (kiroChatTile) {
+                kiroChatTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.default_model})`;
+            }
             const openCodeTile = document.getElementById('openCodeTile');
             if (openCodeTile) {
+                openCodeTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.opencode_model})`;
                 openCodeTile.style.display = data.providers_opencode === true ? '' : 'none';
             }
         }).catch(() => {});
@@ -377,7 +385,10 @@ function saveDefaultModel(value) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'default_model', value})
-    }).catch(() => {});
+    }).then(response => {
+        if (!response.ok) throw new Error('Failed to save Kiro model');
+        applyProviderSettings();
+    });
 }
 
 function saveDefaultEffort(value) {

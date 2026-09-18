@@ -155,6 +155,11 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     transition: width 100ms ease-out;
 }
 
+.session-item.tree-joined {
+    /* 20% of the normal separator's 25% opacity. */
+    border-bottom-color: color-mix(in srgb, var(--group-color, #143151) 5%, transparent);
+}
+
 .session-item.fast::before {
     transition-duration: 50ms;
 }
@@ -199,6 +204,58 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 .session-item.active .session-name.child-session {
     color: inherit;
+}
+
+/* Row-sized segments meet across padding and the 1px row border. */
+.chat-session-item {
+    --tree-step: 14px;
+    padding-left: calc(15px + var(--tree-depth, 0) * var(--tree-step));
+}
+.chat-session-item .session-name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+.chat-session-item .chat-icon {
+    flex-shrink: 0;
+}
+.session-origin-prefix {
+    font-family: inherit;
+    font-weight: 100;
+    font-size: 0.8em;
+}
+.session-tree {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    color: #77889e;
+}
+.session-item.active .session-tree {
+    color: #d4deec;
+}
+.session-tree-line {
+    position: absolute;
+    left: calc(21px + var(--tree-level) * var(--tree-step));
+    top: 0;
+    bottom: -1px;
+    border-left: 1px solid currentColor;
+}
+.session-tree-line.branch::after {
+    content: '';
+    position: absolute;
+    top: calc((100% - 1px) / 2);
+    left: 0;
+    width: calc(var(--tree-step) - 6px);
+    border-top: 1px solid currentColor;
+}
+.session-tree-line.branch.last {
+    bottom: 50%;
+}
+.session-tree-line.branch.last::after {
+    top: 100%;
+}
+.session-tree-line.stem {
+    top: calc(50% + 6px);
 }
 
 .close-btn {
@@ -869,6 +926,15 @@ button.notebook-delete-btn {
     .chrome.mac .content-wrapper:has(.sidebar.collapsed) #terminal2-container {
         border-bottom-left-radius: 21px;
     }
+    /* Narrow layouts hide the sidebar without setting .collapsed. */
+    @media (max-width: 500px) {
+        .edge.mac .content-wrapper:has(.sidebar:not(.open)) #terminal2-container {
+            border-bottom-left-radius: 16px;
+        }
+        .chrome.mac .content-wrapper:has(.sidebar:not(.open)) #terminal2-container {
+            border-bottom-left-radius: 21px;
+        }
+    }
 }
 
 .terminal-container:last-child {
@@ -1109,7 +1175,10 @@ button.notebook-delete-btn {
     .mobile-controls {
         display: flex;
     }
+}
 
+/* Touch-device spacing must not create a chin in narrow desktop windows. */
+@media (max-width: 500px) and (hover: none) and (pointer: coarse) {
     .terminals-wrapper {
         padding-bottom: 20px;
     }
@@ -1328,6 +1397,13 @@ button.notebook-delete-btn {
 .session-item.secondary {
     border-left: 3px solid var(--group-color, #3465a3);
     padding-left: 12px;
+}
+.chat-session-item.secondary {
+    padding-left: calc(12px + var(--tree-depth, 0) * var(--tree-step));
+}
+.chat-session-item.secondary .session-tree {
+    /* Absolute positioning starts inside the secondary pane's 3px border. */
+    left: -3px;
 }
 
 /* Health indicator */

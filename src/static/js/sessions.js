@@ -659,6 +659,59 @@ const GROUP_COLORS = [
     '#a85d8a', // rose - darker
 ];
 
+function chatSidebarLabel(chat) {
+    const suffix = chat.name.match(/ \(fork(?:@(\d+))?\)$/);
+    const kind = chat.session_kind || (suffix ? 'fork' : chat.parent_id ? 'subagent' : null);
+    if (kind === 'fork') {
+        const turn = chat.fork_turn ?? (suffix && suffix[1]) ?? '?';
+        return { prefix: `FORK@${turn}:`, name: chat.name.replace(/(?: \(fork(?:@\d+)?\))+$/, '') };
+    }
+    return { prefix: kind === 'subagent' ? 'SUBAGENT:' : '', name: chat.name };
+}
+
+// Draw only relationships that are contiguous and visible in this group.
+// Rows stay flat so selection, drag/drop, and collapse keep their existing behavior.
+function connectSessionTree(sessionItems) {
+    const stack = [];
+    const nodes = [];
+    sessionItems.forEach(item => {
+        const parentIndex = stack.findIndex(node => node.id === item.dataset.treeParent);
+        stack.length = parentIndex < 0 ? 0 : parentIndex + 1;
+        const parent = stack[stack.length - 1] || null;
+        const node = { item, id: item.dataset.treeId, parent, children: [], depth: stack.length };
+        node.root = parent ? parent.root : node;
+        if (parent) parent.children.push(node);
+        nodes.push(node);
+        if (node.id) stack.push(node);
+    });
+    nodes.forEach((node, index) => {
+        // Only fade separators inside one agent's contiguous descendant tree.
+        const next = nodes[index + 1];
+        node.item.classList.toggle('tree-joined', !!(node.id && next && next.root === node.root));
+        if (!node.id) return;
+        node.item.style.setProperty('--tree-depth', node.depth);
+        const gutter = document.createElement('span');
+        gutter.className = 'session-tree';
+        gutter.setAttribute('aria-hidden', 'true');
+        function segment(level, kind) {
+            const line = document.createElement('span');
+            line.className = 'session-tree-line ' + kind;
+            line.style.setProperty('--tree-level', level);
+            gutter.appendChild(line);
+        }
+        if (node.parent) {
+            const siblings = node.parent.children;
+            segment(node.depth - 1, siblings[siblings.length - 1] === node ? 'branch last' : 'branch');
+        }
+        for (let ancestor = node.parent; ancestor && ancestor.parent; ancestor = ancestor.parent) {
+            const siblings = ancestor.parent.children;
+            if (siblings[siblings.length - 1] !== ancestor) segment(ancestor.depth - 1, 'continuation');
+        }
+        if (node.children.length) segment(node.depth, 'stem');
+        node.item.appendChild(gutter);
+    });
+}
+
 function createGroupElement(group, sessionItems, isExpanded, isFirst) {
     const wrapper = document.createElement('div');
     wrapper.className = 'group-wrapper';
@@ -707,6 +760,7 @@ function createGroupElement(group, sessionItems, isExpanded, isFirst) {
     
     const body = document.createElement('div');
     body.className = 'group-body' + (isExpanded ? ' expanded' : '');
+    connectSessionTree(sessionItems);
     sessionItems.forEach(item => {
         // Apply group color to session items (not for Ungrouped)
         if (!isUngrouped) {
@@ -891,10 +945,16 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     }
     
     if (onSleep) {
+        const chat = _cachedChatSessions.find(c => 'chat:' + c.id === sessionKey);
+        const sleeping = chat && !chat.loaded;
         const sleepBtn = document.createElement('div');
         sleepBtn.className = 'context-menu-item';
-        sleepBtn.textContent = 'Sleep';
-        sleepBtn.onclick = () => { menu.remove(); onSleep(); };
+        sleepBtn.textContent = sleeping ? 'Wake' : 'Sleep';
+        sleepBtn.onclick = () => {
+            menu.remove();
+            if (sleeping) emitWithCsrf('acp_wake', { session_id: chat.id });
+            else onSleep();
+        };
         menu.appendChild(sleepBtn);
     }
     
@@ -1428,8 +1488,10 @@ function updateSessionList(sessions, chatSessions, data) {
         const chatId = chat.id;
         const sessionKey = 'chat:' + chatId;
         const item = document.createElement('div');
-        item.className = 'session-item';
+        item.className = 'session-item chat-session-item';
         item.dataset.session = sessionKey;
+        item.dataset.treeId = chatId;
+        if (chat.parent_id) item.dataset.treeParent = chat.parent_id;
         const nameSpan = document.createElement('span');
         nameSpan.className = 'session-name' + (chat._isChild ? ' child-session' : '');
         
@@ -1456,9 +1518,19 @@ function updateSessionList(sessions, chatSessions, data) {
             chatIconColor = 'currentColor';
             chatIconClass = '';
         }
-        // Tree connector for child sessions (L shape)
-        const treeConnector = chat._isChild ? '<svg class="tree-connector" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1" style="vertical-align:-1px;margin-right:2px;opacity:0.5"><path d="M3 0 L3 6 L10 6"/></svg>' : '';
-        nameSpan.innerHTML = treeConnector + '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>' + chat.name;
+        nameSpan.innerHTML = '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>';
+        const chatLabel = document.createElement('span');
+        const sidebarLabel = chatSidebarLabel(chat);
+        if (sidebarLabel.prefix) {
+            const prefix = document.createElement('span');
+            prefix.className = 'session-origin-prefix';
+            prefix.textContent = sidebarLabel.prefix + ' ';
+            chatLabel.appendChild(prefix);
+        }
+        const chatTitle = document.createElement('span');
+        chatTitle.textContent = sidebarLabel.name;
+        chatLabel.appendChild(chatTitle);
+        nameSpan.appendChild(chatLabel);
         
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
@@ -1481,7 +1553,7 @@ function updateSessionList(sessions, chatSessions, data) {
         item.appendChild(closeBtn);
 
         function startChatRename() {
-            const oldName = nameSpan.textContent;
+            const oldName = chatTitle.textContent;
             const inp = document.createElement('input');
             inp.className = 'session-rename-input';
             inp.value = oldName;
@@ -1493,7 +1565,7 @@ function updateSessionList(sessions, chatSessions, data) {
                 const newName = inp.value.trim();
                 inp.replaceWith(nameSpan);
                 if (newName && newName !== oldName) {
-                    nameSpan.textContent = newName;
+                    chatTitle.textContent = newName;
                     emitWithCsrf('acp_rename', { session_id: chatId, name: newName });
                 }
             }

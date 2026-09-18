@@ -4,14 +4,19 @@ import glob
 import json
 import logging
 import os
+import re
 import select
 import subprocess
 import threading
 import time
 import shutil
 import uuid
+import secrets
+import psutil
+import requests
+from urllib.parse import quote
 
-from src.services import rag
+from src.services import rag, chat_history
 
 logger = logging.getLogger(__name__)
 
@@ -29,20 +34,7 @@ KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
 
 
 def load_history_file(session_id):
-    """Load history for a session from its JSONL file."""
-    history = []
-    try:
-        with open(os.path.join(HISTORY_DIR, f"{session_id}.jsonl")) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        history.append(json.loads(line))
-                    except (json.JSONDecodeError, ValueError):
-                        pass
-    except OSError:
-        pass
-    return history
+    return chat_history.load(session_id)
 
 
 def _save_sessions_map(sessions_map):
@@ -98,7 +90,7 @@ def _save_lineage(lineage):
     os.replace(tmp, LINEAGE_FILE)
 
 
-def set_parent(child_id, parent_id):
+def set_parent(child_id, parent_id, *, kind=None, fork_turn=None):
     """Record that parent_id spawned child_id."""
     with _lineage_lock:
         lineage = _load_lineage()
@@ -106,6 +98,9 @@ def set_parent(child_id, parent_id):
         if child_id not in lineage:
             lineage[child_id] = {"parent": None, "children": []}
         lineage[child_id]["parent"] = parent_id
+        if kind is not None:
+            lineage[child_id]['kind'] = kind
+            lineage[child_id]['fork_turn'] = fork_turn
         # Add to parent's children
         if parent_id not in lineage:
             lineage[parent_id] = {"parent": None, "children": []}
@@ -119,6 +114,21 @@ def get_parent(child_id):
     with _lineage_lock:
         lineage = _load_lineage()
         return lineage.get(child_id, {}).get("parent")
+
+
+def _session_origin(session, relation):
+    """Prefer persistent origin metadata; recover older forks from name/history."""
+    if relation.get('kind'):
+        return relation['kind'], relation.get('fork_turn')
+    suffix = re.search(r' \(fork(?:@(\d+))?\)$', session.display_name)
+    ref = chat_history.reference(session.id)
+    if suffix or ref:
+        turn = int(suffix[1]) if suffix and suffix[1] else None
+        if turn is None and ref:
+            turn = sum(event.get('type') == 'user_prompt'
+                       for event in session.history[:ref['event_count']])
+        return 'fork', turn
+    return ('subagent', None) if relation.get('parent') else (None, None)
 
 
 def get_children(parent_id):
@@ -281,8 +291,11 @@ class ACPSession:
                 env["OPENCODE_CONFIG_CONTENT"] = _json.dumps({"model": self.model})
             logger.info(f"[{self.id}] env has AWS_BEARER_TOKEN_BEDROCK: {'AWS_BEARER_TOKEN_BEDROCK' in env}")
             logger.info(f"[{self.id}] model={self.model}")
+            self._opencode_password = secrets.token_urlsafe(32)
+            env['OPENCODE_SERVER_USERNAME'] = 'fernando'
+            env['OPENCODE_SERVER_PASSWORD'] = self._opencode_password
             self.proc = subprocess.Popen(
-                [OPENCODE_CLI, "acp"],
+                [OPENCODE_CLI, "acp", "--hostname", "127.0.0.1", "--port", "0", "--mdns=false"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -528,6 +541,47 @@ class ACPSession:
             "params": {"sessionId": self.acp_session_id},
         })
 
+    def opencode_request(self, method, path, body=None):
+        process = self.proc
+        if self.backend != 'opencode' or process is None or process.poll() is not None:
+            raise RuntimeError('OpenCode session is not loaded')
+        listeners = [c.laddr.port for c in psutil.Process(process.pid).net_connections(kind='tcp')
+                     if c.status == psutil.CONN_LISTEN and c.laddr.ip == '127.0.0.1']
+        if len(listeners) != 1:
+            raise RuntimeError('Expected one OpenCode loopback HTTP listener')
+        with requests.Session() as client:
+            client.trust_env = False
+            response = client.request(
+                method, f'http://127.0.0.1:{listeners[0]}{path}',
+                auth=('fernando', self._opencode_password), json=body,
+                params={'directory': os.path.expanduser('~/fernando')},
+                timeout=(5, 60), allow_redirects=False,
+            )
+            if not 200 <= response.status_code < 300:
+                raise RuntimeError(f'OpenCode HTTP request failed ({response.status_code})')
+            return response.json()
+
+    def fork_opencode(self, history, boundary):
+        session_path = '/session/' + quote(self.acp_session_id, safe='')
+        messages = self.opencode_request('GET', session_path + '/message')
+        native_users = [m for m in messages if m['info']['role'] == 'user'
+                        and any(p['type'] == 'text' and not p.get('synthetic') for p in m['parts'])]
+        prompts = [e for e in history[:boundary + 1]
+                   if e.get('type') in ('user_prompt', 'continuation', 'agent_message')]
+        if len(native_users) < len(prompts):
+            raise ValueError('Selected turn has not reached OpenCode yet; retry once it has been accepted')
+        for event, message in zip(prompts, native_users):
+            text = event['text']
+            if event['type'] == 'agent_message':
+                text = f"[AGENT MESSAGE from {event['from']}] {text}"
+            native_text = ''.join(p['text'] for p in message['parts']
+                                  if p['type'] == 'text' and not p.get('synthetic'))
+            if text != native_text:
+                raise ValueError('Fernando and OpenCode prompt histories do not match; refusing an ambiguous fork')
+        target_id = native_users[len(prompts) - 1]['info']['id']
+        result = self.opencode_request('POST', session_path + '/fork', {'messageID': target_id})
+        return result['id']
+
     def execute_command(self, command, args=None):
         """Execute a slash command via ACP _kiro.dev/commands/execute extension.
         
@@ -667,7 +721,7 @@ class ACPSession:
         return os.path.join(HISTORY_DIR, f"{self.id}.jsonl")
 
     def _save_history(self, index_rag=False):
-        try:
+        with chat_history.lock:
             os.makedirs(HISTORY_DIR, exist_ok=True)
             path = self._history_path()
             new_entries = self.history[self._flushed:]
@@ -677,9 +731,7 @@ class ACPSession:
                         f.write(json.dumps(entry) + "\n")
                 if self._flushed == 0:
                     os.chmod(path, 0o600)
-                self._flushed = len(self.history)
-        except Exception:
-            pass
+                self._flushed += len(new_entries)
         if index_rag:
             threading.Thread(
                 target=self._index_rag_background, daemon=True
@@ -901,7 +953,9 @@ class ACPSession:
             self._is_prompting = False
             self._has_unread = True  # Error is also a turn end
             self._notify_status_change()
-            err_text = str(err.get("data") or err.get("message", ""))
+            # Prefer message; only use data if it's a string (not a dict)
+            err_data = err.get("data")
+            err_text = err.get("message", "") if not isinstance(err_data, str) else err_data
             if "is not available" in err_text:
                 if self._retry_count < self._max_retries:
                     threading.Thread(target=self._retry_after_unavailable, daemon=True).start()
@@ -910,17 +964,21 @@ class ACPSession:
                     self._retry_count = 0
                     if self.on_event and self._broadcasting:
                         self.on_event(self.id, {"type": "system_message", "text": f"Model unavailable after {self._max_retries} retries. Send any message to try again."})
-                        self.on_event(self.id, {"type": "acp_error", "error": err_text})
+                    error_evt = {"type": "acp_error", "error": err_text, "ts": time.time()}
+                    self.history.append(error_evt)
+                    self._save_history()
+                    if self.on_event and self._broadcasting:
+                        self.on_event(self.id, error_evt)
                 return
             self._retry_count = 0
             if "Transport" in err_text and "closed" in err_text:
                 logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
                 threading.Thread(target=self._auto_reload, daemon=True).start()
+            error_evt = {"type": "acp_error", "error": err_text or "Unknown error", "ts": time.time()}
+            self.history.append(error_evt)
+            self._save_history()
             if self.on_event and self._broadcasting:
-                try:
-                    self.on_event(self.id, {"type": "acp_error", "error": err_text or "Unknown error"})
-                except Exception:
-                    pass
+                self.on_event(self.id, error_evt)
             return
 
         # Notification (no id) — log session/update type
@@ -1074,6 +1132,7 @@ class ACPManager:
             history_ids = {
                 os.path.basename(f)[:-6]  # strip .jsonl
                 for f in glob.glob(os.path.join(HISTORY_DIR, "*.jsonl"))
+                if not chat_history.is_deleted(os.path.basename(f)[:-6])
             }
             orphaned = history_ids - tracked
             if not orphaned:
@@ -1223,10 +1282,8 @@ class ACPManager:
         if session:
             session.stop()
             if delete_history:
-                try:
-                    os.remove(session._history_path())
-                except OSError:
-                    pass
+                for removed_id in chat_history.delete(session_id):
+                    rag.delete_session(removed_id)
         self._save()
 
     def archive_session(self, session_id):
@@ -1307,26 +1364,18 @@ class ACPManager:
             archived = _load_archived_map()
             archived.pop(session_id, None)
             _save_archived_map(archived)
-        try:
-            os.remove(os.path.join(HISTORY_DIR, f"{session_id}.jsonl"))
-        except OSError:
-            pass
-        # Delete cached images and files for this session
-        import shutil
-        cache_dir = os.path.join(DATA_DIR, "image_cache", session_id)
-        shutil.rmtree(cache_dir, ignore_errors=True)
-        file_cache_dir = os.path.join(DATA_DIR, "file_cache", session_id)
-        shutil.rmtree(file_cache_dir, ignore_errors=True)
-        try:
-            rag.delete_session(session_id)
-        except Exception as e:
-            logger.warning(f"RAG delete error for {session_id}: {e}")
+        for removed_id in chat_history.delete(session_id):
+            rag.delete_session(removed_id)
 
     def list_sessions(self):
+        with _lineage_lock:
+            lineage = _load_lineage()
         with self._lock:
             result = []
             for sid, s in self.sessions.items():
-                parent = get_parent(sid)
+                relation = lineage.get(sid, {})
+                parent = relation.get('parent')
+                kind, fork_turn = _session_origin(s, relation)
                 result.append({
                     "id": sid,
                     "name": s.display_name,
@@ -1334,6 +1383,8 @@ class ACPManager:
                     "loaded": s.is_loaded,
                     "status": s.get_status(),
                     "parent_id": parent,
+                    "session_kind": kind,
+                    "fork_turn": fork_turn,
                 })
             return result
 
@@ -1359,6 +1410,15 @@ class ACPManager:
         with self._lock:
             session = self.sessions.get(session_id)
         if session:
+            # Preserve legacy name-based origin information before a rename.
+            with _lineage_lock:
+                lineage = _load_lineage()
+                relation = lineage.get(session_id, {})
+                kind, turn = _session_origin(session, relation)
+                if kind and not relation.get('kind'):
+                    relation.update(kind=kind, fork_turn=turn)
+                    lineage[session_id] = relation
+                    _save_lineage(lineage)
             session.display_name = new_name
             self._save()
 
@@ -1374,6 +1434,12 @@ class ACPManager:
         if not source.is_loaded:
             logger.warning(f"[clone] Source session {source_session_id} not loaded")
             return None
+        if source.backend == 'opencode':
+            result = source.opencode_request('POST', '/session/' + quote(source.acp_session_id, safe='') + '/fork', {})
+            with chat_history.lock:
+                source._save_history()
+                boundary = source._flushed
+            return self._register_fork(source, result['id'], boundary, None, on_event)
         
         # Get list of turns to find the latest one
         turns_result = source.execute_command("rewind")
@@ -1403,28 +1469,10 @@ class ACPManager:
         
         logger.info(f"[clone] Kiro created forked session: {new_acp_id}")
         
-        # Create a new Fernando session that loads the forked Kiro session
-        new_id = str(uuid.uuid4())[:8]
-        
-        # Copy the Fernando history file so UI shows the conversation
-        source_history_path = os.path.join(HISTORY_DIR, f"{source_session_id}.jsonl")
-        new_history_path = os.path.join(HISTORY_DIR, f"{new_id}.jsonl")
-        if os.path.exists(source_history_path):
-            shutil.copy2(source_history_path, new_history_path)
-            os.chmod(new_history_path, 0o600)
-        
-        session = ACPSession(new_id, on_event=on_event, backend=source.backend)
-        session.model = source.model
-        session.display_name = source.display_name + " (fork)"
-        session.acp_session_id = new_acp_id
-        self._wire_session_status_callback(session)
-        
-        with self._lock:
-            self.sessions[new_id] = session
-        
-        # Load the forked session instead of starting fresh
-        threading.Thread(target=self._load_existing, args=(new_id, session, new_acp_id), daemon=True).start()
-        return new_id
+        with chat_history.lock:
+            source._save_history()
+            boundary = source._flushed
+        return self._register_fork(source, new_acp_id, boundary, None, on_event)
 
     def fork_at_turn(self, source_session_id, turn_index, on_event=None):
         """Fork a session at a specific turn index.
@@ -1441,6 +1489,18 @@ class ACPManager:
         if not source.is_loaded:
             logger.warning(f"[fork_at_turn] Source session {source_session_id} not loaded")
             return None
+        if type(turn_index) is not int or turn_index < 1:
+            raise ValueError('turn_index must be a positive integer')
+        with chat_history.lock:
+            source._save_history()
+            snapshot = source.history[:source._flushed]
+        boundaries = [i for i, event in enumerate(snapshot) if event.get('type') == 'user_prompt']
+        if turn_index > len(boundaries):
+            raise ValueError('Selected user turn does not exist')
+        boundary = boundaries[turn_index - 1]
+        if source.backend == 'opencode':
+            new_acp_id = source.fork_opencode(snapshot, boundary)
+            return self._register_fork(source, new_acp_id, boundary, turn_index, on_event)
         
         # Get list of turns from Kiro
         turns_result = source.execute_command("rewind")
@@ -1498,66 +1558,27 @@ class ACPManager:
         
         logger.info(f"[fork_at_turn] Kiro created forked session: {new_acp_id}")
         
-        # Create a new Fernando session that loads the forked Kiro session
+        return self._register_fork(source, new_acp_id, boundary, turn_index, on_event)
+
+    def _register_fork(self, source, new_acp_id, boundary, turn_index, on_event):
         new_id = str(uuid.uuid4())[:8]
-        
-        # Copy the Fernando history file up to the fork point
-        # turn_index matches our user_prompt counting (1-based, excludes continuations)
-        source_history_path = os.path.join(HISTORY_DIR, f"{source_session_id}.jsonl")
-        new_history_path = os.path.join(HISTORY_DIR, f"{new_id}.jsonl")
-        if os.path.exists(source_history_path):
-            self._copy_history_up_to_turn(source_history_path, new_history_path, turn_index)
-        
+        chat_history.fork(source.id, new_id, boundary)
         session = ACPSession(new_id, on_event=on_event, backend=source.backend)
         session.model = source.model
-        session.display_name = source.display_name + f" (fork@{turn_index})"
+        session.effort = source.effort
+        session.display_name = source.display_name + (f" (fork@{turn_index})" if turn_index else ' (fork)')
         session.acp_session_id = new_acp_id
+        session._load_history()
         self._wire_session_status_callback(session)
         
         with self._lock:
             self.sessions[new_id] = session
-        
-        # Load the forked session instead of starting fresh
+        fork_turn = turn_index if turn_index is not None else sum(
+            event.get('type') == 'user_prompt' for event in session.history)
+        set_parent(new_id, source.id, kind='fork', fork_turn=fork_turn)
+        self._save()
         threading.Thread(target=self._load_existing, args=(new_id, session, new_acp_id), daemon=True).start()
         return new_id
-
-    def _copy_history_up_to_turn(self, source_path, dest_path, turn_index):
-        """Copy history events up to but NOT including the specified turn.
-        
-        "Fork from turn N" means fork BEFORE that user message, so you can
-        re-ask or take a different path. We copy turns 1 through N-1.
-        """
-        user_turn_count = 0
-        events_to_copy = []
-        total_events = 0
-        
-        with open(source_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                total_events += 1
-                evt = json.loads(line)
-                evt_type = evt.get("type")
-                
-                # Track user turns - user_prompt marks start of a new turn
-                if evt_type == "user_prompt":
-                    user_turn_count += 1
-                    logger.debug(f"[_copy_history_up_to_turn] Found user_prompt #{user_turn_count}")
-                
-                # Stop BEFORE the selected turn (fork point is just before this message)
-                if user_turn_count >= turn_index:
-                    logger.info(f"[_copy_history_up_to_turn] Stopping before user_prompt #{user_turn_count} (target was {turn_index})")
-                    break
-                
-                events_to_copy.append(line)
-        
-        with open(dest_path, 'w') as f:
-            for line in events_to_copy:
-                f.write(line + '\n')
-        
-        os.chmod(dest_path, 0o600)
-        logger.info(f"[_copy_history_up_to_turn] Copied {len(events_to_copy)} events (turns 1-{turn_index - 1}) for fork at turn {turn_index}")
 
     def _save(self):
         with self._lock:
