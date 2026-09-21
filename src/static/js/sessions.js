@@ -995,6 +995,16 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
+
+    const newSessionBtn = document.createElement('div');
+    newSessionBtn.className = 'context-menu-item';
+    newSessionBtn.textContent = 'New Session';
+    newSessionBtn.onclick = () => {
+        menu.remove();
+        openNewSessionModal(groupId);
+    };
+    menu.appendChild(newSessionBtn);
+
     const templatesBtn = document.createElement('div');
     templatesBtn.className = 'context-menu-item has-submenu';
     templatesBtn.textContent = 'Context templates';
@@ -2063,13 +2073,22 @@ window.addEventListener('message', (e) => {
 });
 
 // --- New Session Modal ---
-function openNewSessionModal() {
+let newSessionTargetGroupId = null;
+
+function openNewSessionModal(targetGroupId = null) {
+    newSessionTargetGroupId = targetGroupId;
     document.getElementById('newSessionModal').classList.add('open');
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
-function closeNewSessionModal() { document.getElementById('newSessionModal').classList.remove('open'); }
+function closeNewSessionModal() { 
+    document.getElementById('newSessionModal').classList.remove('open');
+    newSessionTargetGroupId = null;
+}
+function getNewSessionGroupId() {
+    return newSessionTargetGroupId || (typeof getActivePaneGroupId === 'function' ? getActivePaneGroupId() : null);
+}
 function createSessionType(type) { 
-    const groupId = typeof getActivePaneGroupId === 'function' ? getActivePaneGroupId() : null;
+    const groupId = getNewSessionGroupId();
     emitWithCsrf('create_session', { type: type, group_id: groupId }); 
     closeNewSessionModal(); 
 }

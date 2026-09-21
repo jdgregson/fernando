@@ -1,14 +1,14 @@
 // --- ACP Chat Sessions ---
 
 function createChatSession() {
+    const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
     closeNewSessionModal();
-    const groupId = getActivePaneGroupId();
     emitWithCsrf('acp_create', groupId ? { group_id: groupId } : {});
 }
 
 function createOpenCodeChatSession() {
+    const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
     closeNewSessionModal();
-    const groupId = getActivePaneGroupId();
     fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
         .then(r => r.json())
         .then(data => {
