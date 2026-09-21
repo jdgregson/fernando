@@ -56,4 +56,8 @@ def create_app(config_name=None):
             pass
     threading.Thread(target=_cache_models, daemon=True).start()
 
+    # Check if RAG index migration is needed (old format -> sentence-based)
+    from src.services import rag
+    rag.maybe_start_migration()
+
     return app
