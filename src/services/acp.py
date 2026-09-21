@@ -12,6 +12,7 @@ import time
 import shutil
 import uuid
 import secrets
+import copy
 import psutil
 import requests
 from urllib.parse import quote
@@ -40,6 +41,7 @@ def load_history_file(session_id):
 def _save_sessions_map(sessions_map):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(SESSIONS_FILE, "w") as f:
+        os.fchmod(f.fileno(), 0o600)
         json.dump(sessions_map, f, indent=2)
 
 
@@ -58,6 +60,7 @@ def _save_archived_map(archived_map):
     os.makedirs(DATA_DIR, exist_ok=True)
     tmp = ARCHIVED_FILE + ".tmp"
     with open(tmp, "w") as f:
+        os.fchmod(f.fileno(), 0o600)
         json.dump(archived_map, f, indent=2)
     os.replace(tmp, ARCHIVED_FILE)
 
@@ -244,6 +247,7 @@ class ACPSession:
         self.id = session_id
         self.on_event = on_event
         self.backend = backend  # "kiro" or "opencode"
+        self.context_snapshot = None  # Last applied context, refreshed before every process launch
         self.proc = None
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
@@ -273,6 +277,15 @@ class ACPSession:
 
     def _spawn_and_init(self):
         """Spawn kiro-cli or opencode acp and run initialize handshake."""
+        from src.services import context_templates, groups
+        # Resume the same native conversation, but resolve tools and steering from
+        # current settings/membership. Persisted snapshots describe the last launch;
+        # they must not pin a chat to a deleted template or its previous group.
+        group_id = groups.get_session_groups().get('chat:' + self.id)
+        snapshot = context_templates.resolve(group_id, self.backend)
+        context_env, context_args = context_templates.prepare(self.id, snapshot, self.backend)
+        self.context_snapshot = snapshot
+        logger.info(f"[{self.id}] Resolved context for group={group_id}, servers={list(snapshot['servers'])}")
         if self.backend == "opencode":
             logger.info(f"[{self.id}] Spawning opencode acp subprocess")
             env = os.environ.copy()
@@ -286,6 +299,7 @@ class ACPSession:
                         if "=" in line:
                             key, _, value = line.partition("=")
                             env[key] = value
+            env.update(context_env)
             if self.model:
                 import json as _json
                 env["OPENCODE_CONFIG_CONTENT"] = _json.dumps({"model": self.model})
@@ -306,19 +320,20 @@ class ACPSession:
         else:
             logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
             self.proc = subprocess.Popen(
-                [KIRO_CLI, "acp", "-a", "--model", self.model, "--effort", self.effort],
+                [KIRO_CLI, "acp", "-a", "--model", self.model, "--effort", self.effort] + context_args,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=os.path.expanduser("~/fernando"),
+                env={**os.environ, **context_env},
             )
             logger.info(f"[{self.id}] kiro-cli pid={self.proc.pid}")
         self._alive = True
         self._last_activity = time.time()
-        self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader_thread = threading.Thread(target=self._read_loop, args=(self.proc,), daemon=True)
         self._reader_thread.start()
         # Drain stderr to prevent pipe buffer deadlock
-        self._stderr_thread = threading.Thread(target=self._stderr_loop, daemon=True)
+        self._stderr_thread = threading.Thread(target=self._stderr_loop, args=(self.proc,), daemon=True)
         self._stderr_thread.start()
 
         resp = self._request("initialize", {
@@ -441,17 +456,18 @@ class ACPSession:
         self._broadcasting = True
 
     def send_prompt(self, text):
-        if not self.acp_session_id:
-            logger.warning(f"[{self.id}] send_prompt called but no acp_session_id")
-            return
-        if not self.ready:
-            logger.warning(f"[{self.id}] send_prompt called but session not ready")
-            return
-        logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}, was_prompting={self._is_prompting}")
+        with self._lock:
+            if not self.acp_session_id or not self.ready or self._reloading:
+                logger.warning(f"[{self.id}] send_prompt called but session not ready")
+                return
+            was_prompting = self._is_prompting
+            # Claim the turn before a concurrent group move can claim the restart.
+            self._is_prompting = True
+        logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}, was_prompting={was_prompting}")
         if self._retry_pending:
             self._retry_pending = False
             self._retry_count = 0
-        if self._is_prompting:
+        if was_prompting:
             logger.info(f"[{self.id}] cancelling stuck prompt before sending new one")
             self.cancel()
             time.sleep(0.5)
@@ -618,16 +634,31 @@ class ACPSession:
         self._alive = False
         self._is_prompting = False
         self._save_history(index_rag=True)
-        if self.proc:
+        self._stop_process()
+
+    def _stop_process(self):
+        # Detach first: stale readers must never operate on a replacement process.
+        process, self.proc = self.proc, None
+        self._alive = False
+        self.ready = False
+        if process:
             try:
-                self.proc.terminate()
-                self.proc.wait(timeout=5)
+                process.terminate()
+                process.wait(timeout=5)
             except Exception:
                 try:
-                    self.proc.kill()
+                    process.kill()
+                    process.wait(timeout=5)
                 except Exception:
                     pass
-            self.proc = None
+        for thread in (self._reader_thread, self._stderr_thread):
+            if thread and thread is not threading.current_thread():
+                thread.join(timeout=2)
+        if process:
+            for stream, reader in ((process.stdin, None), (process.stdout, self._reader_thread),
+                                   (process.stderr, self._stderr_thread)):
+                if stream and (reader is None or not reader.is_alive()):
+                    stream.close()
 
     @property
     def is_loaded(self):
@@ -640,16 +671,7 @@ class ACPSession:
         self._is_prompting = False
         self._save_history(index_rag=False)
         self.ready = False
-        if self.proc:
-            try:
-                self.proc.terminate()
-                self.proc.wait(timeout=5)
-            except Exception:
-                try:
-                    self.proc.kill()
-                except Exception:
-                    pass
-            self.proc = None
+        self._stop_process()
 
     def get_stall_info(self):
         """Return diagnostic info about current session state."""
@@ -788,24 +810,26 @@ class ACPSession:
             self._save_history()
             logger.info(f"[{self.id}] Patched incomplete mutate tool call {pending_tool_call_id}")
 
-    def _read_loop(self):
+    def _read_loop(self, process):
         buf = b""
         stall_warned = 0  # last stall warning threshold (seconds)
-        while self._alive and self.proc and self.proc.poll() is None:
+        while self._alive and self.proc is process and process.poll() is None:
             try:
-                ready, _, _ = select.select([self.proc.stdout], [], [], 0.5)
+                ready, _, _ = select.select([process.stdout], [], [], 0.5)
                 if not ready:
                     # Stall detection: log warnings at increasing intervals while prompting
                     if self._is_prompting:
                         elapsed = time.time() - self._last_activity
                         if elapsed > 60 and elapsed > stall_warned + 60:
                             stall_warned = int(elapsed)
-                            logger.warning(f"[{self.id}] STALL: no stdout data for {elapsed:.0f}s while prompting, proc_poll={self.proc.poll()}")
+                            logger.warning(f"[{self.id}] STALL: no stdout data for {elapsed:.0f}s while prompting, proc_poll={process.poll()}")
                     continue
-                chunk = self.proc.stdout.read1(65536)
+                chunk = process.stdout.read1(65536)
                 if not chunk:
-                    logger.warning(f"[{self.id}] stdout EOF, proc_poll={self.proc.poll()}")
+                    logger.warning(f"[{self.id}] stdout EOF, proc_poll={process.poll()}")
                     break
+                if self.proc is not process or not self._alive:
+                    return
                 self._last_activity = time.time()
                 stall_warned = 0
                 buf += chunk
@@ -819,11 +843,15 @@ class ACPSession:
                     except (json.JSONDecodeError, ValueError):
                         logger.warning(f"[{self.id}] non-JSON stdout line: {line[:200]}")
                         continue
+                    if self.proc is not process or not self._alive:
+                        return
                     self._dispatch(msg)
             except Exception as e:
                 logger.error(f"[{self.id}] _read_loop exception: {e}", exc_info=True)
                 break
 
+        if self.proc is not process or not self._alive:
+            return
         self._alive = False
         self._is_prompting = False
         logger.info(f"[{self.id}] _read_loop exited, proc_poll={self.proc.poll() if self.proc else 'dead'}")
@@ -833,14 +861,14 @@ class ACPSession:
             except Exception:
                 pass
 
-    def _stderr_loop(self):
+    def _stderr_loop(self, process):
         """Drain stderr to prevent pipe buffer deadlock and log any output."""
         try:
-            while self._alive and self.proc and self.proc.poll() is None:
-                ready, _, _ = select.select([self.proc.stderr], [], [], 1.0)
+            while self._alive and self.proc is process and process.poll() is None:
+                ready, _, _ = select.select([process.stderr], [], [], 1.0)
                 if not ready:
                     continue
-                chunk = self.proc.stderr.read1(65536)
+                chunk = process.stderr.read1(65536)
                 if not chunk:
                     break
                 for line in chunk.decode(errors="replace").splitlines():
@@ -1048,9 +1076,16 @@ class ACPManager:
                 self._save_pid_map()
                 self._broadcast_sessions_list()
 
-    def create_session(self, on_event=None, model=None, backend="kiro"):
+    def create_session(self, on_event=None, model=None, backend="kiro", group_id=None):
+        from src.services import context_templates, groups
+        if backend not in ('kiro', 'opencode'):
+            raise ValueError('Unknown agent backend')
+        snapshot = context_templates.resolve(group_id, backend)
         session_id = str(uuid.uuid4())[:8]
         session = ACPSession(session_id, on_event=on_event, backend=backend)
+        session.context_snapshot = snapshot
+        if group_id:
+            groups.move_session_to_group('chat:' + session_id, group_id)
         if model:
             session.model = model
         self._wire_session_status_callback(session)
@@ -1097,6 +1132,7 @@ class ACPManager:
                 can_load = bool(acp_id)
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id), backend=backend)
             session.display_name = name
+            session.context_snapshot = info.get('context_snapshot') if isinstance(info, dict) else None
             session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
             self._wire_session_status_callback(session)
             with self._lock:
@@ -1207,9 +1243,15 @@ class ACPManager:
         except Exception as e:
             session._reloading = False
             logger.error(f"ACP session load failed for {session_id}: {e}", exc_info=True)
+            # A failed restart is not a request to close/archive the conversation.
+            session.unload()
+            session._recording = True
+            session._broadcasting = True
+            self._save()
+            self._save_pid_map()
+            self._broadcast_sessions_list()
             if session.on_event:
                 session.on_event(session_id, {"type": "session_error", "error": str(e)})
-            self.destroy_session(session_id, delete_history=False)
 
     def get_session(self, session_id):
         with self._lock:
@@ -1234,6 +1276,59 @@ class ACPManager:
             daemon=True,
         ).start()
         return True
+
+    def move_chat_to_group(self, session_id, group_id):
+        """Reject active work; move idle chats and resume the same conversation."""
+        from src.services import context_templates, groups
+        session = self.get_session(session_id)
+        if not session:
+            raise ValueError('Chat not found')
+        group_id = group_id or None
+        key = 'chat:' + session_id
+        if groups.get_session_groups().get(key) == group_id:
+            return False
+        with session._lock:
+            if session._is_prompting or session._retry_pending:
+                raise ValueError('Cannot move this chat while it is working. Wait for the turn to finish, then try again.')
+            if session._reloading or not session.acp_session_id or (session.is_loaded and not session.ready):
+                raise ValueError('Cannot move this chat while it is starting or restarting. Please try again when it is ready.')
+            previous_ready = session.ready
+            session.ready = False
+            session._reloading = True
+        try:
+            # Validate before stopping or changing membership; launch resolves again.
+            snapshot = context_templates.resolve(group_id, session.backend)
+            if session.on_event:
+                session.on_event(session_id, {'type': 'session_loading'})
+            session.unload()
+            groups.move_session_to_group(key, group_id)
+            session.context_snapshot = snapshot
+            self._save()
+            self._save_pid_map()
+            self._broadcast_sessions_list()
+            threading.Thread(
+                target=self._load_existing,
+                args=(session_id, session, session.acp_session_id),
+                daemon=True,
+            ).start()
+        except Exception:
+            session.ready = previous_ready if session.is_loaded else False
+            session._reloading = False
+            raise
+        return True
+
+    def apply_context(self, session_id):
+        from src.services import context_templates, groups
+        session = self.get_session(session_id)
+        if not session:
+            raise ValueError('Chat not found')
+        if session._is_prompting or session._reloading or not session.acp_session_id:
+            raise ValueError('Wait until the chat is idle before applying context')
+        snapshot = context_templates.resolve(groups.get_session_groups().get('chat:' + session_id), session.backend)
+        session.unload()
+        session.context_snapshot = snapshot
+        self._save()
+        self.reload_session(session_id)
 
     def change_model(self, session_id, new_model):
         """Change the model for a session by restarting the kiro-cli process."""
@@ -1306,6 +1401,7 @@ class ACPManager:
                     "name": name,
                     "backend": backend,
                     "model": model,
+                    "context_snapshot": session.context_snapshot,
                     "archived_at": time.time()
                 }
                 _save_archived_map(archived)
@@ -1338,6 +1434,7 @@ class ACPManager:
             _save_archived_map(archived)
         session = ACPSession(session_id, on_event=on_event, backend=backend)
         session.display_name = info.get("name", "Chat-" + session_id)
+        session.context_snapshot = info.get('context_snapshot')
         session.model = info.get("model", ACPSession.DEFAULT_MODEL)
         self._wire_session_status_callback(session)
         with self._lock:
@@ -1562,9 +1659,14 @@ class ACPManager:
 
     def _register_fork(self, source, new_acp_id, boundary, turn_index, on_event):
         new_id = str(uuid.uuid4())[:8]
+        from src.services import groups
+        source_group = groups.get_session_groups().get('chat:' + source.id)
+        if source_group:
+            groups.move_session_to_group('chat:' + new_id, source_group)
         chat_history.fork(source.id, new_id, boundary)
         session = ACPSession(new_id, on_event=on_event, backend=source.backend)
         session.model = source.model
+        session.context_snapshot = copy.deepcopy(source.context_snapshot)
         session.effort = source.effort
         session.display_name = source.display_name + (f" (fork@{turn_index})" if turn_index else ' (fork)')
         session.acp_session_id = new_acp_id
@@ -1589,6 +1691,7 @@ class ACPManager:
                     "model": s.model,
                     "backend": s.backend,
                     "loaded": s.is_loaded,
+                    "context_snapshot": s.context_snapshot,
                 }
                 for sid, s in self.sessions.items()
                 if s.acp_session_id

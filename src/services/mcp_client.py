@@ -118,10 +118,9 @@ _load_disk_cache()
 
 
 def _load_server_configs():
-    """Load MCP server configurations from mcp.json."""
-    with open(MCP_CONFIG_PATH) as f:
-        data = json.load(f)
-    return data.get("mcpServers", {})
+    """Registered servers remain callable even when not globally injected."""
+    from src.services.context_templates import get_config, server_config
+    return {name: server_config(item, 'kiro') for name, item in get_config()['servers'].items()}
 
 
 def list_servers():
@@ -130,53 +129,21 @@ def list_servers():
 
 
 def list_bundled_servers():
-    """Return Fernando-bundled servers with their enabled state."""
-    enabled = set(_load_server_configs().keys())
-    result = []
-    for name, info in BUNDLED_SERVERS.items():
-        result.append({
-            "name": name,
-            "description": info["description"],
-            "enabled": name in enabled,
-        })
-    return result
+    """Return registered servers and their global injection state."""
+    from src.services.context_templates import get_config
+    return [{'name': name, 'description': item.get('description', name),
+             'enabled': item.get('global', False)}
+            for name, item in get_config()['servers'].items()]
 
 
 def set_server_enabled(name, enabled):
-    """Enable or disable a bundled MCP server in both Kiro CLI and OpenCode configs."""
-    if name not in BUNDLED_SERVERS:
-        return {"error": f"Unknown bundled server: {name}"}
-    
-    info = BUNDLED_SERVERS[name]
-    
-    with open(MCP_CONFIG_PATH) as f:
-        kiro_cfg = json.load(f)
-    servers = kiro_cfg.setdefault("mcpServers", {})
-    if enabled:
-        servers[name] = {"command": info["command"], "args": info["args"]}
-    else:
-        servers.pop(name, None)
-    with open(MCP_CONFIG_PATH, "w") as f:
-        json.dump(kiro_cfg, f, indent=2)
-    
-    if os.path.exists(OPENCODE_CONFIG_PATH):
-        with open(OPENCODE_CONFIG_PATH) as f:
-            content = f.read()
-        lines = content.split("\n")
-        filtered = [line for line in lines if not line.strip().startswith("//")]
-        oc_cfg = json.loads("\n".join(filtered))
-        mcp = oc_cfg.setdefault("mcp", {})
-        if name in mcp:
-            mcp[name]["enabled"] = enabled
-        elif enabled:
-            mcp[name] = {
-                "type": "local",
-                "command": [info["command"]] + info["args"],
-                "enabled": True,
-            }
-        with open(OPENCODE_CONFIG_PATH, "w") as f:
-            json.dump(oc_cfg, f, indent=2)
-    
+    """Change Fernando defaults without editing either harness's shared config."""
+    from src.services.context_templates import get_config, save_config
+    config = get_config()
+    if name not in config['servers']:
+        return {'error': f'Unknown server: {name}'}
+    config['servers'][name]['global'] = bool(enabled)
+    save_config(config)
     return {"ok": True, "name": name, "enabled": enabled}
 
 

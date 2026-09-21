@@ -263,10 +263,35 @@ socket.io.on('reconnect', () => {
 function openSettings() {
     document.getElementById('settingsModal').classList.add('open');
     loadSettings();
-    loadMcpServers();
+    loadContextSettings();
     loadAuthConfig();
+    setTimeout(initSettingsTabsOverflow, 0);
 }
 function closeSettings() { document.getElementById('settingsModal').classList.remove('open'); }
+
+function updateTabsOverflow(tabsEl) {
+    const wrapper = tabsEl.parentElement;
+    const hasOverflow = tabsEl.scrollWidth > tabsEl.clientWidth;
+    const scrolledStart = tabsEl.scrollLeft <= 5;
+    const scrolledEnd = tabsEl.scrollLeft + tabsEl.clientWidth >= tabsEl.scrollWidth - 5;
+    wrapper.classList.toggle('has-overflow', hasOverflow);
+    wrapper.classList.toggle('scrolled-start', scrolledStart);
+    wrapper.classList.toggle('scrolled-end', scrolledEnd);
+}
+
+function initSettingsTabsOverflow() {
+    const tabs = document.querySelector('#settingsModal .sa-panel-tabs');
+    if (tabs) updateTabsOverflow(tabs);
+}
+
+// Update tabs overflow on window resize
+window.addEventListener('resize', function() {
+    const modal = document.getElementById('settingsModal');
+    if (modal && modal.classList.contains('open')) {
+        initSettingsTabsOverflow();
+    }
+});
+
 function switchSettingsTab(tab, btn) {
     document.querySelectorAll('#settingsModal .sa-tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
@@ -430,40 +455,6 @@ function saveHealthThreshold(key, value) {
     }).catch(() => {});
 }
 
-function loadMcpServers() {
-    fetch('/api/mcp/bundled?api_key=' + window.FERNANDO_API_KEY)
-        .then(r => r.json())
-        .then(data => {
-            const container = document.getElementById('mcpServerList');
-            if (!data.servers || !data.servers.length) {
-                container.textContent = 'No bundled MCP servers found.';
-                return;
-            }
-            container.innerHTML = data.servers.map(s =>
-                `<div class="mcp-server-item">
-                    <input type="checkbox" id="mcp_${s.name}" ${s.enabled ? 'checked' : ''} onchange="toggleMcpServer('${s.name}', this.checked)">
-                    <label for="mcp_${s.name}"><div class="mcp-server-name">${s.name}</div><div class="mcp-server-desc">${s.description}</div></label>
-                </div>`
-            ).join('');
-        })
-        .catch(() => {
-            document.getElementById('mcpServerList').textContent = 'Failed to load MCP servers.';
-        });
-}
-
-function toggleMcpServer(name, enabled) {
-    fetch('/api/mcp/toggle', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
-        body: JSON.stringify({name, enabled})
-    }).then(r => r.json()).then(data => {
-        if (data.error) {
-            alert('Error: ' + data.error);
-            loadMcpServers();
-        }
-    }).catch(() => { loadMcpServers(); });
-}
-
 function loadAuthConfig() {
     fetch('/api/authorization/config?api_key=' + window.FERNANDO_API_KEY)
         .then(r => r.json())
@@ -477,7 +468,7 @@ function loadAuthConfig() {
                 html += `<div class="auth-card" data-auth-card="${name}">
                     <div class="auth-card-header">
                         <div class="auth-card-name">${name}</div>
-                        <button class="auth-card-remove" onclick="removeAuth('${name}')">Remove</button>
+                        <button class="icon-btn" onclick="removeAuth('${name}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
                     </div>
                     <div class="auth-card-row">
                         <label class="auth-card-label">Description</label>
@@ -527,7 +518,7 @@ function addAuth() {
     newItem.innerHTML = `
         <div class="auth-card-header">
             <div class="auth-card-name">${name}</div>
-            <button class="auth-card-remove" onclick="removeAuth('${name}')">Remove</button>
+            <button class="icon-btn" onclick="removeAuth('${name}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
         </div>
         <div class="auth-card-row">
             <label class="auth-card-label">Description</label>

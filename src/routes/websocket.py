@@ -426,6 +426,38 @@ def register_handlers(socketio):
         group = groups.create_group(name, color)
         emit("group_created", {"group": group}, broadcast=True)
 
+    @socketio.on('context_save')
+    def context_save(data):
+        if not validate_csrf(data):
+            return {'error': 'Invalid CSRF token'}
+        from src.services import context_templates
+        try:
+            return context_templates.save_config(data.get('config'))
+        except (ValueError, OSError) as error:
+            return {'error': str(error)}
+
+    @socketio.on('group_set_templates')
+    def group_set_templates(data):
+        if not validate_csrf(data):
+            return {'error': 'Invalid CSRF token'}
+        from src.services import groups
+        try:
+            group = groups.set_templates(data.get('group_id'), data.get('template_ids'))
+        except (ValueError, OSError) as error:
+            return {'error': str(error)}
+        emit('group_updated', {'group': group}, broadcast=True)
+        return {'group': group}
+
+    @socketio.on('acp_apply_context')
+    def acp_apply_context(data):
+        if not validate_csrf(data):
+            return {'error': 'Invalid CSRF token'}
+        try:
+            acp_manager.apply_context(data.get('session_id'))
+        except (ValueError, OSError) as error:
+            return {'error': str(error)}
+        return {'ok': True}
+
     @socketio.on("group_rename")
     def handle_group_rename(data):
         if not validate_csrf(data):
@@ -466,13 +498,21 @@ def register_handlers(socketio):
     @socketio.on("group_move_session")
     def handle_group_move_session(data):
         if not validate_csrf(data):
-            emit("error", {"message": "Invalid CSRF token"})
+            emit("group_move_failed", {"message": "Could not move the session: connection expired. Refresh and try again."})
             return
         from src.services import groups
         session_key = data.get("session_key")
         group_id = data.get("group_id")
         if session_key:
-            groups.move_session_to_group(session_key, group_id)
+            try:
+                if session_key.startswith('chat:'):
+                    if not acp_manager.move_chat_to_group(session_key[5:], group_id):
+                        return
+                else:
+                    groups.move_session_to_group(session_key, group_id)
+            except (ValueError, OSError) as error:
+                emit('group_move_failed', {'message': str(error)})
+                return
             emit("session_group_changed", {"session_key": session_key, "group_id": group_id}, broadcast=True)
 
     # --- Workflow handlers ---
@@ -671,11 +711,11 @@ def register_handlers(socketio):
         model = data.get("model")
         backend = data.get("backend", "kiro")
         group_id = data.get("group_id")
-        session_id = acp_manager.create_session(on_event=acp_on_event, model=model, backend=backend)
-        # Assign to group if specified
-        if group_id:
-            from src.services import groups
-            groups.move_session_to_group('chat:' + session_id, group_id)
+        try:
+            session_id = acp_manager.create_session(on_event=acp_on_event, model=model, backend=backend, group_id=group_id)
+        except (ValueError, OSError) as error:
+            emit('error', {'message': str(error)})
+            return
         emit("acp_created", {"session_id": session_id})
 
     @socketio.on("acp_clone")

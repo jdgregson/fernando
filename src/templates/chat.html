@@ -320,6 +320,155 @@
             costSpan.textContent = '$' + sessionTotalCost.toFixed(2);
             statsEl.appendChild(costSpan);
         }
+        if (backend === 'OpenCode') {
+            renderQuotaPill(statsEl);
+        }
+    }
+
+    let _quotaData = null;
+    let _quotaFetchTs = 0;
+    let _quotaFetchPending = false;
+
+    function fetchQuotaData(cb) {
+        const now = Date.now();
+        if (_quotaData && now - _quotaFetchTs < 60000) {
+            return cb(_quotaData);
+        }
+        if (_quotaFetchPending) return;
+        _quotaFetchPending = true;
+        fetch('/api/openai_quota?api_key=' + encodeURIComponent(apiKey))
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                _quotaFetchPending = false;
+                if (data && !data.error) {
+                    _quotaData = data;
+                    _quotaFetchTs = Date.now();
+                    cb(data);
+                }
+            })
+            .catch(() => { _quotaFetchPending = false; });
+    }
+
+    function quotaColor(remaining) {
+        if (remaining >= 50) return 'green';
+        if (remaining >= 20) return 'yellow';
+        return 'red';
+    }
+
+    function renderQuotaPill(container) {
+        fetchQuotaData(data => {
+            const existing = container.querySelector('.quota-pill');
+            if (existing) existing.remove();
+            const windows = data.windows || [];
+            if (windows.length === 0) return;
+            const pill = document.createElement('div');
+            pill.className = 'quota-pill qp-' + (windows.length === 1 ? 'single' : windows.length === 2 ? 'dual' : 'triple');
+            windows.forEach((w, i) => {
+                if (i > 0) {
+                    const sep = document.createElement('span');
+                    sep.className = 'qp-sep';
+                    pill.appendChild(sep);
+                }
+                const seg = document.createElement('span');
+                const color = quotaColor(w.remaining_percent);
+                seg.className = 'qp-seg qp-' + color;
+                const label = document.createElement('span');
+                label.className = 'qp-label';
+                label.textContent = w.label;
+                const val = document.createElement('span');
+                val.className = 'qp-val';
+                val.textContent = Math.round(w.remaining_percent) + '%';
+                seg.appendChild(label);
+                seg.appendChild(val);
+                pill.appendChild(seg);
+            });
+            pill.onclick = () => showQuotaModal(data);
+            container.appendChild(pill);
+        });
+    }
+
+    function showQuotaModal(data) {
+        let overlay = document.getElementById('quotaModalOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'quotaModalOverlay';
+            overlay.className = 'quota-modal-overlay';
+            overlay.onclick = e => { if (e.target === overlay) overlay.classList.remove('open'); };
+            const modal = document.createElement('div');
+            modal.className = 'quota-modal';
+            modal.onclick = e => e.stopPropagation();
+            const header = document.createElement('div');
+            header.className = 'quota-modal-header';
+            const title = document.createElement('span');
+            title.className = 'quota-modal-title';
+            title.textContent = 'OpenAI Quota';
+            const close = document.createElement('span');
+            close.className = 'quota-modal-close';
+            close.innerHTML = '<svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+            close.onclick = () => overlay.classList.remove('open');
+            header.appendChild(title);
+            header.appendChild(close);
+            const plan = document.createElement('div');
+            plan.className = 'quota-modal-plan';
+            plan.id = 'quotaModalPlan';
+            const body = document.createElement('div');
+            body.id = 'quotaModalBody';
+            modal.appendChild(header);
+            modal.appendChild(plan);
+            modal.appendChild(body);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') overlay.classList.remove('open'); });
+        }
+        const planEl = document.getElementById('quotaModalPlan');
+        planEl.textContent = 'Plan: ' + (data.plan_type || 'Unknown') + (data.email ? ' · ' + data.email : '');
+        const body = document.getElementById('quotaModalBody');
+        body.innerHTML = '';
+        (data.windows || []).forEach(w => {
+            const win = document.createElement('div');
+            win.className = 'quota-window';
+            const hdr = document.createElement('div');
+            hdr.className = 'quota-window-header';
+            const lbl = document.createElement('span');
+            lbl.className = 'quota-window-label';
+            lbl.textContent = w.label;
+            const pct = document.createElement('span');
+            const color = quotaColor(w.remaining_percent);
+            pct.className = 'quota-window-percent qw-' + color;
+            pct.textContent = Math.round(w.remaining_percent) + '% left';
+            hdr.appendChild(lbl);
+            hdr.appendChild(pct);
+            const bar = document.createElement('div');
+            bar.className = 'quota-progress-bar';
+            const fill = document.createElement('div');
+            fill.className = 'quota-progress-fill qw-' + color;
+            fill.style.width = Math.round(w.remaining_percent) + '%';
+            bar.appendChild(fill);
+            const reset = document.createElement('div');
+            reset.className = 'quota-window-reset';
+            if (w.reset_at) {
+                const resetDate = new Date(w.reset_at * 1000);
+                const now = new Date();
+                const diff = w.reset_at * 1000 - now.getTime();
+                if (diff > 0) {
+                    const hours = Math.floor(diff / 3600000);
+                    const mins = Math.floor((diff % 3600000) / 60000);
+                    const h = String(resetDate.getHours()).padStart(2, '0');
+                    const m = String(resetDate.getMinutes()).padStart(2, '0');
+                    const dayStr = resetDate.toDateString() === now.toDateString() ? 'today' : resetDate.toLocaleDateString('en-US', { weekday: 'short' });
+                    reset.textContent = 'Resets in ' + hours + 'h ' + mins + 'm (' + dayStr + ' ' + h + ':' + m + ')';
+                }
+            } else if (w.reset_after_seconds) {
+                const hours = Math.floor(w.reset_after_seconds / 3600);
+                const mins = Math.floor((w.reset_after_seconds % 3600) / 60);
+                reset.textContent = 'Resets in ' + hours + 'h ' + mins + 'm';
+            }
+            win.appendChild(hdr);
+            win.appendChild(bar);
+            if (reset.textContent) win.appendChild(reset);
+            body.appendChild(win);
+        });
+        overlay.classList.add('open');
     }
 
     let _stopClicks = [];

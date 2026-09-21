@@ -183,12 +183,15 @@ def api_spawn_subagent():
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
     on_event = acp_manager.default_on_event
-    session_id = acp_manager.create_session(on_event=on_event, model=model, backend=backend)
+    if not group_id and parent_session_id:
+        from src.services import groups
+        group_id = groups.get_session_groups().get('chat:' + parent_session_id)
+    try:
+        session_id = acp_manager.create_session(on_event=on_event, model=model, backend=backend, group_id=group_id)
+    except (ValueError, OSError) as error:
+        return {'error': str(error)}, 400
     if name:
         acp_manager.rename_session(session_id, name)
-    if group_id:
-        from src.services import groups
-        groups.move_session_to_group(f"chat:{session_id}", group_id)
     if parent_session_id:
         from src.services.acp import set_parent
         set_parent(session_id, parent_session_id)
@@ -384,7 +387,10 @@ def api_mcp_toggle():
     enabled = data.get("enabled")
     if not name or enabled is None:
         return json.dumps({"error": "Missing name or enabled"}), 400, {"Content-Type": "application/json"}
-    result = set_server_enabled(name, bool(enabled))
+    try:
+        result = set_server_enabled(name, bool(enabled))
+    except (ValueError, OSError) as error:
+        return {'error': str(error)}, 400
     if "error" in result:
         return json.dumps(result), 400, {"Content-Type": "application/json"}
     return json.dumps(result), 200, {"Content-Type": "application/json"}
@@ -397,6 +403,28 @@ def api_settings_get():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     from src.services.settings import get_all
     return json.dumps(get_all()), 200, {"Content-Type": "application/json"}
+
+
+@bp.route('/api/context')
+def api_context():
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    from src.services import context_templates
+    try:
+        return context_templates.get_config()
+    except (ValueError, OSError) as error:
+        return {'error': str(error)}, 400
+
+
+@bp.route('/api/chats/<session_id>/context')
+def api_chat_context(session_id):
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    from src.services import context_templates
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return {'error': 'Chat not found'}, 404
+    return context_templates.summary(session.context_snapshot)
 
 
 @bp.route("/api/settings", methods=["POST"])
@@ -1752,3 +1780,130 @@ def api_health():
     health["reasons"] = reasons
 
     return json.dumps(health), 200, {"Content-Type": "application/json"}
+
+
+_openai_quota_cache = {"data": None, "ts": 0}
+
+
+@bp.route("/api/openai_quota")
+def api_openai_quota():
+    """Fetch OpenAI usage quota from OpenCode's auth.json using the ChatGPT API."""
+    if not _check_api_key():
+        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+
+    now = time.time()
+    if _openai_quota_cache["data"] and now - _openai_quota_cache["ts"] < 60:
+        return json.dumps(_openai_quota_cache["data"]), 200, {"Content-Type": "application/json"}
+
+    home = os.path.expanduser("~")
+    auth_paths = [
+        os.path.join(home, ".local", "share", "opencode", "auth.json"),
+        os.path.join(home, "Library", "Application Support", "opencode", "auth.json"),
+    ]
+    xdg = os.environ.get("XDG_DATA_HOME", "").strip()
+    if xdg:
+        auth_paths.insert(0, os.path.join(xdg, "opencode", "auth.json"))
+
+    auth_data = None
+    for path in auth_paths:
+        if os.path.exists(path):
+            with open(path) as f:
+                auth_data = json.load(f)
+            break
+
+    if not auth_data:
+        return json.dumps({"error": "OpenCode auth.json not found"}), 404, {"Content-Type": "application/json"}
+
+    openai_auth = None
+    for key in ("openai", "codex", "chatgpt", "opencode"):
+        entry = auth_data.get(key)
+        if entry and entry.get("type") == "oauth" and entry.get("access"):
+            openai_auth = entry
+            break
+
+    if not openai_auth:
+        return json.dumps({"error": "No OpenAI OAuth credentials found"}), 404, {"Content-Type": "application/json"}
+
+    access_token = openai_auth["access"]
+    account_id = openai_auth.get("accountId")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "User-Agent": "fernando/1.0",
+    }
+    if account_id:
+        headers["ChatGPT-Account-Id"] = account_id
+
+    resp = requests.get("https://chatgpt.com/backend-api/wham/usage", headers=headers, timeout=15)
+
+    if resp.status_code == 401:
+        return json.dumps({"error": "OpenAI authentication expired"}), 401, {"Content-Type": "application/json"}
+    if resp.status_code == 403:
+        return json.dumps({"error": "OpenAI quota request forbidden"}), 403, {"Content-Type": "application/json"}
+    if resp.status_code == 429:
+        return json.dumps({"error": "OpenAI rate limited"}), 429, {"Content-Type": "application/json"}
+    if not resp.ok:
+        return json.dumps({"error": f"OpenAI API error: HTTP {resp.status_code}"}), resp.status_code, {"Content-Type": "application/json"}
+
+    data = resp.json()
+
+    windows = []
+    rate_limit = data.get("rate_limit")
+    if rate_limit:
+        primary = rate_limit.get("primary_window")
+        if primary:
+            windows.append({
+                "label": _quota_window_label(primary.get("limit_window_seconds")),
+                "used_percent": primary.get("used_percent", 0),
+                "remaining_percent": max(0, 100 - primary.get("used_percent", 0)),
+                "reset_at": primary.get("reset_at"),
+                "reset_after_seconds": primary.get("reset_after_seconds"),
+            })
+        secondary = rate_limit.get("secondary_window")
+        if secondary:
+            windows.append({
+                "label": _quota_window_label(secondary.get("limit_window_seconds")),
+                "used_percent": secondary.get("used_percent", 0),
+                "remaining_percent": max(0, 100 - secondary.get("used_percent", 0)),
+                "reset_at": secondary.get("reset_at"),
+                "reset_after_seconds": secondary.get("reset_after_seconds"),
+            })
+
+    code_review = data.get("code_review_rate_limit")
+    if code_review and code_review.get("primary_window"):
+        cr_window = code_review["primary_window"]
+        windows.append({
+            "label": "Code Review",
+            "used_percent": cr_window.get("used_percent", 0),
+            "remaining_percent": max(0, 100 - cr_window.get("used_percent", 0)),
+            "reset_at": cr_window.get("reset_at"),
+            "reset_after_seconds": cr_window.get("reset_after_seconds"),
+        })
+
+    result = {
+        "plan_type": data.get("plan_type", "unknown"),
+        "email": data.get("email"),
+        "limit_reached": rate_limit.get("limit_reached", False) if rate_limit else False,
+        "windows": windows,
+        "fetched_at": now,
+    }
+
+    _openai_quota_cache["data"] = result
+    _openai_quota_cache["ts"] = now
+
+    return json.dumps(result), 200, {"Content-Type": "application/json"}
+
+
+def _quota_window_label(seconds):
+    if not seconds or seconds <= 0:
+        return "Unknown"
+    if seconds % 86400 == 0:
+        days = seconds // 86400
+        return "Daily" if days == 1 else f"{days}d"
+    if seconds % 3600 == 0:
+        hours = seconds // 3600
+        return "Hourly" if hours == 1 else f"{hours}h"
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes}m"
+    return f"{seconds}s"

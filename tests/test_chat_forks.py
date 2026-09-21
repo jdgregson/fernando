@@ -108,6 +108,7 @@ class HistoryForkTests(unittest.TestCase):
 
     def test_kiro_fork_preserves_rewind_boundary_and_shared_history(self):
         source = acp.ACPSession('aaaaaaaa')
+        source.context_snapshot = {'servers': {'fixture': {'command': 'fixture'}}, 'documents': []}
         source._load_history()
         source.proc = Mock()
         source.proc.poll.return_value = None
@@ -126,6 +127,9 @@ class HistoryForkTests(unittest.TestCase):
         self.assertEqual(len(chat_history.read_local(fork_id)), 1)
         self.assertEqual(manager.sessions[fork_id].acp_session_id, 'kiro-fork')
         self.assertEqual(acp.get_parent(fork_id), source.id)
+        self.assertEqual(manager.sessions[fork_id].context_snapshot, source.context_snapshot)
+        manager.sessions[fork_id].context_snapshot['servers'].clear()
+        self.assertIn('fixture', source.context_snapshot['servers'])
 
     def test_opencode_uses_exact_native_user_boundary_including_continuations(self):
         source = acp.ACPSession('aaaaaaaa', backend='opencode')

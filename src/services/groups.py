@@ -46,14 +46,30 @@ def get_all():
         }
 
 
-def create_group(name, color="#7ea8e3"):
+def create_group(name, color="#7ea8e3", template_ids=None):
+    if template_ids:
+        from src.services.context_templates import get_config, _ids
+        template_ids = _ids(template_ids, get_config()['templates'], 'template')
     with _lock:
         data = _load()
         group_id = str(uuid.uuid4())[:8]
-        group = {"id": group_id, "name": name, "color": color}
+        group = {"id": group_id, "name": name, "color": color, "template_ids": template_ids or []}
         data.setdefault("groups", []).append(group)
         _save(data)
         return group
+
+
+def set_templates(group_id, template_ids):
+    from src.services.context_templates import get_config, _ids
+    template_ids = _ids(template_ids, get_config()['templates'], 'template')
+    with _lock:
+        data = _load()
+        for group in data['groups']:
+            if group['id'] == group_id:
+                group['template_ids'] = template_ids
+                _save(data)
+                return group
+    raise ValueError('Group does not exist')
 
 
 def rename_group(group_id, new_name):

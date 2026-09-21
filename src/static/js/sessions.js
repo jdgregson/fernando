@@ -995,6 +995,18 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
+    const templatesBtn = document.createElement('div');
+    templatesBtn.className = 'context-menu-item has-submenu';
+    templatesBtn.textContent = 'Context templates';
+    const arrow = document.createElement('span');
+    arrow.className = 'submenu-arrow';
+    arrow.textContent = '▸';
+    templatesBtn.appendChild(arrow);
+    templatesBtn.onmouseenter = () => {
+        const rect = templatesBtn.getBoundingClientRect();
+        showGroupTemplatesSubmenu(groupId, menu, rect.right, rect.top);
+    };
+    menu.appendChild(templatesBtn);
     
     const renameBtn = document.createElement('div');
     renameBtn.className = 'context-menu-item';
@@ -1734,6 +1746,11 @@ socket.on('group_created', () => emitWithCsrf('get_sessions'));
 socket.on('group_updated', () => emitWithCsrf('get_sessions'));
 socket.on('group_deleted', () => emitWithCsrf('get_sessions'));
 socket.on('session_group_changed', () => emitWithCsrf('get_sessions'));
+socket.on('group_move_failed', data => {
+    document.getElementById('groupMoveWarningMessage').textContent = data.message || 'The session could not be moved.';
+    document.getElementById('groupMoveWarningModal').classList.add('open');
+    document.getElementById('groupMoveWarningClose').focus();
+});
 socket.on('acp_session_slept', () => emitWithCsrf('get_sessions'));
 
 socket.on('sessions_list', data => { 

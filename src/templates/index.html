@@ -126,6 +126,18 @@
         </div>
     </div>
 
+    <div class="modal" id="groupMoveWarningModal" role="dialog" aria-modal="true" aria-labelledby="groupMoveWarningTitle"
+         onclick="if(event.target===this)this.classList.remove('open')"
+         onkeydown="if(event.key==='Escape')this.classList.remove('open')">
+        <div class="modal-content">
+            <div class="modal-header" id="groupMoveWarningTitle">Unable to move chat</div>
+            <div class="modal-body">
+                <p id="groupMoveWarningMessage"></p>
+                <button class="modal-close" id="groupMoveWarningClose" onclick="document.getElementById('groupMoveWarningModal').classList.remove('open')">OK</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal" id="notebookPickerModal" onclick="closeNotebookPicker()">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">Open Notebook</div>
@@ -162,12 +174,16 @@
     <div class="modal" id="settingsModal" onclick="closeSettings()">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">Settings</div>
-            <div class="sa-panel-tabs">
+            <div class="sa-panel-tabs-wrapper">
+            <div class="sa-panel-tabs" onscroll="updateTabsOverflow(this)">
                 <button class="sa-tab active" onclick="switchSettingsTab('general',this)">General</button>
                 <button class="sa-tab" onclick="switchSettingsTab('providers',this)">Providers</button>
                 <button class="sa-tab" onclick="switchSettingsTab('mcp',this)">MCP</button>
+                <button class="sa-tab" onclick="switchSettingsTab('steering',this)">Steering</button>
+                <button class="sa-tab" onclick="switchSettingsTab('templates',this)">Templates</button>
                 <button class="sa-tab" onclick="switchSettingsTab('health',this)">Health</button>
                 <button class="sa-tab" onclick="switchSettingsTab('auth',this)">Auth</button>
+            </div>
             </div>
             <div class="modal-body">
                 <div class="settings-tab-content active" id="settingsTabGeneral">
@@ -230,6 +246,12 @@
                 <div class="settings-tab-content" id="settingsTabMcp">
                     <div id="mcpServerList" style="color:#8899aa;font-size:13px;">Loading...</div>
                 </div>
+                <div class="settings-tab-content" id="settingsTabTemplates">
+                    <div id="templatesList" style="color:#8899aa;font-size:13px;">Loading...</div>
+                </div>
+                <div class="settings-tab-content" id="settingsTabSteering">
+                    <div id="steeringList" style="color:#8899aa;font-size:13px;">Loading...</div>
+                </div>
                 <div class="settings-tab-content" id="settingsTabAuth">
                     <div id="authConfigArea" style="color:#8899aa;font-size:13px;">Loading...</div>
                 </div>
@@ -280,6 +302,8 @@
                         </div>
                     </div>
                 </div>
+            </div>
+            <div class="modal-footer">
                 <button class="modal-close" onclick="closeSettings()">Close</button>
             </div>
         </div>
@@ -409,6 +433,7 @@
 
     <script>window.FERNANDO_API_KEY = '{{ api_key }}';</script>
     <script src="/static/js/core.js"></script>
+    <script src="/static/js/context.js"></script>
     <script src="/static/js/scroll-pill.js"></script>
     <script src="/static/js/terminal.js"></script>
     <script src="/static/js/sessions.js"></script>

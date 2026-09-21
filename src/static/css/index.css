@@ -349,7 +349,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     display: block;
     margin: 10px 10px 0 15px;
     padding: 5px 8px;
-    background: #0a1e3a;
+    background: #091d35;
     border: 1px solid #1a3a5c;
     border-radius: 6px;
     color: #ccd;
@@ -363,7 +363,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     display: flex;
     position: relative;
     z-index: 1;
-    background: #0a1e3a;
+    background: #091d35;
     border-radius: 6px;
     margin: 10px 15px;
     overflow: hidden;
@@ -439,13 +439,19 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 .modal-close {
-    background: #143151 !important;
-    color: #fff !important;
-    margin-top: 20px;
+    width: auto;
+    display: inline-block;
+    padding: 8px 16px;
+    background: #143151;
+    border: 1px solid #143151;
+    color: #fff;
+    cursor: pointer;
+    border-radius: 6px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 .modal-close:hover {
-    background: #3465a3 !important;
+    background: #3465a3;
 }
 
 #notebookPickerModal .modal-content {
@@ -455,7 +461,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 #notebookSelect {
     width: 100%;
     padding: 8px;
-    background: #0a1d35;
+    background: #091d35;
     color: #d4d4d4;
     border: 1px solid #143151;
     border-radius: 4px;
@@ -474,7 +480,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .modal-input {
     width: 100%;
     padding: 8px;
-    background: #0a1d35;
+    background: #091d35;
     color: #d4d4d4;
     border: 1px solid #143151;
     border-radius: 4px;
@@ -587,13 +593,59 @@ button.notebook-delete-btn {
 .auto-tab.active { color: #3465a3; border-bottom-color: #3465a3; }
 .auto-tab-content { display: none; }
 .auto-tab-content.active { display: block; }
-.settings-tab-content { display: none; }
-.settings-tab-content.active { display: block; }
+#settingsModal .sa-panel-tabs { overflow-x: auto; position: relative; }
+#settingsModal .modal-content { max-width: 900px; height: 80vh; display: flex; flex-direction: column; }
+#settingsModal .modal-body { flex: 1; overflow-y: auto; }
+#settingsModal .modal-footer { flex-shrink: 0; padding-top: 15px; border-top: 1px solid #143151; }
+#settingsModal .settings-tab-content { display: none; }
+#settingsModal .settings-tab-content.active { display: block; }
+#settingsModal .sa-panel-tabs-wrapper { position: relative; }
+#settingsModal .sa-panel-tabs-wrapper::before,
+#settingsModal .sa-panel-tabs-wrapper::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 1px;
+    width: 40px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 1;
+}
+#settingsModal .sa-panel-tabs-wrapper::before {
+    left: 0;
+    background: linear-gradient(to left, transparent, #0a19296e);
+}
+#settingsModal .sa-panel-tabs-wrapper::after {
+    right: 0;
+    background: linear-gradient(to right, transparent, #0a19296e);
+}
+#settingsModal .sa-panel-tabs-wrapper.has-overflow::after { opacity: 1; }
+#settingsModal .sa-panel-tabs-wrapper.scrolled-end::after { opacity: 0; }
+#settingsModal .sa-panel-tabs-wrapper.scrolled-start::before { opacity: 0; }
+#settingsModal .sa-panel-tabs-wrapper.has-overflow:not(.scrolled-start)::before { opacity: 1; }
+#settingsModal .sa-tab { flex-shrink: 0; }
 .mcp-server-item { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #143151; }
 .mcp-server-item:last-child { border-bottom: none; }
 .mcp-server-item label { cursor: pointer; flex: 1; }
 .mcp-server-name { color: #d4d4d4; font-size: 13px; font-weight: 500; }
 .mcp-server-desc { color: #6a7a8a; font-size: 12px; margin-top: 2px; }
+/* Context list table structure */
+.context-list-header { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #1e3a5f; color: #6a7a8a; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.context-list-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #143151; }
+.context-list-row:last-child { border-bottom: none; }
+.context-col-name { flex: 1; cursor: pointer; }
+.context-col-enable { width: 110px; flex-shrink: 0; text-align: center; }
+.context-col-meta { width: 140px; flex-shrink: 0; color: #6a7a8a; font-size: 12px; }
+.context-col-actions { width: 60px; flex-shrink: 0; text-align: right; display: flex; gap: 4px; justify-content: flex-end; }
+.context-item-name { color: #d4d4d4; font-size: 13px; font-weight: 500; }
+.context-item-desc { color: #6a7a8a; font-size: 12px; margin-top: 2px; }
+.steering-inline-input { background: transparent; border: 1px solid transparent; color: #d4d4d4; font-size: 13px; padding: 4px 6px; border-radius: 4px; width: 100%; font-family: inherit; }
+.steering-inline-input:hover { border-color: #2a3a4a; }
+.steering-inline-input:focus { border-color: #3465a3; outline: none; background: #091d35; }
+.steering-inline-input.path { color: #6a7a8a; font-size: 12px; margin-top: 2px; }
+.steering-row .context-col-name { display: flex; flex-direction: column; }
+.steering-row .context-col-actions { align-self: flex-start; margin-top: 4px; }
 #settingsModal input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid #3465a3; border-radius: 3px; background: #091d35; cursor: pointer; vertical-align: middle; position: relative; flex-shrink: 0; }
 #settingsModal input[type="checkbox"]:checked { background: #3465a3; }
 #settingsModal input[type="checkbox"]:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; position: absolute; top: 0px; left: 4px; transform: rotate(45deg); }
@@ -638,7 +690,7 @@ button.notebook-delete-btn {
 }
 .auth-card-remove {
     background: transparent;
-    color: #f44;
+    color: #8899aa;
     border: none;
     cursor: pointer;
     font-size: 11px;
@@ -646,7 +698,8 @@ button.notebook-delete-btn {
     border-radius: 4px;
 }
 .auth-card-remove:hover {
-    background: rgba(255, 68, 68, 0.15);
+    background: rgba(136, 153, 170, 0.15);
+    color: #d4d4d4;
 }
 .auth-card-row {
     display: flex;
@@ -688,6 +741,11 @@ button.notebook-delete-btn {
 .auth-add-row {
     display: flex;
     gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid #143151;
+}
+.settings-add-row {
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid #143151;
@@ -1288,7 +1346,7 @@ button.notebook-delete-btn {
 .group-count {
     font-size: 11px;
     color: #6a8caf;
-    background: #0a1d35;
+    background: #091d35;
     padding: 2px 6px;
     border-radius: 10px;
 }
@@ -1329,7 +1387,7 @@ button.notebook-delete-btn {
     border-top: 1px solid #143151;
 }
 .new-group-btn:hover {
-    background: #0b233f;
+    background: #091d35;
     color: #c0caf5;
 }
 .session-item.dragging {
@@ -1380,6 +1438,72 @@ button.notebook-delete-btn {
     font-size: 13px;
     color: #c0caf5;
     cursor: pointer;
+}
+.context-menu-item.has-submenu {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.submenu-arrow {
+    margin-left: 10px;
+    font-size: 10px;
+    color: #666;
+}
+.template-submenu {
+    min-width: 180px;
+}
+.template-submenu .template-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.template-submenu .template-item input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1px solid #3465a3;
+    border-radius: 3px;
+    background: #091d35;
+    cursor: pointer;
+    flex-shrink: 0;
+    position: relative;
+}
+.template-submenu .template-item input[type="checkbox"]:checked {
+    background: #3465a3;
+}
+.template-submenu .template-item input[type="checkbox"]:checked::after {
+    content: '';
+    width: 3px;
+    height: 7px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    position: absolute;
+    top: 1px;
+    left: 4px;
+    transform: rotate(45deg);
+}
+.template-submenu .template-item label {
+    cursor: pointer;
+    flex: 1;
+}
+.context-info-section {
+    padding: 10px 0;
+    border-bottom: 1px solid #143151;
+}
+.context-info-section:last-child {
+    border-bottom: none;
+}
+.context-info-label {
+    font-size: 11px;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+.context-info-value {
+    font-size: 13px;
+    color: #d4d4d4;
 }
 @media (hover: hover) {
     .context-menu-item:hover {
@@ -1564,3 +1688,25 @@ button.notebook-delete-btn {
 .chat-icon-working {
     animation: chat-icon-pulse 1.2s ease-in-out infinite;
 }
+
+/* Template Settings */
+.templates-header { margin-bottom: 16px; }
+.template-card { background: #091d35; border: 1px solid #1e3a5f; border-radius: 6px; padding: 12px; margin-bottom: 10px; }
+.template-card-header { display: flex; justify-content: space-between; align-items: center; }
+.template-card-name { color: #d4d4d4; font-size: 14px; font-weight: 500; }
+.template-card-meta { color: #5a6a7a; font-size: 12px; }
+.template-card-actions { display: flex; gap: 8px; margin-top: 10px; }
+.template-btn { background: #1a2a3a; border: 1px solid #2a3a4a; color: #8899aa; padding: 4px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-family: inherit; }
+.template-btn:hover { background: #2a3a4a; color: #d4d4d4; }
+.template-btn.danger { color: #e57373; }
+.template-btn.danger:hover { background: #3a2020; border-color: #5a3030; }
+.icon-btn { background: #091d35; border: 1px solid #143151; color: #3465a3; padding: 5px; cursor: pointer; border-radius: 3px; vertical-align: middle; display: flex; align-items: center; justify-content: center; }
+.icon-btn:hover { background: #1a2a3a; color: #d4d4d4; border-color: #2a4a6a; }
+.template-checklist { max-height: 150px; overflow-y: auto; border: 1px solid #1e3a5f; border-radius: 4px; padding: 8px; background: #091d35; }
+.template-check-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; color: #aabbcc; font-size: 13px; cursor: pointer; }
+.template-check-item:hover { background: #1a2a3a; }
+.template-check-item input { cursor: pointer; }
+.template-form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.template-submenu .template-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.template-submenu .template-item label { cursor: pointer; flex: 1; }
+.template-submenu .template-item input { cursor: pointer; }
