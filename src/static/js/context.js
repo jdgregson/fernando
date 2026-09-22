@@ -389,13 +389,15 @@ async function deleteTemplate(templateId) {
 // ===== Group Templates Submenu =====
 
 let activeSubmenu = null;
-let submenuCleanup = null;
+let submenuRequest = 0;
 
 async function showGroupTemplatesSubmenu(groupId, parentMenu, x, y) {
     closeActiveSubmenu();
+    const request = submenuRequest;
     
     try {
         const config = await contextRequest('/api/context');
+        if (request !== submenuRequest || !parentMenu.isConnected) return;
         const group = _cachedGroups.find(g => g.id === groupId);
         if (!group) return;
         
@@ -456,39 +458,13 @@ async function showGroupTemplatesSubmenu(groupId, parentMenu, x, y) {
         if (rect.right > window.innerWidth) submenu.style.left = (window.innerWidth - rect.width - 10) + 'px';
         if (rect.bottom > window.innerHeight) submenu.style.top = (window.innerHeight - rect.height - 10) + 'px';
         
-        function onClickOutside(e) {
-            if (!submenu.contains(e.target) && !parentMenu.contains(e.target)) {
-                closeActiveSubmenu();
-                parentMenu.remove();
-            }
-        }
-        function onEscape(e) {
-            if (e.key === 'Escape') {
-                closeActiveSubmenu();
-                parentMenu.remove();
-            }
-        }
-        
-        setTimeout(() => {
-            document.addEventListener('click', onClickOutside);
-            document.addEventListener('keydown', onEscape);
-        }, 10);
-        
-        submenuCleanup = () => {
-            document.removeEventListener('click', onClickOutside);
-            document.removeEventListener('keydown', onEscape);
-        };
-        
     } catch (error) {
-        showToast('Failed to load templates');
+        if (request === submenuRequest && parentMenu.isConnected) showToast('Failed to load templates');
     }
 }
 
 function closeActiveSubmenu() {
-    if (submenuCleanup) {
-        submenuCleanup();
-        submenuCleanup = null;
-    }
+    submenuRequest++;
     if (activeSubmenu) {
         activeSubmenu.remove();
         activeSubmenu = null;

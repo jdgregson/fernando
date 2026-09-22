@@ -199,9 +199,9 @@ function getActivePaneGroupId() {
 }
 
 function openJupyter(name) {
+    // Get group BEFORE closing modal (which clears newSessionTargetGroupId)
+    const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
     closeNewSessionModal();
-    // Get group BEFORE changing paneNotebook
-    const groupId = typeof getActivePaneGroupId === 'function' ? getActivePaneGroupId() : null;
     
     if (!name) name = 'Jupyter-' + (++_jupyterCounter);
     const activePane = activeTerminal;
@@ -267,7 +267,8 @@ function openNotebook(notebook) {
     const sessionKey = 'notebook:' + notebook;
     // Only inherit group if notebook isn't already in one
     const existingGroup = _cachedSessionGroups[sessionKey];
-    const groupId = existingGroup ? null : getActivePaneGroupId();
+    const groupId = existingGroup ? null : (window._notebookTargetGroupId || getActivePaneGroupId());
+    window._notebookTargetGroupId = null;
     const activePane = activeTerminal;
     const browser = document.getElementById(`browser${activePane}`);
     const terminal = document.getElementById(`terminal${activePane}`);
@@ -288,6 +289,8 @@ function openNotebook(notebook) {
 }
 
 function showNotebookPicker() {
+    // Preserve target group from new session modal before closing it
+    window._notebookTargetGroupId = newSessionTargetGroupId;
     closeNewSessionModal();
     document.getElementById('notebookPickerModal').classList.add('open');
     emitWithCsrf('list_notebooks');
@@ -295,18 +298,24 @@ function showNotebookPicker() {
 
 function closeNotebookPicker() {
     document.getElementById('notebookPickerModal').classList.remove('open');
+    window._notebookTargetGroupId = null;
 }
 
 function openSelectedNotebook() {
     const sel = document.getElementById('notebookSelect');
     const name = sel.value;
     if (!name) return;
+    const savedGroupId = window._notebookTargetGroupId;
     closeNotebookPicker();
+    window._notebookTargetGroupId = savedGroupId;
     openNotebook(name);
 }
 
 function promptCreateNotebook() {
+    // Preserve target group through to create modal
+    const savedGroupId = window._notebookTargetGroupId;
     document.getElementById('notebookPickerModal').classList.remove('open');
+    window._notebookTargetGroupId = savedGroupId;
     const modal = document.getElementById('notebookCreateModal');
     const input = document.getElementById('notebookNameInput');
     input.value = '';
@@ -316,6 +325,7 @@ function promptCreateNotebook() {
 
 function closeCreateNotebook() {
     document.getElementById('notebookCreateModal').classList.remove('open');
+    window._notebookTargetGroupId = null;
 }
 
 let pendingNotebookOpen = null;
@@ -910,8 +920,85 @@ function showGroupColorPicker(groupId, anchor) {
     }, 10);
 }
 
+let contextMenuCleanup = null;
+
 function dismissContextMenus() {
+    if (contextMenuCleanup) {
+        contextMenuCleanup();
+        contextMenuCleanup = null;
+    }
+    closeActiveSubmenu();
     document.querySelectorAll('.group-context-menu').forEach(m => m.remove());
+}
+
+function trackContextMenu(menu, templatesBtn = null, groupId = null) {
+    const controller = new AbortController();
+    const options = { signal: controller.signal };
+    let dismissTimer = null;
+    let openTimer = null;
+    let submenuTimer = null;
+    let templatesRequested = false;
+    const cancelOpen = () => {
+        clearTimeout(openTimer);
+        openTimer = null;
+    };
+    const scheduleDismiss = () => {
+        cancelOpen();
+        if (dismissTimer === null) dismissTimer = setTimeout(dismissContextMenus, 250);
+    };
+    const openTemplates = () => {
+        cancelOpen();
+        templatesRequested = true;
+        clearTimeout(submenuTimer);
+        submenuTimer = null;
+        const rect = templatesBtn.getBoundingClientRect();
+        showGroupTemplatesSubmenu(groupId, menu, rect.right, rect.top);
+    };
+    document.addEventListener('pointermove', e => {
+        if (e.pointerType === 'touch') return;
+        const inSubmenu = activeSubmenu && activeSubmenu.contains(e.target);
+        if (menu.contains(e.target) || inSubmenu) {
+            clearTimeout(dismissTimer);
+            dismissTimer = null;
+        } else {
+            scheduleDismiss();
+        }
+        if (templatesBtn && (templatesBtn.contains(e.target) || inSubmenu)) {
+            clearTimeout(submenuTimer);
+            submenuTimer = null;
+            if (!templatesRequested && openTimer === null && templatesBtn.contains(e.target)) {
+                openTimer = setTimeout(openTemplates, 200);
+            }
+        } else {
+            cancelOpen();
+            if (submenuTimer === null) submenuTimer = setTimeout(() => {
+                closeActiveSubmenu();
+                templatesRequested = false;
+                submenuTimer = null;
+            }, 250);
+        }
+    }, options);
+    document.addEventListener('pointerout', e => {
+        if (e.pointerType !== 'touch' && (!e.relatedTarget || e.relatedTarget.tagName === 'IFRAME')) scheduleDismiss();
+    }, options);
+    document.addEventListener('pointerdown', e => {
+        if (!menu.contains(e.target) && !(activeSubmenu && activeSubmenu.contains(e.target))) dismissContextMenus();
+    }, options);
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') dismissContextMenus();
+    }, options);
+    window.addEventListener('blur', dismissContextMenus, options);
+    window.addEventListener('resize', dismissContextMenus, options);
+    menu.addEventListener('click', e => {
+        if (templatesBtn && templatesBtn.contains(e.target)) openTemplates();
+        else dismissContextMenus();
+    }, options);
+    contextMenuCleanup = () => {
+        controller.abort();
+        clearTimeout(dismissTimer);
+        clearTimeout(submenuTimer);
+        cancelOpen();
+    };
 }
 
 function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, onClone, onCollapse) {
@@ -974,25 +1061,15 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     if (menuRect.right > window.innerWidth) menu.style.left = (window.innerWidth - menuRect.width - 10) + 'px';
     if (menuRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - menuRect.height - 10) + 'px';
     
-    setTimeout(() => {
-        function closeMenu(e) {
-            if (!menu.contains(e.target)) {
-                menu.remove();
-                document.removeEventListener('click', closeMenu);
-                document.removeEventListener('touchstart', closeMenu);
-            }
-        }
-        document.addEventListener('click', closeMenu);
-        document.addEventListener('touchstart', closeMenu);
-    }, 10);
+    trackContextMenu(menu);
 }
 
 function showGroupContextMenu(groupId, x, y, sessionCount) {
     // Don't show context menu for the virtual Ungrouped group
     if (groupId === '__ungrouped__') return;
     
-    document.querySelectorAll('.group-context-menu').forEach(m => m.remove());
-    
+    dismissContextMenus();
+
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
 
@@ -1012,10 +1089,6 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     arrow.className = 'submenu-arrow';
     arrow.textContent = '▸';
     templatesBtn.appendChild(arrow);
-    templatesBtn.onmouseenter = () => {
-        const rect = templatesBtn.getBoundingClientRect();
-        showGroupTemplatesSubmenu(groupId, menu, rect.right, rect.top);
-    };
     menu.appendChild(templatesBtn);
     
     const renameBtn = document.createElement('div');
@@ -1064,17 +1137,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     if (menuRect.right > window.innerWidth) menu.style.left = (window.innerWidth - menuRect.width - 10) + 'px';
     if (menuRect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - menuRect.height - 10) + 'px';
     
-    setTimeout(() => {
-        function closeMenu(e) {
-            if (!menu.contains(e.target)) {
-                menu.remove();
-                document.removeEventListener('click', closeMenu);
-                document.removeEventListener('touchstart', closeMenu);
-            }
-        }
-        document.addEventListener('click', closeMenu);
-        document.addEventListener('touchstart', closeMenu);
-    }, 10);
+    trackContextMenu(menu, templatesBtn, groupId);
 }
 
 function setupDropZone(element, groupId) {
