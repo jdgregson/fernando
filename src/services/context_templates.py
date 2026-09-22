@@ -152,6 +152,8 @@ def save_config(data):
     for item in data["templates"].values():
         if not isinstance(item.get("name"), str) or not item["name"].strip():
             raise ValueError("Templates need a name")
+        if not isinstance(item.get("initial_prompt", ""), str):
+            raise ValueError("Template initial prompt must be text")
         item["documents"] = _ids(
             item.get("documents", []), data["documents"], "steering"
         )
@@ -289,12 +291,16 @@ def resolve(group_id, backend):
     docs = [key for key, item in config["documents"].items() if item.get("global")]
     servers = [key for key, item in config["servers"].items() if item.get("global")]
     templates = []
+    initial_prompts = []
     for key in template_ids:
         template = config["templates"].get(key)
         if template:
             templates.append({"id": key, "name": template["name"]})
             docs.extend(template["documents"])
             servers.extend(template["servers"])
+            prompt = template.get("initial_prompt", "")
+            if prompt.strip():
+                initial_prompts.append(prompt)
     documents = []
     paths = set()
     for key in dict.fromkeys(docs):
@@ -317,6 +323,7 @@ def resolve(group_id, backend):
         "revision": config["revision"],
         "group_id": group_id,
         "templates": templates,
+        "initial_prompt": "\n\n".join(initial_prompts),
         "documents": documents,
         "servers": {
             key: server_config(config["servers"][key], backend)

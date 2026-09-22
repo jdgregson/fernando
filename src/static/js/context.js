@@ -270,7 +270,7 @@ function renderTemplatesList() {
     
     if (editingTemplateId !== null) {
         const isNew = editingTemplateId === 'new';
-        const template = isNew ? {name: '', servers: [], documents: []} : templates[editingTemplateId];
+        const template = isNew ? {name: '', servers: [], documents: [], initial_prompt: ''} : templates[editingTemplateId];
         
         html = `
             <div class="template-form">
@@ -300,6 +300,11 @@ function renderTemplatesList() {
                         `).join('') || '<div style="color:#666">No steering documents registered</div>'}
                     </div>
                 </div>
+                <div class="settings-row">
+                    <label class="settings-label" for="templateInitialPromptInput">Initial Prompt</label>
+                    <textarea id="templateInitialPromptInput" class="settings-input" rows="5" style="width:100%;text-align:left;resize:vertical;" placeholder="Optional first message for new ACP chats in this group">${escapeHtml(template.initial_prompt || '')}</textarea>
+                    <div style="color:#888;font-size:12px;">Sent once to new chats without another initial prompt. Excludes subagents, forks, wakes, and restarts. Multiple templates combine prompts in template order.</div>
+                </div>
                 <div class="template-form-actions">
                     <button class="template-btn" onclick="cancelTemplateEdit()">Cancel</button>
                     <button class="auth-add-btn" onclick="saveTemplate()">Save</button>
@@ -321,7 +326,7 @@ function renderTemplatesList() {
                 const docCount = (t.documents || []).length;
                 return `<div class="context-list-row">
                     <span class="context-col-name"><div class="context-item-name">${escapeHtml(t.name)}</div></span>
-                    <span class="context-col-meta">${serverCount} server${serverCount !== 1 ? 's' : ''}, ${docCount} doc${docCount !== 1 ? 's' : ''}</span>
+                    <span class="context-col-meta">${serverCount} server${serverCount !== 1 ? 's' : ''}, ${docCount} doc${docCount !== 1 ? 's' : ''}${t.initial_prompt?.trim() ? ', initial prompt' : ''}</span>
                     <span class="context-col-actions">
                         <button class="icon-btn" onclick="startEditTemplate('${id}')" title="Edit"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg></button>
                         <button class="icon-btn" onclick="deleteTemplate('${id}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
@@ -363,9 +368,10 @@ async function saveTemplate() {
     
     const servers = Array.from(document.querySelectorAll('#templateServersChecklist input:checked')).map(cb => cb.value);
     const documents = Array.from(document.querySelectorAll('#templateDocsChecklist input:checked')).map(cb => cb.value);
+    const initial_prompt = document.getElementById('templateInitialPromptInput').value;
     
     const id = editingTemplateId === 'new' ? crypto.randomUUID().slice(0, 12) : editingTemplateId;
-    contextConfig.templates[id] = {name, servers, documents};
+    contextConfig.templates[id] = {name, servers, documents, initial_prompt};
     
     try {
         contextConfig = await contextAction('context_save', {config: contextConfig});

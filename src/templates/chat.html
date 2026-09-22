@@ -2352,6 +2352,7 @@
         let prefix = '⟳ ';
         if (extraClass === 'continuation') prefix = '⟳ Continuation: ';
         else if (extraClass === 'reward') prefix = '$ ';
+        else if (extraClass === 'fork-boundary') prefix = '';
         else if (text.startsWith('✓') || text.startsWith('✗')) prefix = '';
         const display = text;
         el.textContent = prefix + display;
@@ -2963,6 +2964,14 @@
 
     function processEvent(data) {
         const evt = data.event;
+
+        if (evt.type === 'fork_boundary') {
+            if (!document.querySelector('#messages .fork-boundary')) {
+                if (currentAssistantMsg) finishTurn();
+                addSystemMessage('Fork: New conversation starts here.', 'fork-boundary');
+            }
+            return;
+        }
 
         // Track history offset for reconnect — only for live (sequenced) events
         if (data.seq !== undefined && evt.type !== 'session_ready' && evt.type !== 'session_error' && evt.type !== 'session_ended' && evt.type !== 'sync_seq') {

@@ -63,6 +63,96 @@ class ContextFixture:
 
 
 class ContextTests(ContextFixture, unittest.TestCase):
+    def test_initial_prompts_validate_persist_and_follow_template_order(self):
+        self.config['templates']['dev']['initial_prompt'] = 'First\nmessage'
+        self.config['templates']['next'] = {
+            'name': 'Next', 'documents': [], 'servers': [], 'initial_prompt': 'Second'
+        }
+        context.save_config(self.config)
+        groups.set_templates(self.group['id'], ['next', 'dev'])
+        for backend in ('kiro', 'opencode'):
+            self.assertEqual(context.resolve(self.group['id'], backend)['initial_prompt'], 'Second\n\nFirst\nmessage')
+            self.assertEqual(context.resolve(None, backend)['initial_prompt'], '')
+        for invalid in (None, 42, [], {}):
+            config = context.get_config()
+            config['templates']['dev']['initial_prompt'] = invalid
+            with self.assertRaisesRegex(ValueError, 'initial prompt must be text'):
+                context.save_config(config)
+        config = context.get_config()
+        config['templates']['dev']['initial_prompt'] = ' \n '
+        config['templates']['next'].pop('initial_prompt')
+        context.save_config(config)
+        self.assertEqual(context.resolve(self.group['id'], 'kiro')['initial_prompt'], '')
+
+    def test_only_fresh_eligible_launches_receive_template_prompt(self):
+        self.config['templates']['dev']['initial_prompt'] = 'Begin work'
+        context.save_config(self.config)
+        manager = acp.ACPManager.__new__(acp.ACPManager)
+        manager.sessions = {}
+        manager._lock = threading.Lock()
+        manager._on_status_change = None
+        manager._save = Mock()
+        manager._save_pid_map = Mock()
+        for backend in ('kiro', 'opencode'):
+            for group_id, enabled, expected in (
+                (self.group['id'], True, 'Begin work'),
+                (self.group['id'], False, None),
+                (None, True, None),
+            ):
+                with self.subTest(backend=backend, group=group_id, enabled=enabled):
+                    with patch.object(acp.threading, 'Thread') as thread:
+                        sid = manager.create_session(backend=backend, group_id=group_id, use_template_prompt=enabled)
+                    session = manager.sessions[sid]
+                    session.start = Mock()
+                    session._load_history = Mock()
+                    session.send_prompt = Mock()
+                    manager._start_new(*thread.call_args.kwargs['args'])
+                    if expected:
+                        session.send_prompt.assert_called_once_with(expected, initial_only=True)
+                    else:
+                        session.send_prompt.assert_not_called()
+                    session.send_prompt.reset_mock()
+                    manager._start_new(sid, session)
+                    session.send_prompt.assert_not_called()
+
+    def test_initial_prompt_ignores_startup_events_but_never_overrides_existing_work(self):
+        for prior, busy, expected in (
+            ([{'method': 'session/update'}], False, True),
+            ([{'type': 'user_prompt', 'text': 'My instructions'}], False, False),
+            ([{'type': 'continuation', 'text': 'Resume'}], False, False),
+            ([], True, False),
+        ):
+            session = acp.ACPSession('aaaaaaaa')
+            session.acp_session_id = 'native-session'
+            session.ready = True
+            session.history = copy.deepcopy(prior)
+            session._is_prompting = busy
+            session._save_history = Mock()
+            session._send = Mock()
+            session.send_prompt('Begin work', initial_only=True)
+            self.assertEqual(session._send.call_count, int(expected))
+            session._is_prompting = False
+            if expected:
+                session.send_prompt('Begin work', initial_only=True)
+                session._send.assert_called_once()
+
+    def test_subagent_launch_excludes_template_prompt_and_keeps_task(self):
+        from flask import Flask
+        from src.routes import web
+
+        app = Flask(__name__)
+        with (
+            app.test_request_context('/api/spawn_subagent', json={'task': 'Specific task', 'group_id': self.group['id']}),
+            patch.object(web, '_check_api_key', return_value=True),
+            patch.object(web, 'acp_manager') as manager,
+            patch.object(web.threading, 'Thread') as thread,
+        ):
+            manager.create_session.return_value = 'aaaaaaaa'
+            web.api_spawn_subagent()
+            self.assertFalse(manager.create_session.call_args.kwargs['use_template_prompt'])
+            thread.call_args.kwargs['target']()
+            manager.get_session.return_value.send_prompt.assert_called_once_with('Specific task')
+
     def test_group_move_blocks_work_and_restarts_idle_or_sleeping_chats(self):
         for backend in ("kiro", "opencode"):
             for state in ("working", "reloading", "idle", "sleeping"):
@@ -70,6 +160,7 @@ class ContextTests(ContextFixture, unittest.TestCase):
                     groups.move_session_to_group("chat:aaaaaaaa", None)
                     manager = acp.ACPManager.__new__(acp.ACPManager)
                     manager._lock = threading.Lock()
+                    manager._on_sessions_change = None
                     manager._save = Mock()
                     manager._save_pid_map = Mock()
                     session = acp.ACPSession("aaaaaaaa", backend=backend)

@@ -187,7 +187,7 @@ def api_spawn_subagent():
         from src.services import groups
         group_id = groups.get_session_groups().get('chat:' + parent_session_id)
     try:
-        session_id = acp_manager.create_session(on_event=on_event, model=model, backend=backend, group_id=group_id)
+        session_id = acp_manager.create_session(on_event=on_event, model=model, backend=backend, group_id=group_id, use_template_prompt=False)
     except (ValueError, OSError) as error:
         return {'error': str(error)}, 400
     if name:

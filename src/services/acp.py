@@ -455,10 +455,14 @@ class ACPSession:
         self._recording = True
         self._broadcasting = True
 
-    def send_prompt(self, text):
+    def send_prompt(self, text, *, initial_only=False):
         with self._lock:
             if not self.acp_session_id or not self.ready or self._reloading:
                 logger.warning(f"[{self.id}] send_prompt called but session not ready")
+                return
+            if initial_only and (self._is_prompting or any(
+                event.get('type') in ('user_prompt', 'continuation') for event in self.history
+            )):
                 return
             was_prompting = self._is_prompting
             # Claim the turn before a concurrent group move can claim the restart.
@@ -1076,7 +1080,7 @@ class ACPManager:
                 self._save_pid_map()
                 self._broadcast_sessions_list()
 
-    def create_session(self, on_event=None, model=None, backend="kiro", group_id=None):
+    def create_session(self, on_event=None, model=None, backend="kiro", group_id=None, use_template_prompt=True):
         from src.services import context_templates, groups
         if backend not in ('kiro', 'opencode'):
             raise ValueError('Unknown agent backend')
@@ -1091,10 +1095,11 @@ class ACPManager:
         self._wire_session_status_callback(session)
         with self._lock:
             self.sessions[session_id] = session
-        threading.Thread(target=self._start_new, args=(session_id, session), daemon=True).start()
+        initial_prompt = snapshot['initial_prompt'] if use_template_prompt else None
+        threading.Thread(target=self._start_new, args=(session_id, session, initial_prompt), daemon=True).start()
         return session_id
 
-    def _start_new(self, session_id, session):
+    def _start_new(self, session_id, session, initial_prompt=None):
         try:
             session._load_history()
             session.start()
@@ -1103,6 +1108,8 @@ class ACPManager:
             self._save_pid_map()
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
+            if initial_prompt:
+                session.send_prompt(initial_prompt, initial_only=True)
         except Exception as e:
             logger.error(f"ACP session start failed: {e}")
             if session.on_event:

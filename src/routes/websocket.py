@@ -8,6 +8,7 @@ import websocket as ws_client
 from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
+from src.services.chat_history import replay_events
 from src.services.rag import search as rag_search
 from src.services.automation import (
     automation_manager, create_rule, update_rule, delete_rule, list_rules,
@@ -843,7 +844,7 @@ def register_handlers(socketio):
                 text_buf = ""
                 text_buf_ts = None
                 text_buf_model = None
-                for evt in history:
+                for evt in replay_events(acp_sid, history, offset):
                     su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                     content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                     if su == "agent_message_chunk" and content.get("type") == "text":
@@ -927,7 +928,7 @@ def register_handlers(socketio):
                     text_buf = ""
                     text_buf_ts = None
                     text_buf_model = None
-                    for evt in history:
+                    for evt in replay_events(acp_sid, history):
                         su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                         content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                         if su == "agent_message_chunk" and content.get("type") == "text":
