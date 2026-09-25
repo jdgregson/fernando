@@ -130,22 +130,27 @@ body { display: flex; flex-direction: column; }
 .msg.assistant pre { background: #0c213c; border: 1px solid #143151; border-radius: 4px; padding: 10px; margin: 8px 0; overflow-x: auto; }
 .msg.assistant pre code { background: none; padding: 0; }
 .msg pre { position: relative; }
+.code-copy-container { position: relative; min-width: 0; }
+.markdown-table-copy { position: relative; width: fit-content; max-width: 100%; }
 .code-copy-button {
     position: absolute;
+    z-index: 1;
     right: 10px;
     bottom: 13px;
     width: 16px;
     height: 16px;
     padding: 0;
     border: 0;
-    background: transparent;
+    outline: 5px solid #0c213c;
+    background-color: #0c213c;
     color: inherit;
     cursor: pointer;
     display: flex;
     visibility: hidden;
     opacity: 0;
 }
-pre.code-copy-visible:hover > .code-copy-button {
+.code-copy-container.code-copy-visible:hover > .code-copy-button,
+.markdown-table-copy.code-copy-visible:hover > .code-copy-button {
     visibility: visible;
     opacity: 1;
 }

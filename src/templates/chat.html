@@ -129,6 +129,9 @@
 
     // Configure marked for safe rendering
     const renderer = new marked.Renderer();
+    renderer.table = function(token) {
+        return `<div class="markdown-table-copy" data-table-markdown="${encodeURIComponent(token.raw)}">${marked.Renderer.prototype.table.call(this, token)}</div>`;
+    };
     renderer.link = ({ href, title, text }) =>
         `<a href="${href}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${text}</a>`;
     marked.setOptions({ breaks: true, gfm: true, renderer });
@@ -1988,26 +1991,36 @@
 
     _messagesEl.addEventListener('pointerover', (event) => {
         if (event.pointerType !== 'mouse') return;
-        const pre = event.target.closest('pre');
+        let pre = event.target.closest('.code-copy-container, .markdown-table-copy') || event.target.closest('pre');
         if (!pre || pre.contains(event.relatedTarget)) return;
         const code = pre.querySelector('code');
-        if (!code) return;
+        const tableMarkdown = pre.dataset.tableMarkdown;
+        if (tableMarkdown === undefined && !code) return;
+        if (pre.tagName === 'PRE') {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'code-copy-container';
+            pre.before(wrapper);
+            wrapper.appendChild(pre);
+            pre = wrapper;
+        }
         pre._copyHoverTimer = setTimeout(() => pre.classList.add('code-copy-visible'), 1000);
         if (pre.querySelector('.code-copy-button')) return;
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'code-copy-button';
-        button.setAttribute('aria-label', 'Copy code');
-        button.title = 'Copy code';
+        const label = tableMarkdown === undefined ? 'Copy code' : 'Copy table Markdown';
+        button.setAttribute('aria-label', label);
+        button.title = label;
         button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
         button.onclick = async () => {
-            await navigator.clipboard.writeText((code._fullText ?? code.textContent).replace(/[\r\n]+$/, ''));
+            const text = tableMarkdown === undefined ? (code._fullText ?? code.textContent) : decodeURIComponent(tableMarkdown);
+            await navigator.clipboard.writeText(text.replace(/[\r\n]+$/, ''));
         };
         pre.appendChild(button);
     });
 
     _messagesEl.addEventListener('pointerout', (event) => {
-        const pre = event.target.closest('pre');
+        const pre = event.target.closest('.code-copy-container, .markdown-table-copy');
         if (!pre || pre.contains(event.relatedTarget)) return;
         clearTimeout(pre._copyHoverTimer);
         pre.classList.remove('code-copy-visible');
