@@ -1126,12 +1126,44 @@ class ACPManager:
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
             if initial_prompt:
-                session.send_prompt(initial_prompt, initial_only=True)
+                session.send_prompt(self._initial_prompt_context(session_id) + '\n' + initial_prompt, initial_only=True)
         except Exception as e:
             logger.error(f"ACP session start failed: {e}")
             if session.on_event:
                 session.on_event(session_id, {"type": "session_error", "error": str(e)})
             self.destroy_session(session_id)
+
+    def _initial_prompt_context(self, session_id):
+        from src.services import groups, rewards
+        from src.services.notebooks import list_notebooks
+        from src.services.pty_service import pty_service
+        from src.routes.websocket import _open_jupyter
+
+        parts = []
+        unread = count_unread_child_messages(session_id)
+        if unread:
+            parts.append(f'subagent_messages: {unread} unread')
+        group_data = groups.get_all()
+        group_id = group_data['session_groups'].get('chat:' + session_id)
+        group = next((g for g in group_data['groups'] if g['id'] == group_id), None)
+        if group:
+            color = group['color']
+            if not color.startswith('#'):
+                color = '#' + color
+            parts.append(f'group_name: "{group["name"]}", group_id: {group_id}, group_color: {color}')
+            chats = {'chat:' + chat['id']: chat['loaded'] for chat in self.list_sessions()}
+            active_keys = set(pty_service.list_sessions()) | set(chats)
+            active_keys.update('notebook:' + nb['name'] for nb in list_notebooks() if nb['running'])
+            active_keys.update('jupyter:' + name for name in _open_jupyter.copy())
+            members = [
+                key + (' (sleeping)' if key in chats and chats[key] is False else '')
+                for key, gid in group_data['session_groups'].items()
+                if gid == group_id and key in active_keys
+            ]
+            if members:
+                parts.append('group_members: ' + ', '.join(members))
+        parts.append(f'reward balance: {rewards.get_balance()}')
+        return '[Pane context: ' + ', '.join(parts) + ']'
 
     def restore_sessions(self, on_event_factory):
         """Restore sessions from disk after restart."""
