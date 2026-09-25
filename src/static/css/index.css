@@ -135,7 +135,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .session-item {
     padding: 12px 15px;
     cursor: pointer;
-    border-bottom: 1px solid color-mix(in srgb, var(--group-color, #143151) 25%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--group-color, #36495e) 40%, transparent);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1288,7 +1288,7 @@ button.notebook-delete-btn {
     gap: 8px;
     user-select: none;
     -webkit-user-select: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--group-color, #143151) 25%, transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--group-color, #36495e) 40%, transparent);
 }
 .group-header:hover {
     background: color-mix(in srgb, var(--group-color, #3465a3) 10%, #1a2a3a);

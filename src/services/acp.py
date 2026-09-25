@@ -455,11 +455,20 @@ class ACPSession:
         self._recording = True
         self._broadcasting = True
 
-    def send_prompt(self, text, *, initial_only=False):
+    def send_prompt(self, text, *, initial_only=False, error_retry=False):
         with self._lock:
             if not self.acp_session_id or not self.ready or self._reloading:
                 logger.warning(f"[{self.id}] send_prompt called but session not ready")
                 return
+            if error_retry:
+                now = time.time()
+                retries = sum(
+                    event.get('type') == 'user_prompt' and event.get('error_retry', False)
+                    and now - event.get('ts', 0) < 300
+                    for event in self.history
+                )
+                if not self._alive or self._is_prompting or retries >= 3:
+                    return
             if initial_only and (self._is_prompting or any(
                 event.get('type') in ('user_prompt', 'continuation') for event in self.history
             )):
@@ -480,6 +489,8 @@ class ACPSession:
         self._notify_status_change()
         self._last_activity = time.time()
         evt = {"type": "user_prompt", "text": text, "ts": time.time()}
+        if error_retry:
+            evt['error_retry'] = True
         self.history.append(evt)
         self._save_history()
         if self.on_event:
@@ -884,7 +895,7 @@ class ACPSession:
         except Exception:
             pass
 
-    def _auto_reload(self):
+    def _auto_reload(self, error_retry=False):
         """Reload the session after MCP transport crash."""
         # Wait for current turn to end
         for _ in range(30):
@@ -909,7 +920,10 @@ class ACPSession:
                 self.on_event(self.id, {"type": "session_ready"})
                 self.on_event(self.id, {"type": "system_message", "text": "Session reloaded. MCP tools restored."})
             # Auto-continue the agent so it resumes work
-            self.send_continuation("The MCP server connection was lost and has been automatically restored. All tools are available again. Continue where you left off.")
+            if error_retry:
+                self.send_prompt("Coninue", error_retry=True)
+            else:
+                self.send_continuation("The MCP server connection was lost and has been automatically restored. All tools are available again. Continue where you left off.")
         except Exception as e:
             logger.error(f"[{self.id}] Auto-reload failed: {e}")
             if self.on_event:
@@ -1001,16 +1015,19 @@ class ACPSession:
                     self._save_history()
                     if self.on_event and self._broadcasting:
                         self.on_event(self.id, error_evt)
+                    self.send_prompt("Coninue", error_retry=True)
                 return
             self._retry_count = 0
-            if "Transport" in err_text and "closed" in err_text:
-                logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
-                threading.Thread(target=self._auto_reload, daemon=True).start()
             error_evt = {"type": "acp_error", "error": err_text or "Unknown error", "ts": time.time()}
             self.history.append(error_evt)
             self._save_history()
             if self.on_event and self._broadcasting:
                 self.on_event(self.id, error_evt)
+            if "Transport" in err_text and "closed" in err_text:
+                logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
+                threading.Thread(target=self._auto_reload, kwargs={"error_retry": True}, daemon=True).start()
+            else:
+                self.send_prompt("Coninue", error_retry=True)
             return
 
         # Notification (no id) — log session/update type

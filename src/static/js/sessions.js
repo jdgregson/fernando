@@ -1007,6 +1007,17 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
     
+    if (sessionKey.startsWith('chat:')) {
+        const copyIdBtn = document.createElement('div');
+        copyIdBtn.className = 'context-menu-item';
+        copyIdBtn.textContent = 'Copy Chat ID';
+        copyIdBtn.onclick = async () => {
+            await navigator.clipboard.writeText(sessionKey.slice(5));
+            dismissContextMenus();
+        };
+        menu.appendChild(copyIdBtn);
+    }
+
     if (onRename) {
         const renameBtn = document.createElement('div');
         renameBtn.className = 'context-menu-item';
@@ -1065,9 +1076,6 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
 }
 
 function showGroupContextMenu(groupId, x, y, sessionCount) {
-    // Don't show context menu for the virtual Ungrouped group
-    if (groupId === '__ungrouped__') return;
-    
     dismissContextMenus();
 
     const menu = document.createElement('div');
@@ -1081,6 +1089,15 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
         openNewSessionModal(groupId);
     };
     menu.appendChild(newSessionBtn);
+
+    if (groupId === '__ungrouped__') {
+        document.body.appendChild(menu);
+        const menuRect = menu.getBoundingClientRect();
+        menu.style.left = Math.max(0, Math.min(x, window.innerWidth - menuRect.width - 10)) + 'px';
+        menu.style.top = Math.max(0, Math.min(y, window.innerHeight - menuRect.height - 10)) + 'px';
+        trackContextMenu(menu);
+        return;
+    }
 
     const templatesBtn = document.createElement('div');
     templatesBtn.className = 'context-menu-item has-submenu';
@@ -2148,6 +2165,7 @@ function closeNewSessionModal() {
     newSessionTargetGroupId = null;
 }
 function getNewSessionGroupId() {
+    if (newSessionTargetGroupId === '__ungrouped__') return null;
     return newSessionTargetGroupId || (typeof getActivePaneGroupId === 'function' ? getActivePaneGroupId() : null);
 }
 function createSessionType(type) { 

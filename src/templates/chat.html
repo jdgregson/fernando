@@ -1986,6 +1986,33 @@
     let _programmaticScroll = false;
     const _messagesEl = document.getElementById('messages');
 
+    _messagesEl.addEventListener('pointerover', (event) => {
+        if (event.pointerType !== 'mouse') return;
+        const pre = event.target.closest('pre');
+        if (!pre || pre.contains(event.relatedTarget)) return;
+        const code = pre.querySelector('code');
+        if (!code) return;
+        pre._copyHoverTimer = setTimeout(() => pre.classList.add('code-copy-visible'), 1000);
+        if (pre.querySelector('.code-copy-button')) return;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'code-copy-button';
+        button.setAttribute('aria-label', 'Copy code');
+        button.title = 'Copy code';
+        button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
+        button.onclick = async () => {
+            await navigator.clipboard.writeText((code._fullText ?? code.textContent).replace(/[\r\n]+$/, ''));
+        };
+        pre.appendChild(button);
+    });
+
+    _messagesEl.addEventListener('pointerout', (event) => {
+        const pre = event.target.closest('pre');
+        if (!pre || pre.contains(event.relatedTarget)) return;
+        clearTimeout(pre._copyHoverTimer);
+        pre.classList.remove('code-copy-visible');
+    });
+
     _messagesEl.addEventListener('scroll', () => {
         if (_programmaticScroll || _suppressScroll) return;
         const current = _messagesEl.scrollTop;
@@ -2016,6 +2043,7 @@
             const pre = code.parentElement;
             const truncated = lines.slice(0, maxLines).join('\n');
             const full = code.textContent;
+            code._fullText = full;
             code.textContent = truncated;
             const toggle = document.createElement('div');
             toggle.style.cssText = 'color:#569cd6;cursor:pointer;font-size:12px;margin-top:4px;font-family:sans-serif';
@@ -2981,7 +3009,7 @@
         // Handle user prompt from our history
         if (evt.type === 'user_prompt' || evt.type === 'continuation') {
             // Skip if this is a broadcast of our own message (we already added it locally)
-            if (evt.type === 'user_prompt' && _lastSentTs && evt.ts && Math.abs(evt.ts * 1000 - _lastSentTs) < 3000) {
+            if (evt.type === 'user_prompt' && !evt.error_retry && _lastSentTs && evt.ts && Math.abs(evt.ts * 1000 - _lastSentTs) < 3000) {
                 _lastSentTs = null;  // Clear after matching once
                 return;
             }
@@ -2992,6 +3020,7 @@
                 const display = (evt.text || '').replace(/^\[Pane context:[^\]]*\]\n/, '');
                 addUserMessage(display, false, evt.ts);
             }
+            if (evt.error_retry && !_replayingHistory) setStatus('working', 'Retrying...');
             return;
         }
 
