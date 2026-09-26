@@ -63,6 +63,128 @@ class ContextFixture:
 
 
 class ContextTests(ContextFixture, unittest.TestCase):
+    def test_shell_launch_clears_only_fernando_context_overrides(self):
+        from src.services.pty_service import PTYSession
+
+        inherited = {
+            "KIRO_HOME": str(context.RUNTIME / "old/kiro"),
+            "XDG_CONFIG_HOME": str(context.RUNTIME / "old/config"),
+            "OPENCODE_CONFIG": str(context.RUNTIME / "old/config/opencode/opencode.json"),
+            "OPENCODE_CONFIG_DIR": str(context.RUNTIME / "old/config/opencode"),
+            "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
+            "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT": "1",
+        }
+        terminal = PTYSession()
+        with (
+            patch.dict(os.environ, inherited),
+            patch("subprocess.Popen") as popen,
+            patch("src.services.pty_service.pty.openpty", return_value=(100, 101)),
+            patch("src.services.pty_service.os.close"),
+            patch("src.services.pty_service.threading.Thread"),
+        ):
+            terminal.create_session("shell")
+            env = popen.call_args.kwargs["env"]
+            self.assertTrue(set(inherited).isdisjoint(env))
+            self.assertEqual(env["HOME"], os.environ["HOME"])
+            self.assertEqual(os.environ["KIRO_HOME"], inherited["KIRO_HOME"])
+        custom = {
+            "KIRO_HOME": "/custom/kiro",
+            "XDG_CONFIG_HOME": "/custom/config",
+            "OPENCODE_CONFIG": str(context.RUNTIME) + "-other/opencode.json",
+            "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
+        }
+        cleaned = custom.copy()
+        context.clear_inherited_context(cleaned)
+        self.assertEqual(cleaned, custom)
+
+    def test_kiro_terminals_receive_fresh_group_context_despite_inherited_home(self):
+        from src.services.pty_service import PTYSession
+
+        terminal = PTYSession()
+        homes = set()
+        for session_type in ("kiro", "kiro-unchained"):
+            for group_id, expected in ((None, {"base"}), (self.group["id"], {"base", "extra"})):
+                with (
+                    patch.dict(os.environ, {"KIRO_HOME": "/wrong/chat/home"}),
+                    patch("subprocess.Popen") as popen,
+                    patch("src.services.pty_service.pty.openpty", return_value=(100, 101)),
+                    patch("src.services.pty_service.os.close"),
+                    patch("src.services.pty_service.threading.Thread"),
+                ):
+                    name = terminal.create_session(session_type, group_id=group_id)
+                command = popen.call_args.args[0][-1]
+                home = Path(popen.call_args.kwargs["env"]["KIRO_HOME"])
+                self.assertNotIn(home, homes)
+                homes.add(home)
+                self.assertTrue(command.endswith("--agent fernando"))
+                agent = context.read_jsonc(home / "agents/fernando.json")
+                self.assertEqual(set(agent["mcpServers"]), expected)
+                self.assertFalse(agent["includeMcpJson"])
+                self.assertNotIn("--agent", terminal.sessions[name]["cmd"][-1])
+
+    def test_terminal_restore_uses_current_group_selection(self):
+        from src.services.pty_service import PTYSession
+
+        directory = self.root / "terminals"
+        session_dir = directory / "Kiro-CLI"
+        session_dir.mkdir(parents=True)
+        (session_dir / "meta.json").write_text(json.dumps({
+            "type": "kiro-unchained",
+            "cmd": ["bash", "-lc", "exec kiro-cli chat --legacy-ui -a"],
+            "cwd": str(self.root),
+        }))
+        groups.move_session_to_group("Kiro-CLI", self.group["id"])
+        terminal = PTYSession()
+        with (
+            patch("src.services.pty_service.DATA_DIR", str(directory)),
+            patch.object(terminal, "_spawn") as spawn,
+        ):
+            terminal.restore_all()
+        self.assertEqual(spawn.call_args.kwargs["group_id"], self.group["id"])
+
+    def test_startup_overwrites_harness_mcp_settings_without_saving(self):
+        import src
+
+        kiro_path = context.HOME / ".kiro/settings/mcp.json"
+        opencode_path = context.HOME / ".config/opencode/opencode.jsonc"
+        original = context.STORE.read_bytes()
+        for _ in range(2):
+            context._write(kiro_path, {"mcpServers": {"stale": {}}, "other": 1})
+            context._write(opencode_path, {"mcp": {"stale": {}}, "model": "test/model"})
+            with patch.object(src, "Flask", side_effect=RuntimeError("startup boundary")):
+                with self.assertRaisesRegex(RuntimeError, "startup boundary"):
+                    src.create_app()
+            kiro = context.read_jsonc(kiro_path)
+            opencode = context.read_jsonc(opencode_path)
+            self.assertEqual(set(kiro["mcpServers"]), {"base"})
+            self.assertEqual(set(opencode["mcp"]), {"base"})
+            self.assertTrue(opencode["mcp"]["base"]["enabled"])
+            self.assertEqual(kiro["other"], 1)
+            self.assertEqual(opencode["model"], "test/model")
+            self.assertEqual(context.STORE.read_bytes(), original)
+            for backend in ("kiro", "opencode"):
+                self.assertEqual(set(context.resolve(self.group["id"], backend)["servers"]), {"base", "extra"})
+
+    def test_save_replaces_global_selection_and_supports_empty_selection(self):
+        self.config["servers"]["base"]["global"] = False
+        self.config["servers"]["extra"] = {
+            "global": True,
+            "opencode": {"type": "local", "command": ["python3", "extra.py"], "enabled": False},
+        }
+        saved = context.save_config(self.config)
+        kiro_path = context.HOME / ".kiro/settings/mcp.json"
+        opencode_path = context.HOME / ".config/opencode/opencode.jsonc"
+        self.assertEqual(context.read_jsonc(kiro_path)["mcpServers"], {
+            "extra": {"command": "python3", "args": ["extra.py"], "env": {}}
+        })
+        self.assertEqual(set(context.read_jsonc(opencode_path)["mcp"]), {"extra"})
+        self.assertTrue(context.read_jsonc(opencode_path)["mcp"]["extra"]["enabled"])
+        saved["servers"]["extra"]["global"] = False
+        context.save_config(saved)
+        self.assertEqual(context.read_jsonc(kiro_path)["mcpServers"], {})
+        self.assertEqual(context.read_jsonc(opencode_path)["mcp"], {})
+        self.assertEqual(set(context.get_config()["servers"]), {"base", "extra"})
+
     def test_initial_prompts_validate_persist_and_follow_template_order(self):
         self.config['templates']['dev']['initial_prompt'] = 'First\nmessage'
         self.config['templates']['next'] = {

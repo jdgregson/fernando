@@ -1,8 +1,4 @@
-"""Fernando-owned context selection and per-launch context snapshots.
-
-Harness configuration is imported, never edited. Managed chats get isolated
-configuration directories so unselected global/project context cannot leak in.
-"""
+"""Fernando-owned context selection, global harness settings, and launch snapshots."""
 
 import copy
 import hashlib
@@ -174,30 +170,25 @@ def _push_to_harnesses(data):
     """Push Fernando's MCP server config to Kiro and OpenCode configs."""
     kiro_path = HOME / ".kiro/settings/mcp.json"
     kiro_config = read_jsonc(kiro_path)
-    kiro_servers = kiro_config.setdefault("mcpServers", {})
-    
     opencode_path = HOME / ".config/opencode/opencode.jsonc"
     opencode_config = read_jsonc(opencode_path)
-    opencode_mcp = opencode_config.setdefault("mcp", {})
-    
-    for name, item in data["servers"].items():
-        if item.get("kiro"):
-            kiro_servers[name] = copy.deepcopy(item["kiro"])
-        if item.get("opencode"):
-            opencode_mcp[name] = copy.deepcopy(item["opencode"])
-    
-    removed_servers = set(kiro_servers.keys()) - set(data["servers"].keys())
-    for name in removed_servers:
-        if name in kiro_servers:
-            del kiro_servers[name]
-    
-    removed_opencode = set(opencode_mcp.keys()) - set(data["servers"].keys())
-    for name in removed_opencode:
-        if name in opencode_mcp:
-            del opencode_mcp[name]
-    
+    kiro_config["mcpServers"] = {
+        name: server_config(item, "kiro")
+        for name, item in data["servers"].items()
+        if item.get("global")
+    }
+    opencode_config["mcp"] = {
+        name: server_config(item, "opencode")
+        for name, item in data["servers"].items()
+        if item.get("global")
+    }
     _write(kiro_path, kiro_config)
     _write(opencode_path, opencode_config)
+
+
+def sync_harness_settings():
+    with _lock:
+        _push_to_harnesses(get_config())
 
 
 def server_config(item, backend):
@@ -330,6 +321,22 @@ def resolve(group_id, backend):
             for key in dict.fromkeys(servers)
         },
     }
+
+
+def clear_inherited_context(env):
+    managed_opencode = False
+    for key in ("KIRO_HOME", "XDG_CONFIG_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"):
+        value = env.get(key)
+        if value and Path(value).is_relative_to(RUNTIME):
+            del env[key]
+            if key != "KIRO_HOME":
+                managed_opencode = True
+    if managed_opencode:
+        for key in (
+            "OPENCODE_DISABLE_PROJECT_CONFIG",
+            "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT",
+        ):
+            env.pop(key, None)
 
 
 def prepare(session_id, snapshot, backend):

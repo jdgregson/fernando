@@ -192,7 +192,7 @@ def register_handlers(socketio):
             return
         session_type = data.get("type", "shell")
         group_id = data.get("group_id")
-        name = pty_service.create_session(session_type)
+        name = pty_service.create_session(session_type, group_id=group_id)
         # Assign to group if specified
         if group_id:
             from src.services import groups

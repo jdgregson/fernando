@@ -7,6 +7,10 @@ socketio = SocketIO()
 
 
 def create_app(config_name=None):
+    from src.services.context_templates import sync_harness_settings
+
+    sync_harness_settings()
+
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "development")
 

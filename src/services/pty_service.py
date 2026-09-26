@@ -8,6 +8,8 @@ import re
 import json
 import logging
 import threading
+import shlex
+import uuid
 
 logger = logging.getLogger("fernando.pty")
 
@@ -34,7 +36,7 @@ class PTYSession:
         with self._lock:
             return list(self.sessions.keys())
 
-    def create_session(self, session_type):
+    def create_session(self, session_type, group_id=None):
         """Create a new PTY session. Returns the session name."""
         from src.services.settings import get as get_setting
         kiro_model = get_setting("default_model") or "claude-opus-4.6"
@@ -59,10 +61,10 @@ class PTYSession:
                 i += 1
             name = f"{name}-{i}"
 
-        self._spawn(name, session_type, cmd)
+        self._spawn(name, session_type, cmd, group_id=group_id)
         return name
 
-    def _spawn(self, name, session_type, cmd):
+    def _spawn(self, name, session_type, cmd, group_id=None):
         """Spawn a process on a new PTY."""
         env = os.environ.copy()
         env["TERM"] = "xterm-256color"
@@ -78,9 +80,21 @@ class PTYSession:
                         key, _, value = line.partition("=")
                         env[key] = value
 
+        from src.services import context_templates
+
+        context_templates.clear_inherited_context(env)
+        launch_cmd = cmd
+        if session_type in ("kiro", "kiro-unchained"):
+            snapshot = context_templates.resolve(group_id, "kiro")
+            context_env, context_args = context_templates.prepare(
+                "terminal-" + uuid.uuid4().hex, snapshot, "kiro"
+            )
+            env.update(context_env)
+            launch_cmd = [*cmd[:-1], cmd[-1] + " " + shlex.join(context_args)]
+
         master, slave = pty.openpty()
         proc = __import__("subprocess").Popen(
-            cmd,
+            launch_cmd,
             stdin=slave,
             stdout=slave,
             stderr=slave,
@@ -317,7 +331,12 @@ class PTYSession:
                     inner = cmd[-1] if cmd[-1].startswith("exec ") else f"exec {cmd[-1]}"
                     cmd = ["bash", "-lc", f"cd {_shell_quote(cwd)} 2>/dev/null; {inner}"]
 
-                self._spawn(name, session_type, cmd)
+                from src.services import groups
+
+                self._spawn(
+                    name, session_type, cmd,
+                    group_id=groups.get_session_groups().get(name),
+                )
 
                 # Don't replay saved scrollback — raw escape sequences from a
                 # different terminal size cause blank lines and data corruption.
