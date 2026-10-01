@@ -32,12 +32,7 @@ socket.on('acp_created', (data) => { openChatPane(data.session_id); });
 
 function openChatPane(chatId) {
     const pane = activeTerminal;
-    const browser = document.getElementById(`browser${pane}`);
-    const terminal = document.getElementById(`terminal${pane}`);
-    paneTypes[pane] = 'browser';
-    paneNotebook[pane] = 'chat:' + chatId;
-    terminal.classList.add('hidden');
-    browser.classList.remove('hidden');
+    const browser = paneController.showBrowser(pane, 'chat:' + chatId);
     const existing = browser.querySelector('iframe');
     if (!existing || !existing.src.includes('/chat/' + chatId)) {
         browser.innerHTML = '';
@@ -46,12 +41,7 @@ function openChatPane(chatId) {
         iframe.style.cssText = 'width:100%;height:100%;border:none';
         browser.appendChild(iframe);
     }
-    if (pane === 1) currentSession1 = null;
-    else currentSession2 = null;
-    refreshSidebarHighlights();
-    updatePaneBorders();
-    updateKbdBtn();
-    syncUrlParams();
+    paneController.finishOpen('chat');
 }
 
 function closeChatSession(chatId) {
@@ -60,11 +50,7 @@ function closeChatSession(chatId) {
         const browser = document.getElementById(`browser${pane}`);
         const iframe = browser.querySelector('iframe');
         if (iframe && iframe.src.includes('/chat/' + chatId)) {
-            paneTypes[pane] = 'terminal';
-            document.getElementById(`terminal${pane}`).classList.remove('hidden');
-            browser.classList.add('hidden');
-            browser.innerHTML = '';
-            setTimeout(doFit, 100);
+            paneController.showTerminal(pane, { clearContent: false, emptyBrowser: true, fit: true });
         }
     });
     updateKbdBtn();
@@ -182,7 +168,7 @@ window.addEventListener('message', (e) => {
 
     if (e.data && e.data.type === 'acp-chat-focus') {
         for (const paneNum of [1, 2]) {
-            if (paneTypes[paneNum] === 'browser') {
+            if (paneController.get(paneNum).surface === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
                 if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
             }
@@ -191,50 +177,14 @@ window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'get-pane-context') {
         const ctx = {};
         for (const pn of [1, 2]) {
-            const p = { type: paneTypes[pn] };
-            let sessionKey = null;
-            if (paneTypes[pn] === 'terminal') {
-                p.session = pn === 1 ? currentSession1 : currentSession2;
-                sessionKey = p.session;
-            } else if (paneTypes[pn] === 'browser') {
-                if (paneNotebook[pn]) {
-                    if (paneNotebook[pn].startsWith('jupyter:')) {
-                        p.type = 'jupyter';
-                        p.notebook = paneNotebook[pn].slice(8);
-                        sessionKey = paneNotebook[pn];
-                    } else if (paneNotebook[pn].startsWith('chat:')) {
-                        p.type = 'chat';
-                        sessionKey = paneNotebook[pn];
-                    } else if (paneNotebook[pn].startsWith('notebook:')) {
-                        p.type = 'notebook';
-                        p.notebook = paneNotebook[pn].slice(9);
-                        sessionKey = paneNotebook[pn];
-                    } else {
-                        p.type = 'notebook';
-                        p.notebook = paneNotebook[pn];
-                        sessionKey = 'notebook:' + paneNotebook[pn];
-                    }
-                } else {
-                    const iframe = document.getElementById(`browser${pn}`).querySelector('iframe');
-                    if (iframe && iframe.src.includes('/chat/')) p.type = 'chat';
-                    else if (iframe && iframe.src.includes('/kasm/')) p.type = 'desktop';
-                }
-            }
-            ctx[`pane${pn}`] = p;
+            ctx[`pane${pn}`] = paneController.context(pn);
         }
         ctx.split = isSplit;
         
         // Add group context for the requesting chat's pane
-        let requestingPane = null;
-        for (const pn of [1, 2]) {
-            const iframe = document.getElementById(`browser${pn}`).querySelector('iframe');
-            if (iframe && iframe.contentWindow === e.source) {
-                requestingPane = pn;
-                break;
-            }
-        }
-        if (requestingPane && paneNotebook[requestingPane]) {
-            const sessionKey = paneNotebook[requestingPane];
+        const requestingPane = paneController.iframePane(e.source);
+        if (requestingPane && paneController.get(requestingPane).contentKey) {
+            const sessionKey = paneController.get(requestingPane).contentKey;
             const groupId = _cachedSessionGroups[sessionKey];
             if (groupId) {
                 const group = _cachedGroups.find(g => g.id === groupId);
@@ -274,7 +224,7 @@ window.addEventListener('message', (e) => {
     }
     if (e.data && e.data.type === 'notes-focus') {
         for (const paneNum of [1, 2]) {
-            if (paneTypes[paneNum] === 'browser') {
+            if (paneController.get(paneNum).surface === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
                 if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
             }
@@ -282,7 +232,7 @@ window.addEventListener('message', (e) => {
     }
     if (e.data && e.data.action === 'enable_audio') {
         for (const paneNum of [1, 2]) {
-            if (paneTypes[paneNum] === 'browser') {
+            if (paneController.get(paneNum).surface === 'browser') {
                 const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
                 if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
             }

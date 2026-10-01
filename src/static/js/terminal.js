@@ -78,7 +78,7 @@ function getOrCreateTerm(sessionName, pane) {
                 }
             }, 100);
         }
-        setupFocusScroll(el, pane);
+        setupFocusScroll(entry);
     }).catch(err => console.error('wterm init failed for', sessionName, err));
 
     return entry;
@@ -124,7 +124,7 @@ function destroyTerm(sessionName) {
 
 // Get the active WTerm for a pane
 function getTermForPane(pane) {
-    const session = pane === 1 ? currentSession1 : currentSession2;
+    const session = paneController.get(pane).terminalSession;
     return session && termInstances[session] ? termInstances[session].wterm : null;
 }
 
@@ -140,12 +140,12 @@ WTerm.prototype.scrollToBottom = function() {
 };
 
 function doFit() {
-    if (document.hidden || typeof paneTypes === 'undefined') return;
-    if (paneTypes[1] === 'terminal') {
+    if (document.hidden) return;
+    if (paneController.get(1).surface === 'terminal') {
         const t = getTermForPane(1);
         if (t) emitWithCsrf('resize', { terminal: 1, rows: t.rows, cols: t.cols });
     }
-    if (paneTypes[2] === 'terminal' && !document.getElementById('terminal2-container').classList.contains('hidden')) {
+    if (paneController.get(2).surface === 'terminal' && !document.getElementById('terminal2-container').classList.contains('hidden')) {
         const t = getTermForPane(2);
         if (t) emitWithCsrf('resize', { terminal: 2, rows: t.rows, cols: t.cols });
     }
@@ -238,14 +238,14 @@ function _iosRetoggle(el) {
 // --- Mobile: focus scroll ---
 function setupMobileFocusScroll() {}
 
-function setupFocusScroll(wtermEl, pane) {
-    const textarea = wtermEl.querySelector('textarea');
+function setupFocusScroll(entry) {
+    const textarea = entry.element.querySelector('textarea');
     if (!textarea) return;
     textarea.addEventListener('focus', () => {
-        if (typeof setActiveTerminal === 'function') setActiveTerminal(pane, false);
+        if (typeof setActiveTerminal === 'function') setActiveTerminal(entry.pane, false);
         setTimeout(() => {
             if (typeof isSplit !== 'undefined' && isSplit) {
-                const container = document.getElementById('terminal' + pane + '-container');
+                const container = document.getElementById('terminal' + entry.pane + '-container');
                 const rect = container.getBoundingClientRect();
                 window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
             } else {

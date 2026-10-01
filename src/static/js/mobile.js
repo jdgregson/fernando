@@ -1,21 +1,14 @@
 // --- Mobile Controls ---
 function isDesktopActive() {
-    return paneTypes[activeTerminal] === 'browser' &&
-        document.getElementById('browser' + activeTerminal).querySelector('iframe[src*="/kasm/"]');
+    return paneController.isEmbedded(activeTerminal, 'desktop');
 }
 
 function updateMobileControls() {
     const mc = document.getElementById('mobileControls');
     mc.classList.toggle('desktop-active', !!isDesktopActive());
-    const chatActive = paneTypes[activeTerminal] === 'browser' && (() => {
-        const iframe = document.getElementById('browser' + activeTerminal).querySelector('iframe');
-        return iframe && iframe.src.includes('/chat/');
-    })();
+    const chatActive = paneController.isEmbedded(activeTerminal, 'chat');
     mc.classList.toggle('chat-active', chatActive);
-    const notesActive = paneTypes[activeTerminal] === 'browser' && (() => {
-        const iframe = document.getElementById('browser' + activeTerminal).querySelector('iframe');
-        return iframe && iframe.src.includes('/notes/');
-    })();
+    const notesActive = paneController.isEmbedded(activeTerminal, 'notebook');
     mc.classList.toggle('notes-active', notesActive);
 }
 
