@@ -530,7 +530,7 @@ def kasm_proxy(path):
             content = content.replace('="/', '="/kasm/')
             content = content.replace("='/", "='/kasm/")
             content = content.replace("url(/", "url(/kasm/")
-            # Inject WebSocket interceptor
+            # Inject WebSocket interceptor and focus notification
             if "text/html" in content_type and api_key:
                 # CSS overrides: link to external stylesheet
                 style = '<link rel="stylesheet" href="/static/css/kasm-overrides.css">'
@@ -545,6 +545,7 @@ def kasm_proxy(path):
                     f'window.WebSocket.OPEN=_WS.OPEN;'
                     f'window.WebSocket.CLOSING=_WS.CLOSING;'
                     f'window.WebSocket.CLOSED=_WS.CLOSED;'
+                    f"document.addEventListener('click',function(){{window.parent.postMessage({{type:'notes-focus'}},'*')}});"
                     f'}})()'
                     f'</script>'
                 )

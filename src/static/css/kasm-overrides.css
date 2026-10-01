@@ -43,6 +43,10 @@
 /* Hide KasmVNC logo */
 .noVNC_logo { display: none !important; }
 
+/* Hide Fullscreen and Drag Viewport buttons (don't work in our iframe context) */
+.noVNC_button_div:has(#noVNC_fullscreen_button),
+.noVNC_button_div:has(#noVNC_view_drag_button) { display: none !important; }
+
 /* Handle — no flip, no background image */
 #noVNC_control_bar_handle { background-image: none !important; }
 #noVNC_control_bar_handle:after {

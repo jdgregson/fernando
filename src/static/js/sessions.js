@@ -928,14 +928,33 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     menu.className = 'group-context-menu';
     
     if (sessionKey.startsWith('chat:')) {
-        const copyIdBtn = document.createElement('div');
-        copyIdBtn.className = 'context-menu-item';
-        copyIdBtn.textContent = 'Copy Chat ID';
-        copyIdBtn.onclick = async () => {
-            await navigator.clipboard.writeText(sessionKey.slice(5));
-            dismissContextMenus();
+        const chatId = sessionKey.slice(5);
+        const idRow = document.createElement('div');
+        idRow.className = 'context-menu-item context-menu-id-row';
+        idRow.style.cssText = 'display:flex;align-items:center;gap:8px;font-family:monospace;font-size:12px;cursor:default;';
+        
+        const idText = document.createElement('span');
+        idText.textContent = chatId;
+        idText.style.color = '#7aa2f7';
+        
+        const copyBtn = document.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'context-menu-copy-btn';
+        copyBtn.style.cssText = 'background:none;border:none;padding:2px;cursor:pointer;display:flex;align-items:center;color:#666;';
+        copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
+        copyBtn.title = 'Copy chat ID';
+        copyBtn.onclick = async (e) => {
+            e.stopPropagation();
+            await navigator.clipboard.writeText(chatId);
+            copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+            setTimeout(() => {
+                copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
+            }, 1500);
         };
-        menu.appendChild(copyIdBtn);
+        
+        idRow.appendChild(idText);
+        idRow.appendChild(copyBtn);
+        menu.appendChild(idRow);
     }
 
     if (onRename) {

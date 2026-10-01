@@ -1449,6 +1449,7 @@ button.notebook-delete-btn {
     justify-content: space-between;
     align-items: center;
 }
+.context-menu-copy-btn:hover { color: #c0caf5 !important; }
 .submenu-arrow {
     margin-left: 10px;
     font-size: 10px;
