@@ -2,40 +2,35 @@
 """
 Version-agnostic patcher to remove the Chrome for Testing infobar.
 
-Strategy:
-1. Find the "enable-automation" string in .rodata (VA = file offset in this section)
-2. Find all LEA instructions in .text that reference it
-3. For each, walk backward looking for: test <reg>b,<reg>b / je <target>
-   where <target> contains mov edi,0x50 (CfT delegate alloc) or a small alloc pattern
-4. NOP the je to prevent the infobar from being created
+Supports two patterns:
 
-This works because AddInfoBarsIfNecessary always:
-  - Calls IsGpuTest() which sets a byte register
-  - Tests that register
-  - Conditionally jumps to ChromeForTestingInfoBarDelegate::Create()
-  - Then falls through to the IsAutomationEnabled() check using "enable-automation"
+Pattern A (older Chrome, pre-154):
+  - Before the enable-automation LEA: test + je that jumps to CfT create
+  - Patch: NOP the je to prevent jumping to infobar creation
+
+Pattern B (Chrome 154+):
+  - After the enable-automation LEA + call: test + jne that SKIPS infobar creation
+  - The fall-through creates the infobar when enable-automation is NOT set
+  - Patch: Change jne to unconditional jmp to ALWAYS skip infobar creation
 """
 import struct
 import shutil
 import sys
 
+
 def find_string_va(data, target):
     """Find virtual address of a string. In CfT, .rodata VA == file offset."""
     off = data.find(target)
-    if off == -1:
-        return None
-    return off
+    return off if off != -1 else None
+
 
 def get_text_section(data):
     """Parse ELF to find .text section VA, file offset, and size."""
-    # ELF header: e_shoff at offset 0x28 (8 bytes), e_shentsize at 0x3a (2 bytes),
-    # e_shnum at 0x3c (2 bytes), e_shstrndx at 0x3e (2 bytes)
     e_shoff = struct.unpack_from("<Q", data, 0x28)[0]
     e_shentsize = struct.unpack_from("<H", data, 0x3a)[0]
     e_shnum = struct.unpack_from("<H", data, 0x3c)[0]
     e_shstrndx = struct.unpack_from("<H", data, 0x3e)[0]
 
-    # Get section name string table
     str_sh = e_shoff + e_shstrndx * e_shentsize
     str_off = struct.unpack_from("<Q", data, str_sh + 0x18)[0]
 
@@ -52,6 +47,7 @@ def get_text_section(data):
             return sh_addr, sh_offset, sh_size
     return None
 
+
 def find_lea_refs(text, text_va, text_off, target_va):
     """Find all LEA reg,[rip+disp32] instructions referencing target_va."""
     results = []
@@ -66,18 +62,15 @@ def find_lea_refs(text, text_va, text_off, target_va):
                     results.append((instr_va, text_off + i, i))
     return results
 
-def find_cft_je(text, text_va, lea_text_offset):
-    """Walk backward from the enable-automation LEA to find the je that jumps to CfT Create."""
-    # Search up to 256 bytes before the LEA for: test <reg>b,<reg>b (2 bytes) / je rel32 (6 bytes)
-    # The je target should contain mov edi,<small_size> (alloc for CfT delegate)
+
+def find_pattern_a(text, text_va, lea_text_offset):
+    """Pattern A: Look backward for test + je jumping to CfT Create (mov edi, small_size)."""
     search_start = max(0, lea_text_offset - 256)
     region = text[search_start:lea_text_offset]
 
     candidates = []
     for i in range(len(region) - 8):
         b0, b1 = region[i], region[i+1]
-        # test r8b-r15b, r8b-r15b: 45 84 XX where XX has matching reg fields
-        # test al-bl etc: 84 XX
         is_test = False
         test_len = 0
         if b0 == 0x45 and b1 == 0x84:
@@ -99,7 +92,6 @@ def find_cft_je(text, text_va, lea_text_offset):
         if not is_test:
             continue
 
-        # Check for je (0x0f 0x84) right after the test
         je_pos = i + test_len
         if je_pos + 6 > len(region):
             continue
@@ -111,30 +103,72 @@ def find_cft_je(text, text_va, lea_text_offset):
         je_va = text_va + je_abs_text_off
         target_va = je_va + 6 + je_disp
 
-        # Verify the jump target looks like CfT Create: starts with mov edi,<size> (bf XX 00 00 00)
         target_text_off = target_va - text_va
         if 0 <= target_text_off < len(text) - 5:
             if text[target_text_off] == 0xbf:
                 alloc_size = struct.unpack_from("<I", text, target_text_off + 1)[0]
-                if alloc_size < 0x200:  # reasonable object size
+                if alloc_size < 0x200:
                     candidates.append({
+                        'pattern': 'A',
                         'je_text_off': je_abs_text_off,
                         'je_va': je_va,
-                        'je_file_off': je_abs_text_off + (text_va - (text_va - 0)),  # computed below
                         'target_va': target_va,
                         'alloc_size': alloc_size,
                         'je_bytes': bytes(region[je_pos:je_pos+6]),
                         'distance': lea_text_offset - je_abs_text_off,
+                        'patch_type': 'nop',  # NOP the je to prevent jumping to create
                     })
 
     return candidates
+
+
+def find_pattern_b(text, text_va, lea_text_offset):
+    """Pattern B (Chrome 154+): Look forward for call + test + jne that skips infobar creation."""
+    # The LEA loads "enable-automation" into rsi, then there's a call, then test al,al, then jne
+    # We need to find: LEA ... / call ... / test al,al / jne <skip_target>
+    # And change jne to unconditional jmp
+
+    search_end = min(len(text), lea_text_offset + 30)
+    region = text[lea_text_offset:search_end]
+
+    candidates = []
+
+    # Find the call instruction (E8 xx xx xx xx) after the LEA
+    for i in range(7, len(region) - 12):  # Start after LEA (7 bytes)
+        if region[i] == 0xe8:  # call rel32
+            call_pos = i
+            # After call: test al,al (84 c0) then jne (0f 85 xx xx xx xx)
+            test_pos = call_pos + 5
+            if test_pos + 8 > len(region):
+                continue
+            if region[test_pos] == 0x84 and region[test_pos+1] == 0xc0:
+                jne_pos = test_pos + 2
+                if region[jne_pos] == 0x0f and region[jne_pos+1] == 0x85:
+                    jne_disp = struct.unpack_from("<i", region, jne_pos + 2)[0]
+                    jne_abs_text_off = lea_text_offset + jne_pos
+                    jne_va = text_va + jne_abs_text_off
+                    target_va = jne_va + 6 + jne_disp
+
+                    candidates.append({
+                        'pattern': 'B',
+                        'je_text_off': jne_abs_text_off,
+                        'je_va': jne_va,
+                        'target_va': target_va,
+                        'alloc_size': 0,  # Not relevant for pattern B
+                        'je_bytes': bytes(region[jne_pos:jne_pos+6]),
+                        'distance': jne_pos,  # Distance from LEA
+                        'patch_type': 'jmp',  # Change jne to unconditional jmp
+                    })
+                    break  # Found it
+
+    return candidates
+
 
 def patch(chrome_path, dry_run=False):
     print(f"Reading {chrome_path}...")
     with open(chrome_path, "rb") as f:
         data = bytearray(f.read())
 
-    # Step 1: Find "enable-automation" string
     target_str = b"enable-automation\x00"
     str_va = find_string_va(data, target_str)
     if str_va is None:
@@ -142,7 +176,6 @@ def patch(chrome_path, dry_run=False):
         return False
     print(f"  'enable-automation' at VA 0x{str_va:x}")
 
-    # Step 2: Get .text section
     text_info = get_text_section(data)
     if text_info is None:
         print("ERROR: Could not find .text section")
@@ -151,55 +184,89 @@ def patch(chrome_path, dry_run=False):
     text = data[text_off:text_off + text_size]
     print(f"  .text: VA=0x{text_va:x} offset=0x{text_off:x} size=0x{text_size:x}")
 
-    # Step 3: Find LEA references to the string
     refs = find_lea_refs(text, text_va, text_off, str_va)
     print(f"  Found {len(refs)} LEA references to 'enable-automation'")
 
-    # Step 4: For each reference, look for the CfT je pattern
     patches = []
     for ref_va, ref_file_off, ref_text_off in refs:
-        candidates = find_cft_je(text, text_va, ref_text_off)
+        # Try Pattern A first (older Chrome)
+        candidates = find_pattern_a(text, text_va, ref_text_off)
         for c in candidates:
             je_file_off = text_off + c['je_text_off']
-            print(f"  Candidate: je at VA 0x{c['je_va']:x} (file 0x{je_file_off:x}), "
-                  f"target alloc size=0x{c['alloc_size']:x}, "
-                  f"distance={c['distance']} bytes before LEA")
+            print(f"  Pattern A candidate: je at VA 0x{c['je_va']:x} (file 0x{je_file_off:x}), "
+                  f"target alloc size=0x{c['alloc_size']:x}, distance={c['distance']} bytes before LEA")
+            patches.append({**c, 'je_file_off': je_file_off, 'ref_va': ref_va})
+
+        # Try Pattern B (Chrome 154+)
+        candidates = find_pattern_b(text, text_va, ref_text_off)
+        for c in candidates:
+            je_file_off = text_off + c['je_text_off']
+            print(f"  Pattern B candidate: jne at VA 0x{c['je_va']:x} (file 0x{je_file_off:x}), "
+                  f"distance={c['distance']} bytes after LEA")
             patches.append({**c, 'je_file_off': je_file_off, 'ref_va': ref_va})
 
     if not patches:
-        print("ERROR: Could not find the CfT infobar je instruction")
+        print("ERROR: Could not find the CfT infobar conditional jump")
         return False
 
-    # Pick the best candidate: closest to a LEA ref, with reasonable alloc size
-    patches.sort(key=lambda p: p['distance'])
-    chosen = patches[0]
+    # Prefer Pattern A if found (more precise), otherwise use ALL Pattern B candidates
+    pattern_a = [p for p in patches if p['pattern'] == 'A']
+    pattern_b = [p for p in patches if p['pattern'] == 'B']
 
-    print(f"\n  Patching je at VA 0x{chosen['je_va']:x} (file offset 0x{chosen['je_file_off']:x})")
-    print(f"  Original bytes: {chosen['je_bytes'].hex()}")
-    print(f"  Jump target: VA 0x{chosen['target_va']:x} (alloc size 0x{chosen['alloc_size']:x})")
+    if pattern_a:
+        pattern_a.sort(key=lambda p: p['distance'])
+        to_patch = [pattern_a[0]]
+    else:
+        # Patch ALL Pattern B candidates - there may be multiple code paths
+        to_patch = pattern_b
 
-    # Verify bytes match
-    actual = bytes(data[chosen['je_file_off']:chosen['je_file_off']+6])
-    if actual != chosen['je_bytes']:
-        print(f"  ERROR: Byte mismatch at file offset! Expected {chosen['je_bytes'].hex()}, got {actual.hex()}")
+    if not to_patch:
+        print("ERROR: No patches to apply")
         return False
+
+    # Verify all patches before applying any
+    for chosen in to_patch:
+        actual = bytes(data[chosen['je_file_off']:chosen['je_file_off']+6])
+        if actual != chosen['je_bytes']:
+            print(f"  ERROR: Byte mismatch at VA 0x{chosen['je_va']:x}! Expected {chosen['je_bytes'].hex()}, got {actual.hex()}")
+            return False
 
     if dry_run:
-        print("  DRY RUN: would NOP 6 bytes")
+        for chosen in to_patch:
+            print(f"\n  DRY RUN: Would patch Pattern {chosen['pattern']} at VA 0x{chosen['je_va']:x}")
+            print(f"    Original bytes: {chosen['je_bytes'].hex()}")
+            print(f"    Patch type: {chosen['patch_type']}")
         return True
 
-    # Backup and patch
     backup = chrome_path + ".bak"
-    if not sys.argv[-1] == '--no-backup':
+    if '--no-backup' not in sys.argv:
         shutil.copy2(chrome_path, backup)
         print(f"  Backup: {backup}")
 
-    data[chosen['je_file_off']:chosen['je_file_off']+6] = b'\x90' * 6
+    # Apply all patches
+    for chosen in to_patch:
+        print(f"\n  Patching Pattern {chosen['pattern']} at VA 0x{chosen['je_va']:x} (file offset 0x{chosen['je_file_off']:x})")
+        print(f"  Original bytes: {chosen['je_bytes'].hex()}")
+
+        if chosen['patch_type'] == 'nop':
+            data[chosen['je_file_off']:chosen['je_file_off']+6] = b'\x90' * 6
+            print("  Patched: je replaced with 6x NOP")
+        else:
+            # Pattern B: Change jne/je (0f 85/84) to jmp (e9) - always skip infobar
+            # jne rel32: 0f 85 XX XX XX XX (6 bytes)
+            # We convert to: NOP + jmp rel32 (6 bytes total)
+            # Displacement stays the same since total instruction length is still 6
+            disp = struct.unpack_from("<i", chosen['je_bytes'], 2)[0]
+            data[chosen['je_file_off']] = 0x90  # NOP
+            data[chosen['je_file_off']+1] = 0xe9  # JMP rel32
+            struct.pack_into("<i", data, chosen['je_file_off']+2, disp)
+            print("  Patched: jne replaced with NOP + JMP (unconditional)")
+
     with open(chrome_path, "wb") as f:
         f.write(data)
 
-    print("  Patched: je replaced with 6x NOP")
     return True
+
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
