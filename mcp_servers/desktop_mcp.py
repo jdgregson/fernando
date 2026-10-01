@@ -21,7 +21,7 @@ def cdp_send(ws_url, method, params=None):
     script = """
 import websocket, json, sys
 msg = sys.stdin.read()
-ws = websocket.create_connection(sys.argv[1], timeout=10)
+ws = websocket.create_connection(sys.argv[1], timeout=10, suppress_origin=True)
 ws.send(msg)
 while True:
     resp = json.loads(ws.recv())
@@ -575,7 +575,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             ws_url = pages[idx]["webSocketDebuggerUrl"]
             script = """
 import websocket, json, sys, time
-ws = websocket.create_connection(sys.argv[1], timeout=10)
+ws = websocket.create_connection(sys.argv[1], timeout=10, suppress_origin=True)
 msg_id = 1
 
 def send(method, params=None):
