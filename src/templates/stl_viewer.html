@@ -16,9 +16,9 @@ canvas { display: block; }
 <div id="loading">Loading STL...</div>
 <a id="dl" href="{{ stl_url | safe }}" download="{{ filename }}">Download STL</a>
 <div id="info">Drag to rotate · Scroll to zoom · Right-drag to pan</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.138.0/build/three.min.js" integrity="sha384-M86rsiAWZsNPIMWkbp9vcE2yr9xfCqVvwYBLvbGEqu0hay7vzKrJ9V+bxCRiHqIc" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/controls/OrbitControls.js" integrity="sha384-agDUL1zphbxZzcozmoJHZxjXk9CemsDjK/8FSI+6CJm3C9NoU8vJic8jiGz7qW8y" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.138.0/examples/js/loaders/STLLoader.js" integrity="sha384-giTT/CD03frxe+F8gFOZ4U+V6ORjeCMkGjej2oeB/toVuoU+6o7P/zBgpbprvqE0" crossorigin="anonymous"></script>
 <script>
 const stlUrl = '{{ stl_url | safe }}';
 

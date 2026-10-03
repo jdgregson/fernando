@@ -113,7 +113,7 @@
         </div>
     </div>
 
-<script src="https://cdn.socket.io/4.5.4/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.4/dist/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
 <script>
     const sessionId = "{{ acp_session_id }}";
     const apiKey = "{{ api_key }}";
@@ -881,21 +881,28 @@
         card.className = 'auth-modal-card';
         card.dataset.action = data.action;
         card.style.cssText = 'position:absolute;background:#1a2236;border:1px solid #2a3a5c;border-radius:10px;padding:24px;width:calc(100% - 40px);max-width:420px;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+        const safeAction = escapeHtml(data.action);
+        const safeDescription = escapeHtml(data.description || '');
+        const safeReason = data.reason ? escapeHtml(data.reason) : '';
+        const safeSid = escapeHtml(data.session_id);
+        // For onclick, also escape quotes for JS string context
+        const jsAction = data.action.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const jsSid = data.session_id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         card.innerHTML = `
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f0ad4e" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
-                <span style="color:#f0ad4e;font-size:14px;font-weight:600;">Authorization: ${data.action}</span>
+                <span style="color:#f0ad4e;font-size:14px;font-weight:600;">Authorization: ${safeAction}</span>
             </div>
-            <div style="color:#e0e0e0;font-size:14px;margin-bottom:4px;">${data.description}</div>
-            ${data.reason ? `<div style="color:#888;font-size:13px;margin-bottom:12px;">${data.reason}</div>` : '<div style="margin-bottom:12px;"></div>'}
+            <div style="color:#e0e0e0;font-size:14px;margin-bottom:4px;">${safeDescription}</div>
+            ${safeReason ? `<div style="color:#888;font-size:13px;margin-bottom:12px;">${safeReason}</div>` : '<div style="margin-bottom:12px;"></div>'}
             <textarea class="auth-reason-input" placeholder="Reason / instructions (optional)" style="width:100%;min-height:60px;background:#0d1525;border:1px solid #2a3a5c;border-radius:6px;padding:8px 10px;color:#e0e0e0;font-size:13px;outline:none;resize:vertical;font-family:inherit;box-sizing:border-box;"></textarea>
             <label style="display:flex;align-items:center;gap:8px;margin-top:10px;cursor:pointer;user-select:none;">
                 <input type="checkbox" class="auth-auto-approve" style="width:16px;height:16px;accent-color:#2d6b4f;cursor:pointer;">
                 <span style="color:#888;font-size:12px;">Auto-approve for this conversation</span>
             </label>
             <div style="display:flex;gap:10px;margin-top:12px;justify-content:flex-end;">
-                <button onclick="respondAuth('${data.session_id}','${data.action}',true,this)" class="auth-btn auth-btn-approve" style="min-width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
-                <button onclick="respondAuth('${data.session_id}','${data.action}',false,this)" class="auth-btn auth-btn-deny" style="min-width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
+                <button onclick="respondAuth('${jsSid}','${jsAction}',true,this)" class="auth-btn auth-btn-approve" style="min-width:80px;background:#2d6b4f;color:#fff;border:none;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Approve</button>
+                <button onclick="respondAuth('${jsSid}','${jsAction}',false,this)" class="auth-btn auth-btn-deny" style="min-width:80px;background:#a03030;color:#fff;border:1px solid #511514;border-radius:5px;padding:8px 16px;cursor:pointer;font-size:13px;font-weight:500;">Deny</button>
             </div>
         `;
         backdrop.appendChild(card);
@@ -1794,12 +1801,13 @@
                         const row = document.createElement('div');
                         row.style.cssText = 'padding:10px 12px;margin:4px 0;border-radius:6px;background:#24283b;display:flex;justify-content:space-between;align-items:center;gap:12px';
                         const left = document.createElement('div');
-                        left.innerHTML = `<div style="color:#e0e0e0;font-size:13px;font-weight:500">${name}</div><div style="color:#777;font-size:11px">${a.description}${a.expire_on_use ? ' · single-use' : ''} · ${a.timeout_seconds}s timeout</div>`;
+                        left.innerHTML = `<div style="color:#e0e0e0;font-size:13px;font-weight:500">${escapeHtml(name)}</div><div style="color:#777;font-size:11px">${escapeHtml(a.description)}${a.expire_on_use ? ' · single-use' : ''} · ${a.timeout_seconds}s timeout</div>`;
                         row.appendChild(left);
                         const right = document.createElement('div');
                         if (a.granted) {
                             const remaining = Math.max(0, Math.round((a.expires_at || 0) - Date.now()/1000));
-                            right.innerHTML = `<span style="color:#4caf50;font-size:12px">Active (${remaining}s)</span> <button onclick="revokeAuth('${name}',this)" style="margin-left:6px;background:#6b2d2d;color:#fff;border:none;border-radius:3px;padding:3px 8px;cursor:pointer;font-size:11px">Revoke</button>`;
+                            const safeName = name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                            right.innerHTML = `<span style="color:#4caf50;font-size:12px">Active (${remaining}s)</span> <button onclick="revokeAuth('${safeName}',this)" style="margin-left:6px;background:#6b2d2d;color:#fff;border:none;border-radius:3px;padding:3px 8px;cursor:pointer;font-size:11px">Revoke</button>`;
                         } else {
                             right.innerHTML = '<span style="color:#666;font-size:12px">Not granted</span>';
                         }

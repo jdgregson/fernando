@@ -83,12 +83,13 @@ function renderMcpServerList() {
             </div>`;
             html += serverIds.map(id => {
                 const s = servers[id];
+                const jsId = id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 return `<div class="context-list-row">
-                    <label class="context-col-name" for="mcp_${id}"><div class="context-item-name">${escapeHtml(id)}</div><div class="context-item-desc">${escapeHtml(s.description || '')}</div></label>
-                    <span class="context-col-enable"><input type="checkbox" id="mcp_${id}" ${s.global ? 'checked' : ''} onchange="toggleMcpServerGlobal('${id}', this.checked)"></span>
+                    <label class="context-col-name" for="mcp_${escapeHtml(id)}"><div class="context-item-name">${escapeHtml(id)}</div><div class="context-item-desc">${escapeHtml(s.description || '')}</div></label>
+                    <span class="context-col-enable"><input type="checkbox" id="mcp_${escapeHtml(id)}" ${s.global ? 'checked' : ''} onchange="toggleMcpServerGlobal('${jsId}', this.checked)"></span>
                     <span class="context-col-actions">
-                        <button class="icon-btn" onclick="startEditMcpServer('${id}')" title="Edit"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg></button>
-                        <button class="icon-btn" onclick="removeMcpServer('${id}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
+                        <button class="icon-btn" onclick="startEditMcpServer('${jsId}')" title="Edit"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg></button>
+                        <button class="icon-btn" onclick="removeMcpServer('${jsId}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
                     </span>
                 </div>`;
             }).join('');
@@ -201,13 +202,15 @@ function renderSteeringList() {
         </div>`;
         html += documentIds.map(id => {
             const d = documents[id];
-            return `<div class="context-list-row steering-row" data-id="${id}">
+            const jsId = id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+            const safeId = escapeHtml(id);
+            return `<div class="context-list-row steering-row" data-id="${safeId}">
                 <div class="context-col-name">
-                    <input type="text" class="steering-inline-input" value="${escapeHtml(d.name || '')}" placeholder="Name" onchange="updateSteering('${id}', 'name', this.value)">
-                    <input type="text" class="steering-inline-input path" value="${escapeHtml(d.path || '')}" placeholder="File path" onchange="updateSteering('${id}', 'path', this.value)">
+                    <input type="text" class="steering-inline-input" value="${escapeHtml(d.name || '')}" placeholder="Name" onchange="updateSteering('${jsId}', 'name', this.value)">
+                    <input type="text" class="steering-inline-input path" value="${escapeHtml(d.path || '')}" placeholder="File path" onchange="updateSteering('${jsId}', 'path', this.value)">
                 </div>
-                <span class="context-col-enable"><input type="checkbox" id="doc_${id}" ${d.global ? 'checked' : ''} onchange="toggleSteeringGlobal('${id}', this.checked)"></span>
-                <span class="context-col-actions"><button class="icon-btn" onclick="removeSteering('${id}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button></span>
+                <span class="context-col-enable"><input type="checkbox" id="doc_${safeId}" ${d.global ? 'checked' : ''} onchange="toggleSteeringGlobal('${jsId}', this.checked)"></span>
+                <span class="context-col-actions"><button class="icon-btn" onclick="removeSteering('${jsId}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button></span>
             </div>`;
         }).join('');
     }
@@ -324,12 +327,13 @@ function renderTemplatesList() {
                 const t = templates[id];
                 const serverCount = (t.servers || []).length;
                 const docCount = (t.documents || []).length;
+                const jsId = id.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
                 return `<div class="context-list-row">
                     <span class="context-col-name"><div class="context-item-name">${escapeHtml(t.name)}</div></span>
                     <span class="context-col-meta">${serverCount} server${serverCount !== 1 ? 's' : ''}, ${docCount} doc${docCount !== 1 ? 's' : ''}${t.initial_prompt?.trim() ? ', initial prompt' : ''}</span>
                     <span class="context-col-actions">
-                        <button class="icon-btn" onclick="startEditTemplate('${id}')" title="Edit"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg></button>
-                        <button class="icon-btn" onclick="deleteTemplate('${id}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
+                        <button class="icon-btn" onclick="startEditTemplate('${jsId}')" title="Edit"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2l8.5-8.5z"/></svg></button>
+                        <button class="icon-btn" onclick="deleteTemplate('${jsId}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
                     </span>
                 </div>`;
             }).join('');

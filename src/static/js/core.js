@@ -465,25 +465,29 @@ function loadAuthConfig() {
             let html = '';
             for (const name of names) {
                 const a = auths[name];
-                html += `<div class="auth-card" data-auth-card="${name}">
+                const safeName = escapeHtml(name);
+                const jsName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const safeDesc = escapeHtml(a.description || '');
+                const safeMatch = escapeHtml(a.match_command || '');
+                html += `<div class="auth-card" data-auth-card="${safeName}">
                     <div class="auth-card-header">
-                        <div class="auth-card-name">${name}</div>
-                        <button class="icon-btn" onclick="removeAuth('${name}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
+                        <div class="auth-card-name">${safeName}</div>
+                        <button class="icon-btn" onclick="removeAuth('${jsName}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
                     </div>
                     <div class="auth-card-row">
                         <label class="auth-card-label">Description</label>
-                        <input type="text" class="auth-card-input" data-auth="${name}" data-field="description" value="${a.description || ''}" onchange="saveAuthConfig()">
+                        <input type="text" class="auth-card-input" data-auth="${safeName}" data-field="description" value="${safeDesc}" onchange="saveAuthConfig()">
                     </div>
                     <div class="auth-card-row">
                         <label class="auth-card-label">Match command</label>
-                        <input type="text" class="auth-card-input" data-auth="${name}" data-field="match_command" value="${a.match_command || ''}" onchange="saveAuthConfig()">
+                        <input type="text" class="auth-card-input" data-auth="${safeName}" data-field="match_command" value="${safeMatch}" onchange="saveAuthConfig()">
                     </div>
                     <div class="auth-card-row">
                         <label class="auth-card-label">Timeout (sec)</label>
-                        <input type="number" class="auth-card-input" data-auth="${name}" data-field="timeout_seconds" value="${a.timeout_seconds || 300}" onchange="saveAuthConfig()">
+                        <input type="number" class="auth-card-input" data-auth="${safeName}" data-field="timeout_seconds" value="${a.timeout_seconds || 300}" onchange="saveAuthConfig()">
                     </div>
                     <div class="auth-card-checkbox-row">
-                        <input type="checkbox" data-auth="${name}" data-field="expire_on_use" ${a.expire_on_use ? 'checked' : ''} onchange="saveAuthConfig()">
+                        <input type="checkbox" data-auth="${safeName}" data-field="expire_on_use" ${a.expire_on_use ? 'checked' : ''} onchange="saveAuthConfig()">
                         <label class="auth-card-label" style="min-width:auto;">Single-use (expire after first use)</label>
                     </div>
                 </div>`;
@@ -500,7 +504,8 @@ function loadAuthConfig() {
 }
 
 function removeAuth(name) {
-    const el = document.querySelector(`[data-auth-card="${name}"]`);
+    const safeName = CSS.escape(name);
+    const el = document.querySelector(`[data-auth-card="${safeName}"]`);
     if (el) el.remove();
     saveAuthConfig();
 }
@@ -510,6 +515,8 @@ function addAuth() {
     const name = nameInput.value.trim();
     if (!name) return;
     nameInput.value = '';
+    const safeName = escapeHtml(name);
+    const jsName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     const container = document.getElementById('authConfigArea');
     const addRow = container.querySelector('.auth-add-row');
     const newItem = document.createElement('div');
@@ -517,23 +524,23 @@ function addAuth() {
     newItem.setAttribute('data-auth-card', name);
     newItem.innerHTML = `
         <div class="auth-card-header">
-            <div class="auth-card-name">${name}</div>
-            <button class="icon-btn" onclick="removeAuth('${name}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
+            <div class="auth-card-name">${safeName}</div>
+            <button class="icon-btn" onclick="removeAuth('${jsName}')" title="Remove"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
         </div>
         <div class="auth-card-row">
             <label class="auth-card-label">Description</label>
-            <input type="text" class="auth-card-input" data-auth="${name}" data-field="description" value="" onchange="saveAuthConfig()">
+            <input type="text" class="auth-card-input" data-auth="${safeName}" data-field="description" value="" onchange="saveAuthConfig()">
         </div>
         <div class="auth-card-row">
             <label class="auth-card-label">Match command</label>
-            <input type="text" class="auth-card-input" data-auth="${name}" data-field="match_command" value="" onchange="saveAuthConfig()">
+            <input type="text" class="auth-card-input" data-auth="${safeName}" data-field="match_command" value="" onchange="saveAuthConfig()">
         </div>
         <div class="auth-card-row">
             <label class="auth-card-label">Timeout (sec)</label>
-            <input type="number" class="auth-card-input" data-auth="${name}" data-field="timeout_seconds" value="300" onchange="saveAuthConfig()">
+            <input type="number" class="auth-card-input" data-auth="${safeName}" data-field="timeout_seconds" value="300" onchange="saveAuthConfig()">
         </div>
         <div class="auth-card-checkbox-row">
-            <input type="checkbox" data-auth="${name}" data-field="expire_on_use" checked onchange="saveAuthConfig()">
+            <input type="checkbox" data-auth="${safeName}" data-field="expire_on_use" checked onchange="saveAuthConfig()">
             <label class="auth-card-label" style="min-width:auto;">Single-use (expire after first use)</label>
         </div>
     `;
