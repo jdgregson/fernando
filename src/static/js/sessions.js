@@ -998,7 +998,7 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     if (onClose) {
         const closeBtn = document.createElement('div');
         closeBtn.className = 'context-menu-item danger';
-        closeBtn.textContent = 'Close';
+        closeBtn.textContent = sessionKey.startsWith('chat:') ? 'Archive' : 'Close';
         closeBtn.onclick = () => { menu.remove(); onClose(); };
         menu.appendChild(closeBtn);
     }
@@ -1075,9 +1075,18 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     };
     menu.appendChild(sleepAllBtn);
     
+    const archiveBtn = document.createElement('div');
+    archiveBtn.className = 'context-menu-item';
+    archiveBtn.textContent = 'Archive';
+    archiveBtn.onclick = () => {
+        menu.remove();
+        emitWithCsrf('group_archive', { group_id: groupId });
+    };
+    menu.appendChild(archiveBtn);
+
     const deleteBtn = document.createElement('div');
     deleteBtn.className = 'context-menu-item danger';
-    deleteBtn.textContent = sessionCount > 0 ? 'Delete (moves sessions out)' : 'Delete';
+    deleteBtn.textContent = sessionCount > 0 ? 'Delete (move sessions out)' : 'Delete';
     deleteBtn.onclick = () => {
         menu.remove();
         emitWithCsrf('group_delete', { group_id: groupId });
@@ -1481,6 +1490,8 @@ function updateSessionList(sessions, chatSessions, data) {
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-btn';
         closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+        closeBtn.title = 'Archive';
+        closeBtn.setAttribute('aria-label', 'Archive');
         closeBtn.onclick = (e) => { e.stopPropagation(); closeChatSession(chatId); };
         closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
         closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeChatSession(chatId); });
@@ -1656,6 +1667,25 @@ function updateSessionList(sessions, chatSessions, data) {
 socket.on('group_created', () => emitWithCsrf('get_sessions'));
 socket.on('group_updated', () => emitWithCsrf('get_sessions'));
 socket.on('group_deleted', () => emitWithCsrf('get_sessions'));
+socket.on('group_archived', data => {
+    const members = new Set(data.members);
+    for (const pane of [1, 2]) {
+        if (members.has(paneController.get(pane).contentKey)) {
+            paneController.showTerminal(pane, { clearContent: true, emptyBrowser: true, fit: true });
+        }
+    }
+    updateKbdBtn();
+    emitWithCsrf('get_sessions');
+});
+socket.on('group_restored', data => {
+    for (const pane of [1, 2]) {
+        if (_cachedSessionGroups[paneController.get(pane).contentKey] === data.group_id) {
+            paneController.showTerminal(pane, { clearContent: true, emptyBrowser: true, fit: true });
+        }
+    }
+    updateKbdBtn();
+    emitWithCsrf('get_sessions');
+});
 socket.on('session_group_changed', () => emitWithCsrf('get_sessions'));
 socket.on('group_move_failed', data => {
     document.getElementById('groupMoveWarningMessage').textContent = data.message || 'The session could not be moved.';

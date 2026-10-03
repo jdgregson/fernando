@@ -25,10 +25,10 @@ def _save(data):
     os.replace(tmp, GROUPS_FILE)
 
 
-def list_groups():
+def list_groups(archived=False):
     with _lock:
         data = _load()
-        return data.get("groups", [])
+        return [g for g in data.get("groups", []) if bool(g.get("archived")) == archived]
 
 
 def get_session_groups():
@@ -41,7 +41,7 @@ def get_all():
     with _lock:
         data = _load()
         return {
-            "groups": data.get("groups", []),
+            "groups": [g for g in data.get("groups", []) if not g.get("archived")],
             "session_groups": data.get("session_groups", {}),
         }
 
@@ -101,6 +101,33 @@ def delete_group(group_id):
         session_groups = data.get("session_groups", {})
         data["session_groups"] = {k: v for k, v in session_groups.items() if v != group_id}
         _save(data)
+
+
+def archive_group(group_id, active_chat_ids):
+    with _lock:
+        data = _load()
+        group = next((g for g in data.get("groups", []) if g["id"] == group_id), None)
+        if group is None or group.get("archived"):
+            return None
+        group["archived_members"] = [
+            key for key, gid in data.get("session_groups", {}).items()
+            if gid == group_id and (not key.startswith("chat:") or key[5:] in active_chat_ids)
+        ]
+        group["archived"] = True
+        _save(data)
+        return group
+
+
+def restore_group(group_id):
+    with _lock:
+        data = _load()
+        group = next((g for g in data.get("groups", []) if g["id"] == group_id), None)
+        if group is None or not group.get("archived"):
+            return None
+        group.pop("archived")
+        group.pop("archived_members", None)
+        _save(data)
+        return group
 
 
 def move_session_to_group(session_key, group_id):

@@ -274,6 +274,7 @@ class ACPSession:
         self._retry_backoff_base = 5  # seconds, doubles each retry
         self._retry_pending = False  # True while a retry is waiting to fire
         self._reloading = False  # True while reload is in progress (prevents race)
+        self._start_on_open = False
 
     def _spawn_and_init(self):
         """Spawn kiro-cli or opencode acp and run initialize handshake."""
@@ -1121,6 +1122,7 @@ class ACPManager:
             session._load_history()
             session.start()
             session.ready = True
+            session._reloading = False
             self._save()
             self._save_pid_map()
             if session.on_event:
@@ -1194,7 +1196,11 @@ class ACPManager:
             with self._lock:
                 self.sessions[fernando_id] = session
             # Only load sessions that were loaded before restart
-            if can_load and was_loaded:
+            if not was_loaded:
+                session.acp_session_id = acp_id
+                session._start_on_open = not acp_id
+                session._load_history()
+            elif can_load:
                 session.acp_session_id = acp_id
                 logger.info(f"[restore] Loading session {fernando_id} (was loaded)")
                 threading.Thread(
@@ -1202,11 +1208,6 @@ class ACPManager:
                     args=(fernando_id, session, acp_id, continuation),
                     daemon=True,
                 ).start()
-            elif can_load:
-                # Session exists but wasn't loaded — keep it unloaded
-                session.acp_session_id = acp_id
-                session._load_history()  # Load history for display but don't spawn process
-                logger.info(f"[restore] Keeping session {fernando_id} unloaded")
             else:
                 threading.Thread(
                     target=self._start_new,
@@ -1322,13 +1323,14 @@ class ACPManager:
             return False
         if session._reloading:
             return False  # Already reloading, don't start another
-        if not session.acp_session_id:
+        if not session.acp_session_id and not session._start_on_open:
             return False
+        session._start_on_open = False
         session._reloading = True  # Set BEFORE spawning thread to prevent race
         logger.info(f"[reload] Reloading unloaded session {session_id}")
         threading.Thread(
-            target=self._load_existing,
-            args=(session_id, session, session.acp_session_id),
+            target=self._load_existing if session.acp_session_id else self._start_new,
+            args=(session_id, session, session.acp_session_id) if session.acp_session_id else (session_id, session),
             daemon=True,
         ).start()
         return True
@@ -1449,18 +1451,17 @@ class ACPManager:
         model = session.model
         session.stop()
         self._save()
-        if acp_id:
-            with _archived_lock:
-                archived = _load_archived_map()
-                archived[session_id] = {
-                    "acp_id": acp_id,
-                    "name": name,
-                    "backend": backend,
-                    "model": model,
-                    "context_snapshot": session.context_snapshot,
-                    "archived_at": time.time()
-                }
-                _save_archived_map(archived)
+        with _archived_lock:
+            archived = _load_archived_map()
+            archived[session_id] = {
+                "acp_id": acp_id,
+                "name": name,
+                "backend": backend,
+                "model": model,
+                "context_snapshot": session.context_snapshot,
+                "archived_at": time.time()
+            }
+            _save_archived_map(archived)
 
     def list_archived(self):
         self._recover_orphans()
@@ -1471,7 +1472,7 @@ class ACPManager:
         )
         return [{"id": sid, "name": info.get("name", "Chat-" + sid)} for sid, info in items]
 
-    def restore_session(self, session_id, on_event=None):
+    def restore_session(self, session_id, on_event=None, sleeping=False):
         """Restore an archived session back to active."""
         # Run orphan recovery first in case this session has a history file but isn't tracked
         self._recover_orphans()
@@ -1495,7 +1496,12 @@ class ACPManager:
         self._wire_session_status_callback(session)
         with self._lock:
             self.sessions[session_id] = session
-        if can_load:
+        if sleeping:
+            session.acp_session_id = acp_id
+            session._start_on_open = not acp_id
+            session._load_history()
+            self._save()
+        elif can_load:
             session.acp_session_id = acp_id
             self._save()
             threading.Thread(
@@ -1750,7 +1756,7 @@ class ACPManager:
                     "context_snapshot": s.context_snapshot,
                 }
                 for sid, s in self.sessions.items()
-                if s.acp_session_id
+                if s.acp_session_id or s._start_on_open
             }
         _save_sessions_map(mapping)
 

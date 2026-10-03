@@ -35,6 +35,7 @@ _open_jupyter = set()
 # Track jupyter_cmd origin: {cmd_id: originating_socket_sid}
 _jupyter_cmd_origins = {}
 _jupyter_cmd_origins_lock = threading.Lock()
+_group_archive_lock = threading.Lock()
 
 # Module-level reference to acp_subscribers (set by register_handlers)
 _acp_subscribers_ref = {}
@@ -493,8 +494,42 @@ def register_handlers(socketio):
         from src.services import groups
         group_id = data.get("group_id")
         if group_id:
-            groups.delete_group(group_id)
+            with _group_archive_lock:
+                groups.delete_group(group_id)
             emit("group_deleted", {"group_id": group_id}, broadcast=True)
+
+    @socketio.on("group_archive")
+    def handle_group_archive(data):
+        if not validate_csrf(data):
+            return
+        from src.services import groups
+        with _group_archive_lock:
+            group = groups.archive_group(data.get("group_id"), {s["id"] for s in acp_manager.list_sessions()})
+            if not group:
+                return
+            emit("group_archived", {"group_id": group["id"], "members": group["archived_members"]}, broadcast=True)
+            for key in group["archived_members"]:
+                if key.startswith("chat:"):
+                    acp_subscribers.pop(key[5:], None)
+                    acp_manager.archive_session(key[5:])
+        emit("group_updated", {"group": group}, broadcast=True)
+
+    @socketio.on("group_restore")
+    def handle_group_restore(data):
+        if not validate_csrf(data):
+            return
+        from src.services import groups
+        group_id = data.get("group_id")
+        with _group_archive_lock:
+            group = next((g for g in groups.list_groups(archived=True) if g["id"] == group_id), None)
+            if not group:
+                return
+            membership = groups.get_session_groups()
+            for key in group.get("archived_members", []):
+                if key.startswith("chat:") and membership.get(key) == group_id:
+                    acp_manager.restore_session(key[5:], on_event=acp_on_event, sleeping=True)
+            groups.restore_group(group_id)
+        emit("group_restored", {"group_id": group_id}, broadcast=True)
 
     @socketio.on("group_move_session")
     def handle_group_move_session(data):
@@ -896,7 +931,7 @@ def register_handlers(socketio):
                 })
                 if session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
-                elif not session.is_loaded and session.acp_session_id:
+                elif not session.is_loaded and (session.acp_session_id or session._start_on_open):
                     # Session was unloaded due to idle timeout — reload it
                     logger.info(f"acp_subscribe: session {acp_sid} unloaded, triggering reload")
                     acp_manager.reload_session(acp_sid)
@@ -1172,7 +1207,7 @@ def register_handlers(socketio):
         acp_sid = data.get("session_id")
         if acp_sid:
             session = acp_manager.get_session(acp_sid)
-            if session and not session.is_loaded and session.acp_session_id:
+            if session and not session.is_loaded:
                 acp_manager.reload_session(acp_sid)
 
     @socketio.on("acp_sleep_group")
@@ -1208,14 +1243,19 @@ def register_handlers(socketio):
             if gid == group_id and key.startswith("chat:"):
                 sid = key[5:]
                 session = acp_manager.get_session(sid)
-                if session and not session.is_loaded and session.acp_session_id:
+                if session and not session.is_loaded:
                     acp_manager.reload_session(sid)
 
     @socketio.on("acp_list_archived")
     def acp_list_archived(data):
         if not validate_csrf(data):
             return
-        emit("acp_archived_list", {"sessions": acp_manager.list_archived()})
+        from src.services import groups
+        emit("acp_archived_list", {
+            "sessions": acp_manager.list_archived(),
+            "groups": groups.list_groups(archived=True),
+            "session_groups": groups.get_session_groups(),
+        })
 
     @socketio.on("acp_search_archived")
     def acp_search_archived(data):

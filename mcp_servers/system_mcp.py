@@ -399,29 +399,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 except OSError:
                     pass
                 duration = round(time.time() - start_t, 1)
-                # Truncate large output, spill full content to file
-                stdout_out = stdout or ""
-                stderr_out = stderr or ""
-                stdout_file = None
-                stderr_file = None
-                if len(stdout_out) > 16000:
-                    stdout_file = f"/tmp/run_cmd_stdout_{os.getpid()}_{int(start_t)}.txt"
-                    with open(stdout_file, "w") as f:
-                        f.write(stdout_out)
-                    stdout_out = stdout_out[:16000]
-                if len(stderr_out) > 4000:
-                    stderr_file = f"/tmp/run_cmd_stderr_{os.getpid()}_{int(start_t)}.txt"
-                    with open(stderr_file, "w") as f:
-                        f.write(stderr_out)
-                    stderr_out = stderr_out[:4000]
-                r = {"exit_code": proc.returncode, "stdout": stdout_out, "stderr": stderr_out, "duration": duration}
-                if stdout_file:
-                    r["stdout_truncated"] = True
-                    r["stdout_file"] = stdout_file
-                if stderr_file:
-                    r["stderr_truncated"] = True
-                    r["stderr_file"] = stderr_file
-                return r
+                return {"exit_code": proc.returncode, "stdout": stdout or "", "stderr": stderr or "", "duration": duration}
             except Exception as e:
                 return {"exit_code": -1, "stdout": "", "stderr": str(e), "duration": round(time.time() - start_t, 1)}
 
@@ -595,7 +573,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             results.append({"label": steps[j]["label"], "status": "cancelled", "exit_code": None, "stdout": "", "stderr": "", "duration": 0})
                         break
                     status = "succeeded" if proc.returncode == 0 else "failed"
-                    results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": stdout[-4000:] if stdout else "", "stderr": stderr[-2000:] if stderr else "", "duration": duration})
+                    results.append({"label": step["label"], "status": status, "exit_code": proc.returncode, "stdout": stdout or "", "stderr": stderr or "", "duration": duration})
                 except Exception as e:
                     duration = round(time.time() - start_t, 1)
                     results.append({"label": step["label"], "status": "failed", "exit_code": -1, "stdout": "", "stderr": str(e), "duration": duration})
