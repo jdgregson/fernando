@@ -70,6 +70,58 @@ function frame(parent) {
     return el;
 }
 
+test('a completed terminal tap focuses on the first gesture across iframe boundaries without a synthesized click', () => {
+    const w = workspace();
+    const top = frame(w.doc.getElementById('browser1'));
+    const topInput = input(top.contentDocument, top.contentDocument.body);
+    w.controller.get(1).surface = 'browser';
+    const bottom = input(w.doc, w.doc.getElementById('terminal2'));
+    const target = w.doc.createElement('span');
+    target.textContent = 'terminal output';
+    w.doc.getElementById('terminal2').appendChild(target);
+    let focused = 0;
+    w.controller.register('terminal', {
+        matches: key => key === 'Shell', mount() {}, context() {}, sessions: () => [], sidebar: () => ({}),
+        focusOnTap: () => { focused++; bottom.el.focus({preventScroll: true}); },
+    });
+    w.controller.get(2).terminalSession = 'Shell';
+    const touch = (type, x = 0, duration = 0, count = 1) => {
+        const event = new w.win.Event(type, {bubbles: true, cancelable: true});
+        Object.defineProperties(event, {
+            touches: {value: type === 'touchend' ? [] : Array.from({length: count}, () => ({clientX: x, clientY: 0}))},
+            timeStamp: {value: 1000 + duration},
+        });
+        target.dispatchEvent(event);
+        assert.equal(event.defaultPrevented, false);
+    };
+    topInput.el.focus();
+    touch('touchstart');
+    assert.equal(focused, 0);
+    touch('touchend', 0, 100);
+    assert.equal(focused, 1);
+    assert.equal(w.doc.activeElement, bottom.el);
+    for (const middle of [() => touch('touchmove', 20), () => touch('touchcancel'), () => touch('touchstart', 0, 0, 2)]) {
+        touch('touchstart');
+        middle();
+        touch('touchend', 0, 100);
+    }
+    touch('touchstart');
+    touch('touchend', 0, 600);
+    const range = w.doc.createRange();
+    range.selectNodeContents(target);
+    w.doc.getSelection().removeAllRanges();
+    w.doc.getSelection().addRange(range);
+    assert.equal(w.doc.getSelection().isCollapsed, false);
+    touch('touchstart');
+    touch('touchend', 0, 100);
+    w.doc.getSelection().removeAllRanges();
+    touch('touchstart');
+    w.controller.get(2).terminalSession = 'Other';
+    touch('touchend', 0, 100);
+    assert.equal(focused, 1);
+    w.close();
+});
+
 test('same host policy covers chat, notebook, Jupyter, desktop web inputs, and arbitrary same-origin views', () => {
     for (const type of ['chat', 'notebook', 'jupyter', 'desktop', 'new-session-type']) {
         for (const tag of ['textarea', 'input', 'div']) {

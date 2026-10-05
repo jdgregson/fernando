@@ -14,7 +14,7 @@ echo "Stopping nginx..."
 nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null || pkill nginx
 
 echo "Stopping desktop container..."
-docker compose -f "${FERNANDO_COMPOSE_FILE:-docker-compose.yml}" down
+bash "$REPO_DIR/scripts/desktop-compose.sh" down
 
 echo "Stopping kiro-cli acp processes..."
 pkill -TERM -f "kiro-cli-chat acp" 2>/dev/null

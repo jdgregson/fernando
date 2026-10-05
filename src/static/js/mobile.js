@@ -5,16 +5,16 @@ function isDesktopActive() {
 
 function updateMobileControls() {
     const mc = document.getElementById('mobileControls');
-    mc.classList.toggle('desktop-active', !!isDesktopActive());
-    const chatActive = paneController.isEmbedded(activeTerminal, 'chat');
-    mc.classList.toggle('chat-active', chatActive);
-    const notesActive = paneController.isEmbedded(activeTerminal, 'notebook');
-    mc.classList.toggle('notes-active', notesActive);
+    const active = paneController.activeAdapter();
+    for (const className of new Set([...paneController.sessionTypes.values()].map(adapter => adapter.mobileClass).filter(Boolean))) {
+        mc.classList.toggle(className, active?.mobileClass === className);
+    }
 }
 
 function sendKey(key, desktopKey) {
-    if (desktopKey && isDesktopActive()) {
-        emitWithCsrf('desktop_key', { key: desktopKey });
+    const adapter = paneController.activeAdapter();
+    if (desktopKey && adapter?.sendKey) {
+        adapter.sendKey(key, desktopKey);
     } else {
         emitWithCsrf('input', { terminal: activeTerminal, data: key });
     }

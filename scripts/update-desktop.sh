@@ -21,11 +21,11 @@ echo "Pulling latest base image ($BASE_IMAGE)..."
 docker pull "$BASE_IMAGE"
 
 echo "Rebuilding desktop container..."
-docker compose build --no-cache
+bash "$REPO_DIR/scripts/desktop-compose.sh" build --no-cache
 
 echo "Restarting container..."
-docker compose down
-docker compose up -d
+bash "$REPO_DIR/scripts/desktop-compose.sh" down
+bash "$REPO_DIR/scripts/desktop-compose.sh" up -d
 
 # Regenerate nginx VNC auth header to match
 VNC_AUTH=$(echo -n "kasm_user:$VNC_PW" | base64)

@@ -79,6 +79,7 @@ def register_handlers(socketio):
             return
         sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
+        from src.services.file_browser import list_sessions as file_sessions
         from src.services.notebooks import list_notebooks
         from src.services import groups
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
@@ -88,6 +89,7 @@ def register_handlers(socketio):
             "chat_sessions": chat_sessions,
             "running_notebooks": running_notebooks,
             "running_jupyter": list(_open_jupyter),
+            "file_sessions": file_sessions(),
             "groups": group_data["groups"],
             "session_groups": group_data["session_groups"],
         })
@@ -716,6 +718,7 @@ def register_handlers(socketio):
         logger.info("[broadcast] Broadcasting sessions_list update")
         sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
+        from src.services.file_browser import list_sessions as file_sessions
         from src.services.notebooks import list_notebooks
         from src.services import groups
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
@@ -725,6 +728,7 @@ def register_handlers(socketio):
             "chat_sessions": chat_sessions,
             "running_notebooks": running_notebooks,
             "running_jupyter": list(_open_jupyter),
+            "file_sessions": file_sessions(),
             "groups": group_data["groups"],
             "session_groups": group_data["session_groups"],
         })

@@ -1,0 +1,11 @@
+[Unit]
+Description=Configure Fernando host directory sharing
+Requires=kasm-setup.service
+After=kasm-setup.service
+Before=kasm.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/envdump
+ExecStart=/usr/bin/python3 /dockerstartup/desktop-shared-access.py
+RemainAfterExit=yes

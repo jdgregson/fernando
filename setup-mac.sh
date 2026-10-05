@@ -24,7 +24,8 @@ echo "Pulling SilverBullet image..."
 docker pull zefhemel/silverbullet@sha256:6c36ff15f2230dbe3bca7e5d0c85a59c7dc831ce694517850ed5797775824d71
 
 echo "Building Kasm desktop container (linux/amd64, uses Rosetta emulation)..."
-docker compose -f docker-compose.mac.yml build
+python3 scripts/desktop-shares.py create
+FERNANDO_COMPOSE_FILE=docker-compose.mac.yml bash scripts/desktop-compose.sh build
 
 echo "Seeding config..."
 [ -f config ] || cp config.example config

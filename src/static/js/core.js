@@ -181,8 +181,8 @@ let isMutating = false;
 
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden && !socket.connected && !isMutating) {
-        fetch('/api/auth_check', { headers: { 'X-API-Key': apiKey } })
-            .then(r => { if (r.status === 401) window.location.reload(); })
+        fetch('/api/auth_check', { headers: { 'X-API-Key': window.FERNANDO_API_KEY } })
+            .then(r => { if (r.status === 401 && !isMutating) window.location.reload(); })
             .catch(() => {});
     }
 });
@@ -341,6 +341,8 @@ function loadSettings() {
                     if (openCodeSel) openCodeSel.innerHTML = '<option value="">Not available</option>';
                 });
             const effortSel = document.getElementById('settingsEffort');
+            document.getElementById('settingsFileView').value = data.file_browser_view;
+            document.getElementById('settingsFileHidden').checked = data.file_browser_hidden === true;
             if (effortSel) effortSel.value = data.default_effort || 'max';
             const idleTimeoutSel = document.getElementById('settingsIdleTimeout');
             if (idleTimeoutSel) idleTimeoutSel.value = String(data.idle_session_timeout ?? 300);
@@ -430,6 +432,16 @@ function saveIdleTimeout(value) {
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'idle_session_timeout', value: parseInt(value, 10)})
     }).catch(() => {});
+}
+
+function saveFileBrowserSetting(key, value) {
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key, value}),
+    }).then(response => {
+        if (!response.ok) throw new Error('Could not save file browser settings');
+    }).catch(error => showAlert(error.message));
 }
 
 function saveBoolSetting(key, value) {
@@ -590,8 +602,15 @@ function closeHealthModal() {
 
 function fetchHealth() {
     fetch('/api/health?api_key=' + window.FERNANDO_API_KEY)
-        .then(r => r.json())
+        .then(r => {
+            if (r.status === 401) {
+                if (!isMutating) window.location.reload();
+                return;
+            }
+            return r.json();
+        })
         .then(data => {
+            if (!data) return;
             updateHealthIndicator(data);
             if (healthModalOpen) {
                 updateHealthModal(data);

@@ -1,6 +1,5 @@
 // --- Automation Panel (unified subagents + workflows) ---
 function openAutomationPanel() {
-    document.getElementById('automationOverlay').classList.add('open');
     document.getElementById('automationPanel').classList.add('open');
     if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
     loadAutomationRules();
@@ -9,9 +8,10 @@ function openAutomationPanel() {
 }
 
 function closeAutomationPanel() {
-    document.getElementById('automationOverlay').classList.remove('open');
     document.getElementById('automationPanel').classList.remove('open');
 }
+
+bindModalBackdrop(document.getElementById('automationPanel'), closeAutomationPanel);
 
 function switchAutoTab(tab, btn) {
     document.querySelectorAll('.auto-tab').forEach(t => t.classList.remove('active'));
@@ -34,7 +34,7 @@ socket.on('automation_rules', (data) => {
         const trigger = r.trigger || {};
         const badges = [];
         badges.push(`<span class="sa-badge ${r.enabled ? (trigger.type === 'inbound' ? 'running' : 'scheduled') : ''}">${trigger.type || '?'}</span>`);
-        if (r.created_by === 'agent') badges.push('<span class="sa-badge" style="background:#1a1a2e;color:#9d7cd8">agent</span>');
+        if (r.created_by === 'agent') badges.push('<span class="sa-badge agent">agent</span>');
         if (r.fire_once) badges.push('<span class="sa-badge scheduled">once</span>');
         const details = [];
         if (trigger.from) details.push('from: ' + escapeHtml(trigger.from));
@@ -46,10 +46,10 @@ socket.on('automation_rules', (data) => {
         <div class="subagent-card">
             <div class="sa-header">
                 <span class="sa-id">${escapeHtml(r.name || r.id)}</span>
-                <span>${badges.join(' ')}</span>
+                <span class="sa-badges">${badges.join(' ')}</span>
             </div>
             <div class="sa-meta">${details.join(' · ') || 'any'}</div>
-            ${r.purpose ? `<div class="sa-meta" style="color:#9d7cd8">purpose: ${escapeHtml(r.purpose)}</div>` : ''}
+            ${r.purpose ? `<div class="sa-meta">purpose: ${escapeHtml(r.purpose)}</div>` : ''}
             ${r.task ? `<div class="sa-task">${escapeHtml(r.task.substring(0, 200))}</div>` : ''}
             ${r.expires_at ? `<div class="sa-meta">expires: ${new Date(r.expires_at).toLocaleString()}</div>` : ''}
             <div class="sa-actions">
@@ -103,7 +103,7 @@ function updateTriggerFields() {
                     <option value="drop">Drop</option>
                 </select>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#888">
+            <div class="auto-check">
                 <input type="checkbox" id="autoFireOnce">
                 <label for="autoFireOnce">Fire once</label>
             </div>`;
@@ -215,7 +215,7 @@ socket.on('subagents_list', (data) => {
                 <span class="sa-badge ${statusClass}">${escapeHtml(s.status)}${s.progress > 0 ? ' ' + s.progress + '%' : ''}</span>
             </div>
             <div class="sa-task">${escapeHtml(s.task || '')}</div>
-            ${s.schedule ? `<div class="sa-schedule">⏱ ${escapeHtml(s.schedule)}</div>` : ''}
+            ${s.schedule ? `<div class="sa-schedule"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10" cy="10" r="7"/><path d="M10 5v5l3 2"/></svg>${escapeHtml(s.schedule)}</div>` : ''}
             ${s.current_step ? `<div class="sa-meta">${escapeHtml(s.current_step)}</div>` : ''}
             <div class="sa-actions">
                 <button class="sa-btn" onclick="viewSubagent('${escapeHtml(s.task_id)}')">View</button>
@@ -262,9 +262,9 @@ socket.on('automation_history', (data) => {
     list.innerHTML = history.slice().reverse().map(h => {
         const badge = h.trigger_type === 'inbound' ? `<span class="sa-badge running">${h.action}</span>` : `<span class="sa-badge scheduled">${h.trigger_type}</span>`;
         return `
-        <div style="padding:8px 0;border-bottom:1px solid #143151;font-size:12px">
-            <div style="color:#555;font-size:11px">${new Date(h.timestamp).toLocaleString()}</div>
-            <div style="color:#888;margin-top:2px">
+        <div class="auto-history-entry">
+            <div class="auto-history-time">${new Date(h.timestamp).toLocaleString()}</div>
+            <div>
                 ${badge} ${escapeHtml(h.rule_name || h.rule_id)}
                 ${h.message_from ? ' — ' + escapeHtml(h.message_from) : ''}
                 ${h.message_subject ? ' — ' + escapeHtml(h.message_subject) : ''}
@@ -283,11 +283,11 @@ socket.on('automation_meta_policy', (data) => {
     document.getElementById('automationPolicyEditor').innerHTML = `
         <div style="margin-bottom:14px">
             <label class="sa-form-label">Allowed actions for agent rules</label>
-            <div style="display:flex;gap:16px;margin-top:6px">
-                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#888;cursor:pointer">
+            <div class="auto-check-group">
+                <label class="auto-check">
                     <input type="checkbox" id="mpActionDispatch" ${actions.includes('dispatch') ? 'checked' : ''}> dispatch
                 </label>
-                <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#888;cursor:pointer">
+                <label class="auto-check">
                     <input type="checkbox" id="mpActionSummary" ${actions.includes('summary') ? 'checked' : ''}> summary
                 </label>
             </div>
@@ -304,7 +304,7 @@ socket.on('automation_meta_policy', (data) => {
             <label class="sa-form-label">Max active agent rules</label>
             <input type="number" id="mpMaxRules" class="sa-input" value="${p.max_active_agent_rules || 10}">
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px;color:#888">
+        <div class="auto-check auto-policy-once">
             <input type="checkbox" id="mpFireOnce" ${p.require_fire_once_for_agent ? 'checked' : ''}>
             <label for="mpFireOnce">Require fire_once for agent rules</label>
         </div>

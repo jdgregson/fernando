@@ -23,6 +23,6 @@ services:
     # On Linux, docker-compose.yml uses /sbin/init (systemd) with sysbox-runc.
     # On macOS, systemd child process spawning fails under Rosetta amd64 emulation,
     # so we use Kasm's native entrypoint directly instead.
-    entrypoint: ["/dockerstartup/kasm_default_profile.sh", "/dockerstartup/vnc_startup.sh", "/dockerstartup/kasm_startup.sh"]
+    entrypoint: ["/bin/bash", "/dockerstartup/desktop-shared-entrypoint.sh", "/dockerstartup/kasm_default_profile.sh", "/dockerstartup/vnc_startup.sh", "/dockerstartup/kasm_startup.sh"]
     command: ["--tail-log"]
     user: "0"

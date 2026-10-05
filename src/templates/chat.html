@@ -6,9 +6,13 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/context-menu.css">
     <link rel="stylesheet" href="/static/css/image-viewer.css">
     <script src="/static/js/image-viewer.js" defer></script>
     <script src="/static/js/scroll-pill.js" defer></script>
+    <script src="/static/js/pane-bridge.js" data-activate-on="mousedown"></script>
+    <script src="/static/js/file-drag.js"></script>
+    <script src="/static/js/modal.js"></script>
 </head>
 <body>
     <div class="chat-header" id="chatHeader">
@@ -50,7 +54,7 @@
         </div>
     </form>
 
-    <div class="tool-modal-overlay" id="toolModalOverlay" onclick="closeToolModal()">
+    <div class="tool-modal-overlay" id="toolModalOverlay">
         <div class="tool-modal" onclick="event.stopPropagation()">
             <div class="tool-modal-header">
                 <span class="tool-modal-title" id="toolModalTitle">Run Tool</span>
@@ -81,7 +85,7 @@
         </div>
     </div>
 
-    <div class="tool-modal-overlay" id="rewardModalOverlay" onclick="closeRewardModalChat()">
+    <div class="tool-modal-overlay" id="rewardModalOverlay">
         <div class="tool-modal" style="max-width:360px" onclick="event.stopPropagation()">
             <div class="tool-modal-header">
                 <span class="tool-modal-title">Reward / Debit</span>
@@ -115,6 +119,8 @@
 
 <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.5.4/dist/socket.io.min.js" integrity="sha384-/KNQL8Nu5gCHLqwqfQjA689Hhoqgi2S84SNUxC3roTe4EhJ9AfLkp8QiQcU8AMzI" crossorigin="anonymous"></script>
 <script>
+    bindModalBackdrop(document.getElementById('toolModalOverlay'), closeToolModal);
+    bindModalBackdrop(document.getElementById('rewardModalOverlay'), closeRewardModalChat);
     const sessionId = "{{ acp_session_id }}";
     const apiKey = "{{ api_key }}";
     const homeDir = "{{ home_dir }}";
@@ -183,13 +189,6 @@
         setStatus('connecting', 'Reconnecting...');
     });
 
-    // Notify parent on any click so it can focus this pane
-    document.addEventListener('mousedown', () => {
-        if (window.parent !== window) {
-            window.parent.postMessage({ type: 'acp-chat-focus', sessionId: sessionId }, '*');
-        }
-    });
-
     // Apply group color to chat header and task bar
     function applyGroupColor(groupColor, isSplit) {
         const header = document.getElementById('chatHeader');
@@ -242,32 +241,23 @@
     let _currentGroupId = null;  // Store group ID for fork operations
 
     if (window.parent !== window) {
-        function onInitialCtx(e) {
-            if (e.source !== window.parent) return;
-            if (e.data && e.data.type === 'pane-context') {
-                const ctx = e.data.context;
-                if (ctx.group) {
-                    _currentGroupId = ctx.group.id;
-                    applyGroupColor(ctx.group.color, ctx.split);
-                }
+        FernandoPane.on('context', ctx => {
+            if (ctx.group) {
+                _currentGroupId = ctx.group.id;
+                applyGroupColor(ctx.group.color, ctx.split);
             }
-            // Also listen for direct group-color pushes from parent
-            if (e.data && e.data.type === 'group-color' && e.data.color) {
-                applyGroupColor(e.data.color, e.data.split);
-            }
-            // Track if this pane is active (for mark-read logic)
-            if (e.data && e.data.type === 'pane-active') {
-                isActivePane = e.data.active;
-            }
-        }
-        window.addEventListener('message', onInitialCtx);
+        });
+        FernandoPane.on('state', state => {
+            if (state.group?.color) applyGroupColor(state.group.color, state.split);
+            isActivePane = state.active;
+        });
         // Request context with a small delay to ensure parent has session data
         setTimeout(() => {
-            window.parent.postMessage({ type: 'get-pane-context' }, '*');
+            FernandoPane.requestContext();
         }, 100);
         // Retry after 1s in case parent wasn't ready
         setTimeout(() => {
-            window.parent.postMessage({ type: 'get-pane-context' }, '*');
+            FernandoPane.requestContext();
         }, 1000);
     }
 
@@ -315,18 +305,179 @@
         }
         const statsEl = document.getElementById('headerStats');
         statsEl.innerHTML = '';
-        statsEl.appendChild(document.createTextNode(parts.join(' · ')));
+        
+        // Create clickable span for stats
+        const clickable = document.createElement('span');
+        clickable.className = 'stats-clickable';
+        clickable.appendChild(document.createTextNode(parts.join(' · ')));
         if (sessionTotalCost > 0 && backend === 'OpenCode') {
-            statsEl.appendChild(document.createTextNode(' · '));
+            clickable.appendChild(document.createTextNode(' · '));
             const costSpan = document.createElement('span');
             costSpan.style.fontStyle = 'italic';
             costSpan.style.color = 'rgb(160, 48, 48)';
             costSpan.textContent = '$' + sessionTotalCost.toFixed(2);
-            statsEl.appendChild(costSpan);
+            clickable.appendChild(costSpan);
         }
+        clickable.onclick = () => showSessionMetaModal();
+        statsEl.appendChild(clickable);
+        
         if (backend === 'OpenCode') {
             renderQuotaPill(statsEl);
         }
+    }
+
+    // Session metadata modal
+    let _sessionMetadata = {};  // Populated from events
+    
+    function showSessionMetaModal() {
+        let overlay = document.getElementById('sessionMetaOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'sessionMetaOverlay';
+            overlay.className = 'session-meta-modal-overlay';
+            bindModalBackdrop(overlay, () => overlay.classList.remove('open'));
+            
+            const modal = document.createElement('div');
+            modal.className = 'session-meta-modal';
+            modal.onclick = e => e.stopPropagation();
+            
+            const header = document.createElement('div');
+            header.className = 'session-meta-header';
+            const title = document.createElement('span');
+            title.className = 'session-meta-title';
+            title.textContent = 'Session Info';
+            const close = document.createElement('span');
+            close.className = 'session-meta-close';
+            close.innerHTML = '<svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
+            close.onclick = () => overlay.classList.remove('open');
+            header.appendChild(title);
+            header.appendChild(close);
+            
+            const body = document.createElement('div');
+            body.id = 'sessionMetaBody';
+            
+            modal.appendChild(header);
+            modal.appendChild(body);
+            overlay.appendChild(modal);
+            document.body.appendChild(overlay);
+            document.addEventListener('keydown', e => { if (e.key === 'Escape') overlay.classList.remove('open'); });
+        }
+        
+        renderSessionMetaContent();
+        overlay.classList.add('open');
+    }
+    
+    function renderSessionMetaContent() {
+        const body = document.getElementById('sessionMetaBody');
+        if (!body) return;
+        body.innerHTML = '';
+        
+        const backend = window._sessionBackend === 'opencode' ? 'OpenCode' : 'Kiro';
+        const model = window._sessionModel || 'unknown';
+        
+        // Session section
+        const sessionSection = document.createElement('div');
+        sessionSection.className = 'session-meta-section';
+        sessionSection.innerHTML = '<div class="session-meta-section-title">Session</div>';
+        
+        // Session ID
+        addMetaRow(sessionSection, 'Session ID', sessionId);
+        
+        // Backend
+        addMetaRow(sessionSection, 'Backend', backend);
+        
+        // Model (clickable to change)
+        const modelRow = document.createElement('div');
+        modelRow.className = 'session-meta-row';
+        const modelLabel = document.createElement('span');
+        modelLabel.className = 'session-meta-label';
+        modelLabel.textContent = 'Model';
+        const modelValue = document.createElement('span');
+        modelValue.className = 'session-meta-value clickable';
+        modelValue.textContent = model;
+        modelValue.onclick = () => {
+            document.getElementById('sessionMetaOverlay').classList.remove('open');
+            const endpoint = window._sessionBackend === 'opencode' ? '/api/opencode_models' : '/api/models';
+            fetch(endpoint, {headers: {'X-API-Key': apiKey}})
+                .then(r => r.json())
+                .then(data => {
+                    const models = window._sessionBackend === 'opencode'
+                        ? (data.models || [])
+                        : (data.models || []).map(m => m.model_id);
+                    showModelModal(models, window._sessionModel || 'claude-opus-4.6');
+                })
+                .catch(() => {
+                    showModelModal(['claude-opus-4.6','claude-sonnet-4.6'], window._sessionModel || 'claude-opus-4.6');
+                });
+        };
+        modelRow.appendChild(modelLabel);
+        modelRow.appendChild(modelValue);
+        sessionSection.appendChild(modelRow);
+        
+        body.appendChild(sessionSection);
+        
+        // Stats section
+        const statsSection = document.createElement('div');
+        statsSection.className = 'session-meta-section';
+        statsSection.innerHTML = '<div class="session-meta-section-title">Statistics</div>';
+        
+        addMetaRow(statsSection, 'Events', sessionEventCount.toLocaleString());
+        
+        if (sessionTotalCost > 0) {
+            const costRow = document.createElement('div');
+            costRow.className = 'session-meta-row';
+            const costLabel = document.createElement('span');
+            costLabel.className = 'session-meta-label';
+            costLabel.textContent = 'Session Cost';
+            const costValue = document.createElement('span');
+            costValue.className = 'session-meta-value cost';
+            costValue.textContent = '$' + sessionTotalCost.toFixed(4);
+            costRow.appendChild(costLabel);
+            costRow.appendChild(costValue);
+            statsSection.appendChild(costRow);
+        }
+        
+        // Token usage if available
+        if (_sessionMetadata.inputTokens || _sessionMetadata.outputTokens) {
+            if (_sessionMetadata.inputTokens) {
+                addMetaRow(statsSection, 'Input Tokens', _sessionMetadata.inputTokens.toLocaleString());
+            }
+            if (_sessionMetadata.outputTokens) {
+                addMetaRow(statsSection, 'Output Tokens', _sessionMetadata.outputTokens.toLocaleString());
+            }
+            if (_sessionMetadata.cacheReadTokens) {
+                addMetaRow(statsSection, 'Cache Read', _sessionMetadata.cacheReadTokens.toLocaleString());
+            }
+            if (_sessionMetadata.cacheWriteTokens) {
+                addMetaRow(statsSection, 'Cache Write', _sessionMetadata.cacheWriteTokens.toLocaleString());
+            }
+        }
+        
+        body.appendChild(statsSection);
+        
+        // Context section (if we have working directory info)
+        if (agentCwd) {
+            const contextSection = document.createElement('div');
+            contextSection.className = 'session-meta-section';
+            contextSection.innerHTML = '<div class="session-meta-section-title">Context</div>';
+            addMetaRow(contextSection, 'Working Directory', agentCwd);
+            body.appendChild(contextSection);
+        }
+    }
+    
+    function addMetaRow(container, label, value) {
+        const row = document.createElement('div');
+        row.className = 'session-meta-row';
+        const labelEl = document.createElement('span');
+        labelEl.className = 'session-meta-label';
+        labelEl.textContent = label;
+        const valueEl = document.createElement('span');
+        valueEl.className = 'session-meta-value';
+        valueEl.textContent = value || '-';
+        if (!value) valueEl.classList.add('muted');
+        row.appendChild(labelEl);
+        row.appendChild(valueEl);
+        container.appendChild(row);
     }
 
     let _quotaData = null;
@@ -397,7 +548,7 @@
             overlay = document.createElement('div');
             overlay.id = 'quotaModalOverlay';
             overlay.className = 'quota-modal-overlay';
-            overlay.onclick = e => { if (e.target === overlay) overlay.classList.remove('open'); };
+            bindModalBackdrop(overlay, () => overlay.classList.remove('open'));
             const modal = document.createElement('div');
             modal.className = 'quota-modal';
             modal.onclick = e => e.stopPropagation();
@@ -1699,6 +1850,7 @@
                     a.className = 'file-chip';
                     a.href = '#';
                     a.innerHTML = CLIP_SVG + '<span>' + escapeHtml(out.name || 'file') + '</span>';
+                    if (typeof out.path === 'string' && out.path.startsWith('/')) FernandoFileDrag.bindSource(a, () => [{name:out.name || 'file', path:out.path}], 'references', showFileDropError);
                     a.onclick = (e) => { e.preventDefault(); downloadFile(url, out.name || 'file', a); };
                     chipWrap.appendChild(a);
                     ensureAssistantMsg();
@@ -1782,7 +1934,7 @@
                 const auths = data.authorizations || {};
                 const overlay = document.createElement('div');
                 overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;display:flex;align-items:center;justify-content:center';
-                overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+                bindModalBackdrop(overlay, () => overlay.remove());
                 const modal = document.createElement('div');
                 modal.style.cssText = 'background:#1e2030;border:1px solid #3b4261;border-radius:8px;padding:16px;min-width:300px;max-width:90vw;max-height:80vh;overflow-y:auto';
                 const title = document.createElement('div');
@@ -1860,7 +2012,7 @@
             modal.appendChild(btn);
         }
         overlay.appendChild(modal);
-        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        bindModalBackdrop(overlay, () => overlay.remove());
         document.body.appendChild(overlay);
     }
 
@@ -2156,6 +2308,7 @@
             a.className = 'file-chip';
             a.href = '#';
             a.innerHTML = CLIP_SVG + '<span>' + escapeHtml(name) + '</span>';
+            FernandoFileDrag.bindSource(a, () => [{name, path:p}], 'references', showFileDropError);
             a.onclick = (e) => { e.preventDefault(); downloadFile(fileUrl(p), name, a); };
             wrap.appendChild(a);
         }
@@ -2462,7 +2615,7 @@
     function showContinuationModal(text, modalTitle = 'Continuation Message') {
         const overlay = document.createElement('div');
         overlay.className = 'continuation-modal-overlay';
-        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        bindModalBackdrop(overlay, () => overlay.remove());
         const modal = document.createElement('div');
         modal.className = 'continuation-modal';
         modal.onclick = (e) => e.stopPropagation();
@@ -2502,7 +2655,7 @@
     function showAgentMessageModal(fromSession, text) {
         const overlay = document.createElement('div');
         overlay.className = 'continuation-modal-overlay';
-        overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+        bindModalBackdrop(overlay, () => overlay.remove());
         const modal = document.createElement('div');
         modal.className = 'continuation-modal';
         modal.onclick = (e) => e.stopPropagation();
@@ -2637,13 +2790,10 @@
             scrollToBottom(true);
         }
         if (window.parent !== window) {
-            const ctxTimeout = setTimeout(() => doSend(''), 500);
-            function onCtx(e) {
-                if (e.source !== window.parent) return;
-                if (e.data && e.data.type === 'pane-context') {
-                    window.removeEventListener('message', onCtx);
+            const ctxTimeout = setTimeout(() => { unsubscribe(); doSend(''); }, 500);
+            const unsubscribe = FernandoPane.on('context', c => {
+                    unsubscribe();
                     clearTimeout(ctxTimeout);
-                    const c = e.data.context;
                     const parts = [];
                     for (const [k, v] of Object.entries(c)) {
                         if (k === 'split' || k === 'group') continue;
@@ -2652,6 +2802,7 @@
                         else if (v.type === 'notebook') parts.push(`${k}: SilverBullet notebook "${v.notebook}"`);
                         else if (v.type === 'terminal') parts.push(`${k}: terminal session "${v.session || 'none'}"`);
                         else if (v.type === 'desktop') parts.push(`${k}: Kasm desktop`);
+                        else if (v.description) parts.push(`${k}: ${v.description}`);
                     }
                     // Add group context if present
                     if (c.group) {
@@ -2671,10 +2822,8 @@
                         parts.push(`reward balance: ${_rewardBalanceCache}`);
                     }
                     doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
-                }
-            }
-            window.addEventListener('message', onCtx);
-            window.parent.postMessage({ type: 'get-pane-context' }, '*');
+            });
+            FernandoPane.requestContext();
         } else {
             // No parent window, just include reward context in pane context format
             const parts = [];
@@ -2717,6 +2866,8 @@
             currentTurnTs = null;
             currentTurnIndex = 0;  // Reset turn index for fresh history load
             toolCalls = {};
+            _sessionMetadata = {};  // Reset token usage etc
+            sessionTotalCost = 0;
         }
         
         const events = data.events || [];
@@ -3201,8 +3352,19 @@
         } else if (su === 'usage_update') {
             if (update.cost && update.cost.amount) {
                 sessionTotalCost = update.cost.amount;
-                updateHeaderStats();
             }
+            // Capture token usage for session metadata
+            if (update.usage) {
+                const usage = update.usage;
+                if (usage.inputTokens) _sessionMetadata.inputTokens = (_sessionMetadata.inputTokens || 0) + usage.inputTokens;
+                if (usage.outputTokens) _sessionMetadata.outputTokens = (_sessionMetadata.outputTokens || 0) + usage.outputTokens;
+                if (usage.cacheReadInputTokens) _sessionMetadata.cacheReadTokens = (_sessionMetadata.cacheReadTokens || 0) + usage.cacheReadInputTokens;
+                if (usage.cacheCreationInputTokens) _sessionMetadata.cacheWriteTokens = (_sessionMetadata.cacheWriteTokens || 0) + usage.cacheCreationInputTokens;
+            }
+            // Alternative format from some backends
+            if (update.inputTokens) _sessionMetadata.inputTokens = (_sessionMetadata.inputTokens || 0) + update.inputTokens;
+            if (update.outputTokens) _sessionMetadata.outputTokens = (_sessionMetadata.outputTokens || 0) + update.outputTokens;
+            updateHeaderStats();
         }
 
         if (evt.result && evt.result.stopReason) {
@@ -3302,6 +3464,46 @@
 
     let attachedFiles = []; // [{name, path}]
 
+    function showFileDropError(error) {
+        const indicator = document.getElementById('uploadingIndicator');
+        indicator.textContent = 'Could not attach file references: ' + error.message;
+        indicator.style.display = '';
+        indicator.style.color = '#f44747';
+        setTimeout(() => { indicator.style.display = 'none'; indicator.style.color = ''; }, 5000);
+    }
+
+    function installChatFileDrops() {
+        const composer = document.getElementById('chat-composer');
+        for (const type of ['dragenter', 'dragover']) document.body.addEventListener(type, event => {
+            if (!FernandoFileDrag.accepts(event.dataTransfer)) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            composer.classList.add('file-reference-drop');
+        });
+        document.body.addEventListener('dragleave', event => {
+            if (!document.body.contains(event.relatedTarget)) composer.classList.remove('file-reference-drop');
+        });
+        document.body.addEventListener('drop', event => {
+            if (!FernandoFileDrag.accepts(event.dataTransfer)) return;
+            event.preventDefault();
+            composer.classList.remove('file-reference-drop');
+            let data;
+            try {
+                data = FernandoFileDrag.take(event.dataTransfer);
+            } catch (error) {
+                showFileDropError(error);
+                return;
+            }
+            for (const entry of data.entries) {
+                if (!attachedFiles.some(file => file.path === entry.path)) attachedFiles.push({name:entry.name, path:entry.path});
+            }
+            renderAttached();
+            FernandoPane.activate();
+        });
+    }
+
+    installChatFileDrops();
+
     function downsampleImage(file, maxDim = 1920, quality = 0.8) {
         return new Promise((resolve) => {
             if (!file.type.startsWith('image/')) return resolve(file);
@@ -3363,6 +3565,8 @@
             html += `<span class="attached-file" style="border-color:${color}"><span class="name" style="color:${color}">${sign}${Math.abs(_stagedReward.amount)} ${label}${noteSnip}</span><span class="remove" data-reward="1"><svg width="8" height="8" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span></span>`;
         }
         container.innerHTML = html;
+        const chips = container.querySelectorAll('.attached-file');
+        attachedFiles.forEach((file, index) => FernandoFileDrag.bindSource(chips[index], () => [file], 'references', showFileDropError));
         container.querySelectorAll('.remove').forEach(el => {
             if (el.dataset.reward) {
                 el.onclick = () => removeStagedReward();

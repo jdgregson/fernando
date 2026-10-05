@@ -56,3 +56,9 @@ RUN echo 'kasm-user ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/kasm-user
 
 # Disable services that block/fail in containers
 RUN systemctl mask NetworkManager-wait-online.service colord.service lightdm.service
+
+RUN apt-get update && apt-get install -y acl && rm -rf /var/lib/apt/lists/*
+COPY scripts/desktop-shared-access.py scripts/copy-desktop-profile.py scripts/desktop-shared-entrypoint.sh /dockerstartup/
+COPY scripts/desktop-shared-folders.service /etc/systemd/system/fernando-shared-folders.service
+COPY scripts/desktop-shared-folders.conf /etc/systemd/system/kasm.service.d/fernando-shared-folders.conf
+RUN python3 -c 'from pathlib import Path; p=Path("/dockerstartup/kasm_default_profile.sh"); s=p.read_text(); old="cp -rp $DEFAULT_PROFILE_HOME/.  $HOME/"; assert s.count(old)==1; p.write_text(s.replace(old, "python3 /dockerstartup/copy-desktop-profile.py \"$DEFAULT_PROFILE_HOME\" \"$HOME\""))'

@@ -28,9 +28,10 @@ def create_app(config_name=None):
         path=os.environ.get("SOCKET_PATH", "socket.io"),
     )
 
-    from src.routes import web, websocket
+    from src.routes import web, websocket, file_browser
 
     app.register_blueprint(web.bp)
+    app.register_blueprint(file_browser.bp)
     websocket.register_handlers(socketio)
 
     @app.after_request

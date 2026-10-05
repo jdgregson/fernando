@@ -6,6 +6,8 @@ import os
 _SETTINGS_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "settings.json")
 
 DEFAULTS = {
+    "file_browser_view": "list",
+    "file_browser_hidden": False,
     "default_model": "claude-opus-4.6",
     "idle_session_timeout": 300,  # 5 minutes (in seconds)
     "subagents_can_spawn": False,  # Whether subagents can spawn their own subagents

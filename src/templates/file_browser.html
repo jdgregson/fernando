@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <title>Files · Fernando</title>
+    <link rel="stylesheet" href="/static/css/file-browser.css">
+    <link rel="stylesheet" href="/static/css/context-menu.css">
+    <link rel="stylesheet" href="/static/css/image-viewer.css">
+    <script src="/static/js/pane-bridge.js" data-activate-on="click"></script>
+    <script src="/static/js/file-drag.js"></script>
+    <script src="/static/vendor/ace/ace.js" defer></script>
+    <script src="/static/vendor/ace/ext-modelist.js" defer></script>
+    <script src="/static/vendor/ace/ext-searchbox.js" defer></script>
+    <script src="/static/js/image-viewer.js" defer></script>
+    <script src="/static/js/file-browser.js" defer></script>
+</head>
+<body data-api-key="{{ api_key }}" data-home="{{ home }}" data-default-view="{{ default_view }}" data-default-hidden="{{ 'true' if default_hidden else 'false' }}">
+    <svg class="symbols" xmlns="http://www.w3.org/2000/svg"><defs>
+        <symbol id="folder" viewBox="0 0 24 24"><path d="M3 6h7l2 3h9v11H3z"/><path d="M3 6V4h7l2 3h9v2"/></symbol>
+        <symbol id="file" viewBox="0 0 24 24"><path d="M5 3h9l5 5v13H5zM14 3v6h5"/></symbol>
+        <symbol id="back" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol>
+        <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></symbol>
+        <symbol id="upload" viewBox="0 0 24 24"><path d="m7 9 5-5 5 5M12 4v12M4 16v5h16v-5"/></symbol>
+        <symbol id="download" viewBox="0 0 24 24"><path d="m7 12 5 5 5-5M12 3v14M4 17v4h16v-4"/></symbol>
+        <symbol id="plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+        <symbol id="edit" viewBox="0 0 24 24"><path d="m15 4 5 5-12 12H3v-5zM12 7l5 5"/></symbol>
+        <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/></symbol>
+        <symbol id="copy" viewBox="0 0 24 24"><path d="M8 8h13v13H8zM16 8V3H3v13h5"/></symbol>
+        <symbol id="move" viewBox="0 0 24 24"><path d="M3 5h10v14H3M10 12h12m-5-5 5 5-5 5"/></symbol>
+        <symbol id="home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8M5 10v11h14V10M9 21v-8h6v8"/></symbol>
+        <symbol id="eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+        <symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+        <symbol id="tiles" viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z"/></symbol>
+        <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+        <symbol id="list" viewBox="0 0 24 24"><path d="M8 5h13M8 12h13M8 19h13M3 5h1M3 12h1M3 19h1"/></symbol>
+        <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+        <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 10v7M12 6v2"/></symbol>
+    </defs></svg>
+    <header>
+        <div class="navigation">
+            <button id="refreshButton" title="Refresh" aria-label="Refresh"><svg><use href="#refresh"/></svg></button>
+            <button id="homeButton" title="Home" aria-label="Home"><svg><use href="#home"/></svg></button>
+            <div id="pathBox">
+                <div id="pathDisplay" tabindex="0" role="group" aria-label="Directory path. Click a breadcrumb to navigate; click blank space, hold, or press F2 to edit." title="Click blank space or hold to edit the path. Keyboard: F2."><nav id="breadcrumbs" aria-label="Directory breadcrumbs"></nav></div>
+                <form id="pathForm" hidden><input id="pathInput" aria-label="Directory path" autocomplete="off" autocapitalize="none" spellcheck="false"></form>
+            </div>
+            <button id="selectionModeButton" hidden title="Finish selecting"><span id="selectionCount"></span></button>
+            <button id="menuButton" title="File browser menu" aria-label="File browser menu" aria-expanded="false" aria-controls="browserMenu"><svg><use href="#menu"/></svg></button>
+        </div>
+        <div id="browserMenu" inert aria-hidden="true">
+            <section class="menu-section" aria-label="New items">
+                <div class="menu-heading">New items</div>
+                <button id="uploadButton"><svg><use href="#upload"/></svg>Upload</button>
+                <button id="folderButton"><svg><use href="#folder"/></svg>New folder</button>
+                <button id="fileButton"><svg><use href="#plus"/></svg>New file</button>
+            </section>
+            <section class="menu-section" aria-label="View options">
+                <button id="searchButton" aria-expanded="false" aria-controls="searchField"><svg><use href="#search"/></svg>Search</button>
+                <div id="searchField" hidden><input id="filterInput" type="search" placeholder="Filter this folder" aria-label="Search this folder" autocomplete="off"><button id="clearSearch" title="Clear search" aria-label="Clear search"><svg><use href="#close"/></svg></button></div>
+                <button id="hiddenButton" aria-pressed="false"><svg><use href="#eye"/></svg>Hidden items</button>
+                <button id="tileButton"><svg><use id="viewModeIcon" href="#tiles"/></svg><span id="viewModeLabel">Tile mode</span></button>
+            </section>
+        </div>
+        <input id="uploadInput" type="file" multiple hidden>
+    </header>
+    <div id="menuBackdrop" hidden></div>
+    <div id="fileContextMenu" role="menu" hidden>
+        <div id="selectionName" class="menu-heading"></div>
+        <button id="openButton" role="menuitem"><svg><use href="#file"/></svg>Open</button>
+        <button id="renameButton" role="menuitem"><svg><use href="#edit"/></svg>Rename</button>
+        <button id="copyNameButton" role="menuitem"><svg><use href="#copy"/></svg><span id="copyNameLabel">Copy file name</span></button>
+        <button id="copyButton" role="menuitem"><svg><use href="#copy"/></svg>Copy to</button>
+        <button id="moveButton" role="menuitem"><svg><use href="#move"/></svg>Move to</button>
+        <button id="downloadButton" role="menuitem"><svg><use href="#download"/></svg>Download</button>
+        <button id="deleteButton" role="menuitem" class="danger"><svg><use href="#trash"/></svg>Delete</button>
+        <button id="propertiesButton" role="menuitem"><svg><use href="#info"/></svg>Properties</button>
+        <div class="context-separator"></div>
+        <button id="selectItemsButton" role="menuitem" aria-pressed="false"><svg><use href="#check"/></svg><span id="selectItemsLabel">Select items</span></button>
+        <button id="selectAllButton" role="menuitem">Select all</button>
+        <button id="clearSelectionButton" role="menuitem">Clear selection</button>
+    </div>
+    <section id="browserView">
+        <div id="fileList" tabindex="0" aria-label="Files">
+            <table id="fileTable"><thead><tr><th><button data-sort="name">Name</button></th><th class="size"><button data-sort="size">Size</button></th><th class="modified"><button data-sort="modified">Modified</button></th></tr></thead><tbody id="rows"></tbody></table>
+            <div id="tileGrid" hidden></div>
+            <div id="empty" hidden>No files in this folder</div>
+            <div id="selectionRectangle" hidden></div>
+        </div>
+    </section>
+    <section id="viewerView" hidden>
+        <div class="viewer-toolbar">
+            <button id="closeViewer"><svg><use href="#back"/></svg>Files</button>
+            <span id="viewerName"></span><span id="dirtyMark" hidden>Unsaved</span>
+            <button id="saveButton">Save</button>
+            <a id="externalViewer" target="_blank" rel="noopener" hidden>Open in browser</a>
+            <button id="viewerDownload" title="Download" aria-label="Download"><svg><use href="#download"/></svg></button>
+        </div>
+        <div id="editor"></div>
+        <iframe id="previewFrame" title="File preview" hidden></iframe>
+    </section>
+    <div id="statusPopup" hidden><span id="status" role="status"></span><button id="dismissStatus" aria-label="Dismiss message"><svg><use href="#close"/></svg></button></div>
+    <div id="messages" hidden></div>
+    <dialog id="promptDialog"><form method="dialog" id="promptForm"><h2 id="promptTitle"></h2><p id="promptDescription"></p><input id="promptInput" autocomplete="off" spellcheck="false"><div class="dialog-actions"><button value="cancel" formnovalidate>Cancel</button><button id="promptSubmit" value="ok">Confirm</button></div></form></dialog>
+    <dialog id="propertiesDialog" aria-labelledby="propertiesTitle"><form method="dialog"><h2 id="propertiesTitle">Properties</h2><div id="propertiesContent" aria-live="polite"></div><div class="dialog-actions"><button autofocus>Close</button></div></form></dialog>
+</body>
+</html>

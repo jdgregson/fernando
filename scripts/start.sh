@@ -87,7 +87,7 @@ mkdir -p "$REPO_DIR/data/jupyter"
 # Start Kasm desktop container with VNC_PW
 COMPOSE_FILE="${FERNANDO_COMPOSE_FILE:-docker-compose.yml}"
 echo "Starting Kasm desktop container (compose file: $COMPOSE_FILE)..."
-docker compose -f "$COMPOSE_FILE" up -d fernando-desktop
+bash "$REPO_DIR/scripts/desktop-compose.sh" up -d fernando-desktop || exit 1
 
 # Wait for Kasm to be ready
 echo "Waiting for Kasm to be ready..."

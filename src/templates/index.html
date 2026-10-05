@@ -15,6 +15,8 @@
     <script src="/static/vendor/wterm/wterm.bundle.js"></script>
     <link rel="stylesheet" href="/static/vendor/wterm/wterm.css" />
     <link rel="stylesheet" href="/static/css/index.css">
+    <link rel="stylesheet" href="/static/css/context-menu.css">
+    <link rel="stylesheet" href="/static/css/automation.css">
 </head>
 <body>
     <script>
@@ -75,7 +77,7 @@
                 <button onclick="openAutomationPanel()">Automation</button>
             </div>
         </div>
-        <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+        <div class="sidebar-overlay"></div>
 
         <div class="main-content">
             <div class="terminals-wrapper">
@@ -91,20 +93,24 @@
         </div>
     </div>
 
-    <div class="modal" id="newSessionModal" onclick="closeNewSessionModal()">
+    <div class="modal" id="newSessionModal">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">New Session</div>
             <div class="modal-body">
                 <div class="session-cards">
-                    <div class="session-card" onclick="createSessionType('shell')">
+                    <div class="session-card session-card-half" onclick="createSessionType('shell')">
                         <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-4px;margin-right:6px"><polyline points="2 4 6 8 2 12"/><line x1="8" y1="12" x2="14" y2="12"/></svg>Shell</div>
                         <div class="session-card-desc">Standard bash shell</div>
                     </div>
-                    <div class="session-card" id="notebookCard" onclick="showNotebookPicker()">
+                    <div class="session-card session-card-half" id="notebookCard" onclick="showNotebookPicker()">
                         <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-4px;margin-right:6px"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="1" x2="6" y2="15"/><line x1="1" y1="4" x2="3" y2="4"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="1" y1="12" x2="3" y2="12"/></svg>Notebook</div>
                         <div class="session-card-desc">SilverBullet notes</div>
                     </div>
-                    <div class="session-card" onclick="openJupyter()">
+                    <div class="session-card session-card-half" onclick="createFileSession()">
+                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M3 5h7l2 3h9v12H3z"/></svg>Files</div>
+                        <div class="session-card-desc">Browse files and edit text</div>
+                    </div>
+                    <div class="session-card session-card-half" onclick="openJupyter()">
                         <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-4px;margin-right:6px"><path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>Jupyter</div>
                         <div class="session-card-desc">Interactive Python notebooks</div>
                     </div>
@@ -127,7 +133,6 @@
     </div>
 
     <div class="modal" id="groupMoveWarningModal" role="dialog" aria-modal="true" aria-labelledby="groupMoveWarningTitle"
-         onclick="if(event.target===this)this.classList.remove('open')"
          onkeydown="if(event.key==='Escape')this.classList.remove('open')">
         <div class="modal-content">
             <div class="modal-header" id="groupMoveWarningTitle">Unable to move chat</div>
@@ -138,7 +143,7 @@
         </div>
     </div>
 
-    <div class="modal" id="notebookPickerModal" onclick="closeNotebookPicker()">
+    <div class="modal" id="notebookPickerModal">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">Open Notebook</div>
             <div class="modal-body">
@@ -157,7 +162,7 @@
         </div>
     </div>
 
-    <div class="modal" id="notebookCreateModal" onclick="closeCreateNotebook()">
+    <div class="modal" id="notebookCreateModal">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">Create Notebook</div>
             <div class="modal-body">
@@ -171,7 +176,7 @@
         </div>
     </div>
 
-    <div class="modal" id="settingsModal" onclick="closeSettings()">
+    <div class="modal" id="settingsModal">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">Settings</div>
             <div class="sa-panel-tabs-wrapper">
@@ -187,6 +192,22 @@
             </div>
             <div class="modal-body">
                 <div class="settings-tab-content active" id="settingsTabGeneral">
+                    <section class="settings-section" aria-labelledby="settingsFilesHeading">
+                    <h3 class="settings-section-title" id="settingsFilesHeading">File browser</h3>
+                    <div class="settings-row">
+                        <label class="settings-label" for="settingsFileView">File browser default view</label>
+                        <select id="settingsFileView" class="settings-select" onchange="saveFileBrowserSetting('file_browser_view', this.value)">
+                            <option value="list">List</option>
+                            <option value="tile">Tiles</option>
+                        </select>
+                    </div>
+                    <div class="settings-row settings-checkbox-row">
+                        <input type="checkbox" id="settingsFileHidden" onchange="saveFileBrowserSetting('file_browser_hidden', this.checked)">
+                        <label class="settings-label" for="settingsFileHidden">Show hidden files by default</label>
+                    </div>
+                    </section>
+                    <section class="settings-section" aria-labelledby="settingsAgentsHeading">
+                    <h3 class="settings-section-title" id="settingsAgentsHeading">Agent sessions</h3>
                     <div class="settings-row">
                         <label class="settings-label" for="settingsEffort">Effort level</label>
                         <select id="settingsEffort" class="settings-select" onchange="saveDefaultEffort(this.value)">
@@ -212,13 +233,14 @@
                             <option value="0">Disabled</option>
                         </select>
                     </div>
-                    <div class="settings-row" style="display:flex;align-items:center;gap:10px;">
+                    <div class="settings-row settings-checkbox-row">
                         <input type="checkbox" id="settingsSubagentsCanSpawn" onchange="saveBoolSetting('subagents_can_spawn', this.checked)">
-                        <label class="settings-label" for="settingsSubagentsCanSpawn" style="cursor:pointer;margin:0;">Allow subagents to spawn subagents</label>
+                        <label class="settings-label" for="settingsSubagentsCanSpawn">Allow subagents to spawn subagents</label>
                     </div>
+                    </section>
                 </div>
                 <div class="settings-tab-content" id="settingsTabProviders">
-                    <div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:8px;">
+                    <div class="mcp-server-item settings-provider-card">
                         <div style="display:flex;align-items:center;gap:10px;">
                             <input type="checkbox" id="providerKiro" checked disabled>
                             <label for="providerKiro" style="display:flex;flex-direction:column;gap:2px;cursor:default;"><div class="mcp-server-name">Kiro</div><div class="mcp-server-desc">Kiro CLI agent backend (always enabled)</div></label>
@@ -230,7 +252,7 @@
                             </select>
                         </div>
                     </div>
-                    <div class="mcp-server-item" style="flex-direction:column;align-items:stretch;gap:8px;">
+                    <div class="mcp-server-item settings-provider-card">
                         <div style="display:flex;align-items:center;gap:10px;">
                             <input type="checkbox" id="providerOpenCode" onchange="saveProviderSetting('opencode', this.checked)">
                             <label for="providerOpenCode" style="display:flex;flex-direction:column;gap:2px;cursor:pointer;"><div class="mcp-server-name">OpenCode</div><div class="mcp-server-desc">OpenCode agent backend (Bedrock models)</div></label>
@@ -309,7 +331,7 @@
         </div>
     </div>
 
-    <div class="modal" id="healthModal" onclick="closeHealthModal()">
+    <div class="modal" id="healthModal">
         <div class="modal-content" onclick="event.stopPropagation()">
             <div class="modal-header">System Health</div>
             <div class="modal-body">
@@ -362,12 +384,9 @@
         </div>
     </div>
 
-    <div class="panel-overlay" id="automationOverlay" onclick="closeAutomationPanel()"></div>
-    <div class="sa-panel" id="automationPanel">
-        <div class="sa-panel-header">
-            <span>Automation</span>
-            <button class="sa-panel-close" onclick="closeAutomationPanel()"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
-        </div>
+    <div class="modal" id="automationPanel" role="dialog" aria-modal="true" aria-labelledby="automationTitle">
+        <div class="modal-content">
+        <div class="modal-header" id="automationTitle">Automation</div>
         <div class="sa-panel-tabs">
             <button class="auto-tab active" onclick="switchAutoTab('rules',this)">Rules</button>
             <button class="auto-tab" onclick="switchAutoTab('subagents',this)">Subagents</button>
@@ -375,7 +394,7 @@
             <button class="auto-tab" onclick="switchAutoTab('create',this)">+ New</button>
             <button class="auto-tab" onclick="switchAutoTab('policy',this)">Policy</button>
         </div>
-        <div class="sa-panel-body">
+        <div class="modal-body">
             <div class="auto-tab-content active" id="autoTabRules">
                 <div id="automationRulesList"></div>
             </div>
@@ -405,6 +424,10 @@
                 <div id="automationPolicyEditor"></div>
             </div>
         </div>
+        <div class="modal-footer">
+            <button class="modal-close" onclick="closeAutomationPanel()">Close</button>
+        </div>
+        </div>
     </div>
 
     <div class="mobile-controls" id="mobileControls">
@@ -433,14 +456,26 @@
 
     <script>window.FERNANDO_API_KEY = '{{ api_key }}';</script>
     <script src="/static/js/core.js"></script>
+    <script src="/static/js/modal.js"></script>
     <script src="/static/js/context.js"></script>
     <script src="/static/js/scroll-pill.js"></script>
     <script src="/static/js/panes.js"></script>
+    <script src="/static/js/session-adapters.js"></script>
+    <script src="/static/js/file-session.js"></script>
     <script src="/static/js/terminal.js"></script>
     <script src="/static/js/sessions.js"></script>
     <script src="/static/js/automation.js"></script>
     <script src="/static/js/chat.js"></script>
     <script src="/static/js/mobile.js"></script>
-    <script>paneController.installFocusPolicy();</script>
+    <script>paneController.installFocusPolicy();paneController.installBridge();</script>
+    <script>
+        bindModalBackdrop(document.getElementById('newSessionModal'), closeNewSessionModal);
+        bindModalBackdrop(document.getElementById('notebookPickerModal'), closeNotebookPicker);
+        bindModalBackdrop(document.getElementById('notebookCreateModal'), closeCreateNotebook);
+        bindModalBackdrop(document.getElementById('settingsModal'), closeSettings);
+        bindModalBackdrop(document.getElementById('healthModal'), closeHealthModal);
+        const groupMoveWarningModal = document.getElementById('groupMoveWarningModal');
+        bindModalBackdrop(groupMoveWarningModal, () => groupMoveWarningModal.classList.remove('open'));
+    </script>
 </body>
 </html>

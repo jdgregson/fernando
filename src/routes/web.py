@@ -438,6 +438,10 @@ def api_settings_set():
     value = data.get("value")
     if not key:
         return json.dumps({"error": "Missing key"}), 400, {"Content-Type": "application/json"}
+    if key == 'file_browser_view' and value not in ('list', 'tile'):
+        return {'error': 'File browser view must be list or tile'}, 400
+    if key == 'file_browser_hidden' and not isinstance(value, bool):
+        return {'error': 'Hidden files setting must be a boolean'}, 400
     set_setting(key, value)
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
@@ -545,9 +549,9 @@ def kasm_proxy(path):
                     f'window.WebSocket.OPEN=_WS.OPEN;'
                     f'window.WebSocket.CLOSING=_WS.CLOSING;'
                     f'window.WebSocket.CLOSED=_WS.CLOSED;'
-                    f"document.addEventListener('click',function(){{window.parent.postMessage({{type:'notes-focus'}},'*')}});"
                     f'}})()'
                     f'</script>'
+                    '<script src="/static/js/pane-bridge.js" data-activate-on="pointerdown" data-activate-capture="true"></script>'
                 )
                 content = content.replace('<head>', '<head>' + style + inject, 1)
             content = content.encode("utf-8")
@@ -654,7 +658,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
 })();
 </script>
 <script src="//""" + request.host + """/static/js/fake-idb-persist.js"></script>"""
-            focus_script = "<script>document.addEventListener('click',()=>window.parent.postMessage({type:'notes-focus'},'*'));</script>"
+            focus_script = '<script src="/static/js/pane-bridge.js" data-activate-on="click"></script>'
             # Clickable breadcrumbs for SilverBullet.
             #
             # SilverBullet's developers made the page path in the top bar an editable
@@ -1098,7 +1102,6 @@ def jupyter_proxy(path):
                 "run();"
                 "});"
                 # Focus messaging — tell parent Fernando when this pane is clicked
-                "document.addEventListener('click',function(){window.parent.postMessage({type:'notes-focus'},'*')});"
                 # Report current notebook name to parent for sidebar label
                 "setInterval(function(){"
                 "var name='Jupyter';"
@@ -1108,11 +1111,12 @@ def jupyter_proxy(path):
                 "else if(jpath.indexOf('/tree/')!==-1){name=decodeURIComponent(jpath.split('/tree/')[1]||'').replace(/\\/+$/,'');if(!name)name='Jupyter';}"
                 "else if(jpath.indexOf('/edit/')!==-1){name=decodeURIComponent(jpath.split('/edit/')[1]||'').replace(/\\/+$/,'');}"
                 "else if(document.title&&document.title!=='Home'&&document.title!=='Jupyter Notebook')name=document.title;"
-                "window.parent.postMessage({type:'jupyter-name',name:name,jpath:jpath},'*');"
+                "FernandoPane.navigate({name:name,path:jpath});"
                 "},1000);"
                 "</script>"
             )
-            content = content.replace("</head>", intercept + "</head>", 1)
+            bridge = '<script src="/static/js/pane-bridge.js" data-activate-on="click"></script>'
+            content = content.replace("</head>", bridge + intercept + "</head>", 1)
             content = content.encode("utf-8")
 
         flask_resp = make_response(content, resp.status_code)

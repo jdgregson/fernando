@@ -24,9 +24,13 @@ if [ ! -f "/etc/lsb-release" ] || [ -z "$(grep '24.04' /etc/lsb-release)" ]; the
     exit 1
 fi
 
-FERNANDO_USER="fernando"
-FERNANDO_HOME="/home/$FERNANDO_USER"
-INSTALL_DIR="$FERNANDO_HOME/$APP"
+FERNANDO_USER="${FERNANDO_USER:-fernando}"
+if id -u "$FERNANDO_USER" >/dev/null 2>&1; then
+    FERNANDO_HOME="$(getent passwd "$FERNANDO_USER" | cut -d: -f6)"
+else
+    FERNANDO_HOME="/home/$FERNANDO_USER"
+fi
+INSTALL_DIR="${FERNANDO_INSTALL_DIR:-$FERNANDO_HOME/$APP}"
 
 gecho "Setting time zone to $TZ..."
 timedatectl set-timezone "$TZ"
@@ -81,8 +85,8 @@ rm -f "/tmp/${SYSBOX_DEB}"
 
 # Create fernando user
 gecho "Creating and configuring user $FERNANDO_USER..."
-if [ ! -d "$FERNANDO_HOME" ]; then
-    useradd -m -s /bin/bash "$FERNANDO_USER"
+if ! id -u "$FERNANDO_USER" >/dev/null 2>&1; then
+    useradd -m -d "$FERNANDO_HOME" -s /bin/bash "$FERNANDO_USER"
 fi
 usermod -aG docker "$FERNANDO_USER"
 
@@ -178,21 +182,12 @@ if [ -n "$CLOUDFLARED_TOKEN" ]; then
     cloudflared service install "$CLOUDFLARED_TOKEN"
 fi
 
-# Symlink ~/Desktop, ~/Downloads, ~/Documents to the Kasm container so host and VM share them
-gecho "Linking shared directories to Kasm container..."
-for dir in Desktop Downloads Documents; do
-    mkdir -p "$INSTALL_DIR/data/desktop/$dir"
-    rm -rf "$FERNANDO_HOME/$dir"
-    ln -s "$INSTALL_DIR/data/desktop/$dir" "$FERNANDO_HOME/$dir"
-done
-
-# Fix permissions
-gecho "Restoring permissions..."
-chown -R "$FERNANDO_USER:$FERNANDO_USER" "$FERNANDO_HOME"
+gecho "Preparing existing host Documents and Downloads for sharing..."
+sudo -H -u "$FERNANDO_USER" python3 "$INSTALL_DIR/scripts/desktop-shares.py" create || exit 1
 
 # Build the Kasm desktop container
 gecho "Building Kasm desktop container..."
-sudo -u "$FERNANDO_USER" bash -c "cd $INSTALL_DIR && docker compose build"
+sudo -H -u "$FERNANDO_USER" bash "$INSTALL_DIR/scripts/desktop-compose.sh" build || exit 1
 
 # Pull SilverBullet image
 gecho "Pulling SilverBullet image..."
@@ -246,4 +241,3 @@ else
     sudo -u "$FERNANDO_USER" ln -s "$instructions_src" "$instructions_dst"
     gecho "Symlinked $instructions_dst -> $instructions_src"
 fi
-

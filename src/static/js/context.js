@@ -513,7 +513,7 @@ function showContextInfoModal(context) {
         overlay = document.createElement('div');
         overlay.id = 'contextInfoOverlay';
         overlay.className = 'modal';
-        overlay.onclick = e => { if (e.target === overlay) overlay.classList.remove('open'); };
+        bindModalBackdrop(overlay, () => overlay.classList.remove('open'));
         
         const modal = document.createElement('div');
         modal.className = 'modal-content';

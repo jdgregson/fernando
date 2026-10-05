@@ -31,8 +31,11 @@ function createOpenCodeChatSession() {
 socket.on('acp_created', (data) => { openChatPane(data.session_id); });
 
 function openChatPane(chatId) {
-    const pane = activeTerminal;
-    const browser = paneController.showBrowser(pane, 'chat:' + chatId);
+    return paneController.open('chat:' + chatId);
+}
+
+function mountChat({ key, browser }) {
+    const chatId = key.slice(5);
     const existing = browser.querySelector('iframe');
     if (!existing || !existing.src.includes('/chat/' + chatId)) {
         browser.innerHTML = '';
@@ -41,19 +44,10 @@ function openChatPane(chatId) {
         iframe.style.cssText = 'width:100%;height:100%;border:none';
         browser.appendChild(iframe);
     }
-    paneController.finishOpen('chat');
 }
 
 function closeChatSession(chatId) {
-    emitWithCsrf('acp_close', { session_id: chatId });
-    [1, 2].forEach(pane => {
-        const browser = document.getElementById(`browser${pane}`);
-        const iframe = browser.querySelector('iframe');
-        if (iframe && iframe.src.includes('/chat/' + chatId)) {
-            paneController.showTerminal(pane, { clearContent: false, emptyBrowser: true, fit: true });
-        }
-    });
-    updateKbdBtn();
+    return paneController.close('chat:' + chatId);
 }
 
 // --- Archived ---
@@ -223,82 +217,5 @@ socket.on('acp_restored', (data) => {
             }
         }
         openChatPane(data.session_id);
-    }
-});
-
-// --- iframe messages ---
-window.addEventListener('message', (e) => {
-
-    if (e.data && e.data.type === 'acp-chat-focus') {
-        for (const paneNum of [1, 2]) {
-            if (paneController.get(paneNum).surface === 'browser') {
-                const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
-            }
-        }
-    }
-    if (e.data && e.data.type === 'get-pane-context') {
-        const ctx = {};
-        for (const pn of [1, 2]) {
-            ctx[`pane${pn}`] = paneController.context(pn);
-        }
-        ctx.split = isSplit;
-        
-        // Add group context for the requesting chat's pane
-        const requestingPane = paneController.iframePane(e.source);
-        if (requestingPane && paneController.get(requestingPane).contentKey) {
-            const sessionKey = paneController.get(requestingPane).contentKey;
-            const groupId = _cachedSessionGroups[sessionKey];
-            if (groupId) {
-                const group = _cachedGroups.find(g => g.id === groupId);
-                if (group) {
-                    ctx.group = {
-                        id: group.id,
-                        name: group.name,
-                        color: group.color,
-                        sessions: []
-                    };
-                    // Find all ACTIVE sessions in this group (exclude archived, include self)
-                    // Build map of chat session loaded status
-                    const chatLoadedMap = {};
-                    _cachedChatSessions.forEach(c => { chatLoadedMap['chat:' + c.id] = c.loaded; });
-                    const activeKeys = new Set([
-                        ..._cachedSessions,
-                        ..._cachedChatSessions.map(c => 'chat:' + c.id),
-                        ...(_cachedData.running_notebooks || []).map(n => 'notebook:' + n),
-                        ...(_cachedData.running_jupyter || []).map(j => 'jupyter:' + j)
-                    ]);
-                    for (const [key, gid] of Object.entries(_cachedSessionGroups)) {
-                        if (gid === groupId && activeKeys.has(key)) {
-                            // Add (sleeping) suffix for unloaded chat sessions
-                            if (key.startsWith('chat:') && chatLoadedMap[key] === false) {
-                                ctx.group.sessions.push(key + ' (sleeping)');
-                            } else {
-                                ctx.group.sessions.push(key);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        e.source.postMessage({ type: 'pane-context', context: ctx }, window.location.origin);
-        return;
-    }
-    if (e.data && e.data.type === 'notes-focus') {
-        for (const paneNum of [1, 2]) {
-            if (paneController.get(paneNum).surface === 'browser') {
-                const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
-            }
-        }
-    }
-    if (e.data && e.data.action === 'enable_audio') {
-        for (const paneNum of [1, 2]) {
-            if (paneController.get(paneNum).surface === 'browser') {
-                const iframe = document.getElementById(`browser${paneNum}`).querySelector('iframe');
-                if (iframe && iframe.contentWindow === e.source) { setActiveTerminal(paneNum, true); return; }
-            }
-        }
     }
 });

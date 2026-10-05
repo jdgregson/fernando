@@ -515,11 +515,8 @@ pre code.language-diff .diff-header { color: #bb9af7; font-weight: bold; display
 pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: fit-content; }
 
 /* Plus button popup menu */
-.plus-menu { display: none; position: absolute; bottom: 100%; right: 0; margin-bottom: 6px; background: #1a2744; border: 1px solid #283d5b; border-radius: 8px; padding: 4px; min-width: 150px; z-index: 100; }
+.plus-menu { display: none; position: absolute; bottom: 100%; right: 0; margin-bottom: 6px; z-index: 100; }
 .plus-menu.open { display: block; }
-.plus-menu-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #a9b1d6; cursor: pointer; white-space: nowrap; }
-@media (hover: hover) { .plus-menu-item:hover { background: #283d5b; color: #c0caf5; } }
-.plus-menu-item svg { flex-shrink: 0; }
 
 /* Tool modal */
 .tool-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: center; justify-content: center; }
@@ -814,36 +811,118 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 }
 .reward-ledger-time-chat { color: #555; margin-left: 8px; }
 
-/* Message context menu (fork from message) */
-.msg-context-menu {
-    position: fixed;
-    background: #1a2744;
-    border: 1px solid #283d5b;
-    border-radius: 8px;
-    padding: 4px;
-    min-width: 150px;
-    z-index: 1000;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    user-select: none;
-    -webkit-user-select: none;
-}
-.msg-context-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    border-radius: 6px;
-    font-size: 13px;
-    color: #a9b1d6;
+/* Session metadata (clickable stats in header) */
+.header-stats .stats-clickable {
     cursor: pointer;
-    white-space: nowrap;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin: -2px -6px;
+    transition: background 0.15s;
 }
 @media (hover: hover) {
-    .msg-context-item:hover {
-        background: #283d5b;
-        color: #c0caf5;
+    .header-stats .stats-clickable:hover {
+        background: rgba(255, 255, 255, 0.1);
     }
 }
-.msg-context-item svg {
-    flex-shrink: 0;
+
+/* Session metadata modal */
+.session-meta-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 1000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+.session-meta-modal-overlay.open { display: flex; }
+
+.session-meta-modal {
+    background: #1a2236;
+    border: 1px solid #2a3a5c;
+    border-radius: 10px;
+    padding: 20px;
+    width: 100%;
+    max-width: 420px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    max-height: 80vh;
+    overflow-y: auto;
+}
+.session-meta-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.session-meta-title {
+    color: #c0caf5;
+    font-size: 16px;
+    font-weight: 600;
+}
+.session-meta-close {
+    cursor: pointer;
+    color: #666;
+    transition: color 0.1s;
+    padding: 4px;
+}
+.session-meta-close:hover { color: #f44747; }
+
+.session-meta-section {
+    background: #0d1a2e;
+    border: 1px solid #283d5b;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+}
+.session-meta-section:last-child { margin-bottom: 0; }
+
+.session-meta-section-title {
+    color: #4ec9b0;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 10px;
+}
+
+.session-meta-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid #1e2d42;
+}
+.session-meta-row:last-child { border-bottom: none; }
+
+.session-meta-label {
+    color: #888;
+    font-size: 13px;
+}
+.session-meta-value {
+    color: #c0caf5;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: right;
+}
+.session-meta-value.clickable {
+    cursor: pointer;
+    color: #7aa2f7;
+}
+@media (hover: hover) {
+    .session-meta-value.clickable:hover {
+        text-decoration: underline;
+    }
+}
+.session-meta-value.muted {
+    color: #555;
+    font-weight: 400;
+}
+.session-meta-value.cost {
+    color: rgb(160, 48, 48);
+    font-style: italic;
+}
+.input-area.file-reference-drop {
+    outline: 1px solid #5a9fd4;
+    outline-offset: -1px;
 }

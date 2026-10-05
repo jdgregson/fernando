@@ -61,27 +61,7 @@ function onSocketConnected() {
     syncActiveChatPanes();
     applyProviderSettings();
     if (window._urlParamsProcessed) { handleForeground(); return; }
-    const params = new URLSearchParams(window.location.search);
-    const urlSession = params.get('session');
-    const urlSession2 = params.get('session2');
-    const urlSplit = params.get('split') === '1';
-    if (!paneController.get(1).terminalSession && paneController.get(1).surface !== 'browser') {
-        if (urlSession) {
-            if (!paneController.open(urlSession)) attachSession(urlSession);
-        } else {
-            openNewSessionModal();
-        }
-        if (urlSplit) {
-            if (!isSplit) toggleSplit();
-            if (urlSession2) {
-                if (!paneController.open(urlSession2)) attachSession(urlSession2);
-            }
-            const urlActive = parseInt(params.get('active'));
-            if (urlActive === 1) setActiveTerminal(1);
-            refreshSidebarHighlights();
-        }
-        window._urlParamsProcessed = true;
-    } else if (paneController.get(1).terminalSession) {
+    if (!paneController.restore() && paneController.get(1).terminalSession) {
         handleForeground();
     }
 }
@@ -114,7 +94,7 @@ function toggleKasmKeyboard() {
 }
 
 function updateKbdBtn() {
-    const hasDesktop = [1, 2].some(pn => paneController.isEmbedded(pn, 'desktop'));
+    const hasDesktop = [...paneController.sessionTypes.values()].some(adapter => adapter.keyboardButton && [1, 2].some(pn => paneController.isEmbedded(pn, adapter.type)));
     document.getElementById('kbdBtn').classList.toggle('kbdVisible', hasDesktop);
     const hasTerminal = paneController.get(activeTerminal).surface === 'terminal';
     document.getElementById('resizeBtn').classList.toggle('resizeBtnVisible', hasTerminal);
@@ -122,16 +102,7 @@ function updateKbdBtn() {
 }
 
 function toggleDesktop() {
-    const activePane = activeTerminal;
-    if (paneController.isEmbedded(activePane, 'desktop')) {
-        paneController.showTerminal(activePane, { clearLocation: true, fit: true });
-    } else {
-        const browser = paneController.showBrowser(activePane, null);
-        paneController.get(activePane).jupyterPath = null;
-        browser.innerHTML = '';
-        ensureDesktopIframe(browser);
-    }
-    paneController.finishOpen('desktop');
+    return paneController.open('desktop');
 }
 
 // --- Jupyter ---
@@ -154,13 +125,10 @@ function getActivePaneGroupId() {
 }
 
 function openJupyter(name) {
-    // Get group BEFORE closing modal (which clears newSessionTargetGroupId)
-    const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
-    closeNewSessionModal();
-    
-    if (!name) name = 'Jupyter-' + (++_jupyterCounter);
-    const activePane = activeTerminal;
-    const browser = paneController.showBrowser(activePane, 'jupyter:' + name);
+    return paneController.open(name ? 'jupyter:' + name : 'jupyter');
+}
+
+function mountJupyter({ name, pane: activePane, browser }) {
     browser.innerHTML = '';
     browser.style.background = '#0d2848';
     const iframe = document.createElement('iframe');
@@ -188,9 +156,7 @@ function openJupyter(name) {
     }
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:#0d2848';
     browser.appendChild(iframe);
-    paneController.finishOpen('jupyter');
-    emitWithCsrf('open_jupyter', { name: name, group_id: groupId });
-    emitWithCsrf('get_sessions');
+    return { name };
 }
 
 // --- Notes (Notebooks) ---
@@ -206,18 +172,7 @@ function ensureNotebookIframe(browser, notebook) {
 }
 
 function openNotebook(notebook) {
-    const sessionKey = 'notebook:' + notebook;
-    // Only inherit group if notebook isn't already in one
-    const existingGroup = _cachedSessionGroups[sessionKey];
-    const groupId = existingGroup ? null : (window._notebookTargetGroupId || getActivePaneGroupId());
-    window._notebookTargetGroupId = null;
-    const activePane = activeTerminal;
-    const browser = paneController.showBrowser(activePane, sessionKey);
-    browser.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#5a9fd4;font-family:sans-serif">Starting notebook...</div>';
-    paneController.finishOpen('notebook');
-    // Start the container (if already running, backend returns immediately)
-    emitWithCsrf('start_notebook', { name: notebook, group_id: groupId });
-    emitWithCsrf('get_sessions');
+    return paneController.open('notebook:' + notebook);
 }
 
 function showNotebookPicker() {
@@ -318,7 +273,7 @@ socket.on('jupyter_cmd', (data) => {
             const m = iframe.src.match(/\/notebooks\/(.+?)\.ipynb/);
             const iframeName = m ? decodeURIComponent(m[1]).split('/').pop() : '';
             if (target && iframeName !== target) continue;
-            iframe.contentWindow.postMessage({type: 'jupyter-cmd', ...data}, '*');
+            iframe.contentWindow.postMessage({type: 'jupyter-cmd', ...data}, window.location.origin);
             receivers.push(pn);
         }
     }
@@ -339,16 +294,7 @@ socket.on('notebook_created', (data) => {
 });
 
 socket.on('notebook_started', (data) => {
-    // Find the pane waiting for this notebook and load the iframe
-    for (const pn of [1, 2]) {
-        if (paneController.get(pn).contentKey === 'notebook:' + data.name && paneController.get(pn).surface === 'browser') {
-            const browser = document.getElementById(`browser${pn}`);
-            ensureNotebookIframe(browser, data.name);
-            break;
-        }
-    }
-    refreshSidebarHighlights();
-    syncUrlParams();
+    paneController.ready('notebook:' + data.name);
 });
 
 socket.on('notebook_error', (data) => {
@@ -998,7 +944,7 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     if (onClose) {
         const closeBtn = document.createElement('div');
         closeBtn.className = 'context-menu-item danger';
-        closeBtn.textContent = sessionKey.startsWith('chat:') ? 'Archive' : 'Close';
+        closeBtn.textContent = paneController.adapter(sessionKey)?.closeLabel || 'Close';
         closeBtn.onclick = () => { menu.remove(); onClose(); };
         menu.appendChild(closeBtn);
     }
@@ -1076,7 +1022,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     menu.appendChild(sleepAllBtn);
     
     const archiveBtn = document.createElement('div');
-    archiveBtn.className = 'context-menu-item';
+    archiveBtn.className = 'context-menu-item danger';
     archiveBtn.textContent = 'Archive';
     archiveBtn.onclick = () => {
         menu.remove();
@@ -1218,36 +1164,12 @@ function updateSessionList(sessions, chatSessions, data) {
     
     const sessionList = document.getElementById('sessionList');
 
-    if (!paneController.get(1).terminalSession && paneController.get(1).surface !== 'browser' && !window._urlParamsProcessed) {
-        const params = new URLSearchParams(window.location.search);
-        const urlSession = params.get('session');
-        const urlSession2 = params.get('session2');
-        const urlSplit = params.get('split') === '1';
-        if (!urlSession || !paneController.open(urlSession)) {
-            if (urlSession && sessions.includes(urlSession)) {
-                attachSession(urlSession);
-            } else if (sessions.length > 0) {
-                const saved = sessionStorage.getItem('fernando_session1');
-                attachSession(saved && sessions.includes(saved) ? saved : sessions[0]);
-            }
-        }
-        if (urlSplit) {
-            if (!isSplit) toggleSplit();
-            if (urlSession2 && !paneController.open(urlSession2) && sessions.includes(urlSession2)) {
-                attachSession(urlSession2);
-            }
-            const urlActive = parseInt(params.get('active'));
-            if (urlActive === 1) setActiveTerminal(1);
-            const activeSession = urlActive === 1 ? urlSession : urlSession2;
-            if (activeSession) highlightSidebarItem(activeSession);
-        }
-        window._urlParamsProcessed = true;
-    }
+    paneController.restore(sessions);
 
-    const chatKeys = chatSessions.map(c => 'chat:' + c.id + ':' + c.name + ':' + (c.loaded ? '1' : '0') + ':' + (c.status || 'idle'));
+    const inventory = paneController.inventory({ ...data, sessions, chat_sessions: chatSessions });
     const groupsKey = JSON.stringify(_cachedGroups) + '|' + JSON.stringify(_cachedSessionGroups);
     const collapsedKey = JSON.stringify([...getCollapsedParents()].sort());
-    const newKey = JSON.stringify([...sessions].sort()) + '|' + JSON.stringify(chatKeys.sort()) + '|' + JSON.stringify((data.running_notebooks || []).sort()) + '|' + JSON.stringify((data.running_jupyter || []).sort()) + '|' + groupsKey + '|' + collapsedKey;
+    const newKey = JSON.stringify(inventory.map(({ adapter, ...session }) => JSON.stringify(adapter.sidebarKey ? adapter.sidebarKey(session) : session)).sort()) + '|' + groupsKey + '|' + collapsedKey;
     if (sessionListInitialized && lastSessionsKey === newKey) return;
     sessionListInitialized = true;
     lastSessionsKey = newKey;
@@ -1255,356 +1177,13 @@ function updateSessionList(sessions, chatSessions, data) {
     // Build everything in a fragment to avoid flicker
     const fragment = document.createDocumentFragment();
     
-    // Build all session items first, then organize by group
-    const allItems = {};  // sessionKey -> {element, groupId}
-    const runningJupyter = data.running_jupyter || [];
-    const runningNotebooks = data.running_notebooks || [];
-
-    // Desktop item (always at top, not groupable)
-    const desktopItem = document.createElement('div');
-    desktopItem.className = 'session-item';
-    desktopItem.dataset.session = 'desktop';
-    const desktopName = document.createElement('span');
-    desktopName.className = 'session-name';
-    desktopName.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><rect x="1" y="2" width="14" height="10" rx="1"/><line x1="5" y1="14" x2="11" y2="14"/><line x1="8" y1="12" x2="8" y2="14"/></svg>Desktop';
-    const restartBtn = document.createElement('button');
-    restartBtn.className = 'close-btn';
-    restartBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 8a6 6 0 0 1 10.3-4.1"/><path d="M14 8a6 6 0 0 1-10.3 4.1"/><polyline points="2 2 2 6 6 6"/><polyline points="14 14 14 10 10 10"/></svg>';
-    restartBtn.onclick = (e) => { e.stopPropagation(); restartDesktop(); };
-    restartBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
-    restartBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); restartDesktop(); });
-    desktopItem.appendChild(desktopName);
-    desktopItem.appendChild(restartBtn);
-    desktopItem.addEventListener('click', function() {
-        toggleDesktop();
-        if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-    });
-    fragment.appendChild(desktopItem);
-
-    // Helper to create Jupyter item
-    function createJupyterItem(jname) {
-        const jItem = document.createElement('div');
-        jItem.className = 'session-item';
-        const sessionKey = 'jupyter:' + jname;
-        jItem.dataset.session = sessionKey;
-        const jNameSpan = document.createElement('span');
-        jNameSpan.className = 'session-name';
-        jNameSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:4px"><path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>' + jname;
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'close-btn';
-        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
-        function closeJupyter() {
-            for (const pn of [1, 2]) {
-                if (paneController.get(pn).contentKey === 'jupyter:' + jname) {
-                    paneController.showTerminal(pn, { clearLocation: true, emptyBrowser: true, fit: true });
-                }
-            }
-            emitWithCsrf('close_jupyter', { name: jname });
-            emitWithCsrf('get_sessions');
-            syncUrlParams();
-            updateKbdBtn();
-        }
-        closeBtn.onclick = (e) => { e.stopPropagation(); closeJupyter(); };
-        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
-        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeJupyter(); });
-        jItem.appendChild(jNameSpan);
-        jItem.appendChild(closeBtn);
-        jItem.addEventListener('click', function() {
-            highlightSidebarItem(sessionKey);
-            for (const pn of [1, 2]) {
-                if (paneController.get(pn).contentKey === 'jupyter:' + jname) {
-                    setActiveTerminal(pn, true);
-                    if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-                    return;
-                }
-            }
-            let clickPath = _jupyterNamePaths[jname];
-            if (!clickPath) {
-                for (const pn of [1, 2]) {
-                    if (paneController.get(pn).contentKey === 'jupyter:' + jname && paneController.get(pn).jupyterPath) {
-                        clickPath = paneController.get(pn).jupyterPath;
-                        break;
-                    }
-                }
-            }
-            openJupyter(clickPath || jname);
-            if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-        });
-        paneController.bindContextMenu(jItem, (e, x, y) => {
-            showSessionContextMenu(sessionKey, x, y, null, closeJupyter);
-        });
-        makeSessionDraggable(jItem, sessionKey);
-        return jItem;
+    const allItems = Object.create(null);
+    for (const session of inventory) {
+        if (session.hidden) continue;
+        const element = paneController.sidebarItem(session);
+        if (session.pinned) fragment.appendChild(element);
+        else allItems[session.key] = { element, groupId: _cachedSessionGroups[session.key] || null };
     }
-
-    // Helper to create Notebook item
-    function createNotebookItem(nb) {
-        const nbItem = document.createElement('div');
-        nbItem.className = 'session-item';
-        const sessionKey = 'notebook:' + nb;
-        nbItem.dataset.session = sessionKey;
-        const nbName = document.createElement('span');
-        nbName.className = 'session-name';
-        nbName.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-1px;margin-right:4px"><rect x="3" y="1" width="10" height="14" rx="1"/><line x1="6" y1="1" x2="6" y2="15"/><line x1="1" y1="4" x2="3" y2="4"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="1" y1="12" x2="3" y2="12"/></svg>' + nb;
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'close-btn';
-        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
-        function closeNotebook() {
-            for (const pn of [1, 2]) {
-                if (paneController.get(pn).contentKey === nb) {
-                    paneController.showTerminal(pn, { emptyBrowser: true, fit: true });
-                }
-            }
-            emitWithCsrf('stop_notebook', { name: nb });
-            emitWithCsrf('get_sessions');
-            syncUrlParams();
-            updateKbdBtn();
-        }
-        closeBtn.onclick = (e) => { e.stopPropagation(); closeNotebook(); };
-        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
-        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeNotebook(); });
-        nbItem.appendChild(nbName);
-        nbItem.appendChild(closeBtn);
-        nbItem.addEventListener('click', function() {
-            highlightSidebarItem(sessionKey);
-            openNotebook(nb);
-            if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-        });
-        paneController.bindContextMenu(nbItem, (e, x, y) => {
-            showSessionContextMenu(sessionKey, x, y, null, closeNotebook);
-        });
-        makeSessionDraggable(nbItem, sessionKey);
-        return nbItem;
-    }
-
-    // Helper to create Terminal item
-    function createTerminalItem(session) {
-        const item = document.createElement('div');
-        item.className = 'session-item';
-        item.dataset.session = session;
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'session-name';
-        const sIcon = session.startsWith('Shell') ? '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><polyline points="2 4 6 8 2 12"/><line x1="8" y1="12" x2="14" y2="12"/></svg>'
-            : session.startsWith('Kiro') ? '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-1px;margin-right:4px"><circle cx="8" cy="5" r="3"/><path d="M3 14c0-3 2-5 5-5s5 2 5 5"/></svg>'
-            : '';
-        nameSpan.innerHTML = sIcon + session;
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'close-btn';
-        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
-        closeBtn.onclick = (e) => closeSession(e, session);
-        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
-        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeSession(e, session); });
-        item.appendChild(nameSpan);
-        item.appendChild(closeBtn);
-
-        function startRename() {
-            const oldName = nameSpan.textContent;
-            const input = document.createElement('input');
-            input.className = 'session-rename-input';
-            input.value = oldName;
-            nameSpan.replaceWith(input);
-            input.focus();
-            input.select();
-            function commit() {
-                if (!input.parentNode) return;
-                const newName = input.value.trim();
-                input.replaceWith(nameSpan);
-                if (newName && newName !== oldName) emitWithCsrf('rename_session', { old_name: oldName, new_name: newName });
-            }
-            input.addEventListener('keydown', function(ev) {
-                ev.stopPropagation();
-                if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
-                if (ev.key === 'Escape') input.replaceWith(nameSpan);
-            });
-            input.addEventListener('blur', commit);
-            input.addEventListener('click', function(ev) { ev.stopPropagation(); });
-        }
-        item.addEventListener('click', function(e) {
-            const isActive = this.classList.contains('active');
-            if (isActive && e.detail === 2) {
-                startRename();
-                return;
-            }
-            if (!isActive) {
-                highlightSidebarItem(this.dataset.session);
-                attachSession(this.dataset.session);
-                if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-            }
-        });
-        paneController.bindContextMenu(item, (e, x, y) => {
-            showSessionContextMenu(session, x, y, startRename, () => closeSession(e, session));
-        });
-        makeSessionDraggable(item, session);
-        return item;
-    }
-
-    // Helper to create Chat item
-    function createChatItem(chat) {
-        const chatId = chat.id;
-        const sessionKey = 'chat:' + chatId;
-        const item = document.createElement('div');
-        item.className = 'session-item chat-session-item';
-        item.dataset.session = sessionKey;
-        item.dataset.treeId = chatId;
-        if (chat.parent_id) item.dataset.treeParent = chat.parent_id;
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'session-name' + (chat._isChild ? ' child-session' : '');
-        
-        // Get group color for this chat
-        const groupId = _cachedSessionGroups[sessionKey];
-        const group = groupId ? _cachedGroups.find(g => g.id === groupId) : null;
-        const groupColor = group ? group.color : '#4b8ce0';
-        
-        let chatIconFill, chatIconClass, chatIconColor;
-        if (!chat.loaded) {
-            chatIconFill = 'none';
-            chatIconColor = 'currentColor';
-            chatIconClass = '';
-        } else if (chat.status === 'working') {
-            chatIconFill = groupColor;
-            chatIconColor = groupColor;
-            chatIconClass = 'chat-icon-working';
-        } else if (chat.status === 'unread') {
-            chatIconFill = groupColor;
-            chatIconColor = groupColor;
-            chatIconClass = '';
-        } else {
-            chatIconFill = 'currentColor';
-            chatIconColor = 'currentColor';
-            chatIconClass = '';
-        }
-        nameSpan.innerHTML = '<svg class="chat-icon ' + chatIconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + chatIconFill + '" stroke="' + chatIconColor + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>';
-        const chatLabel = document.createElement('span');
-        const sidebarLabel = chatSidebarLabel(chat);
-        if (sidebarLabel.prefix) {
-            const prefix = document.createElement('span');
-            prefix.className = 'session-origin-prefix';
-            prefix.textContent = sidebarLabel.prefix + ' ';
-            chatLabel.appendChild(prefix);
-        }
-        const chatTitle = document.createElement('span');
-        chatTitle.textContent = sidebarLabel.name;
-        chatLabel.appendChild(chatTitle);
-        nameSpan.appendChild(chatLabel);
-        
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'close-btn';
-        closeBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
-        closeBtn.title = 'Archive';
-        closeBtn.setAttribute('aria-label', 'Archive');
-        closeBtn.onclick = (e) => { e.stopPropagation(); closeChatSession(chatId); };
-        closeBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); });
-        closeBtn.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); closeChatSession(chatId); });
-        
-        item.appendChild(nameSpan);
-        // Add collapse chevron for parents with children (between name and close button)
-        if (chat._hasChildren) {
-            const chevron = document.createElement('span');
-            chevron.className = 'parent-chevron' + (chat._isCollapsed ? '' : ' expanded');
-            chevron.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="3 2 7 5 3 8"/></svg>';
-            chevron.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); toggleParentExpanded(chatId); });
-            chevron.addEventListener('touchstart', (e) => { e.stopPropagation(); });
-            chevron.addEventListener('touchend', (e) => { e.stopPropagation(); e.preventDefault(); toggleParentExpanded(chatId); });
-            item.appendChild(chevron);
-        }
-        item.appendChild(closeBtn);
-
-        function startChatRename() {
-            const oldName = chatTitle.textContent;
-            const inp = document.createElement('input');
-            inp.className = 'session-rename-input';
-            inp.value = oldName;
-            nameSpan.replaceWith(inp);
-            inp.focus();
-            inp.select();
-            function commit() {
-                if (!inp.parentNode) return;
-                const newName = inp.value.trim();
-                inp.replaceWith(nameSpan);
-                if (newName && newName !== oldName) {
-                    chatTitle.textContent = newName;
-                    emitWithCsrf('acp_rename', { session_id: chatId, name: newName });
-                }
-            }
-            inp.addEventListener('keydown', function(ev) {
-                ev.stopPropagation();
-                if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
-                if (ev.key === 'Escape') inp.replaceWith(nameSpan);
-            });
-            inp.addEventListener('blur', commit);
-            inp.addEventListener('click', function(ev) { ev.stopPropagation(); });
-        }
-        item.addEventListener('click', function(e) {
-            const isActive = this.classList.contains('active');
-            if (isActive && e.detail === 2) {
-                startChatRename();
-                return;
-            }
-            if (!isActive) {
-                highlightSidebarItem(sessionKey);
-                openChatPane(chatId);
-                if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
-            }
-        });
-        paneController.bindContextMenu(item, (e, x, y) => {
-            const collapseOpt = chat._hasChildren ? { isCollapsed: chat._isCollapsed, toggle: () => toggleParentExpanded(chatId) } : null;
-            showSessionContextMenu(sessionKey, x, y, startChatRename, () => closeChatSession(chatId), () => emitWithCsrf('acp_sleep', { session_id: chatId }), () => emitWithCsrf('acp_clone', { session_id: chatId, group_id: groupId }), collapseOpt);
-        });
-        makeSessionDraggable(item, sessionKey);
-        return item;
-    }
-
-    // Build all session items
-    runningJupyter.forEach(jname => {
-        const key = 'jupyter:' + jname;
-        allItems[key] = { element: createJupyterItem(jname), groupId: _cachedSessionGroups[key] || null };
-    });
-    runningNotebooks.forEach(nb => {
-        const key = 'notebook:' + nb;
-        allItems[key] = { element: createNotebookItem(nb), groupId: _cachedSessionGroups[key] || null };
-    });
-    sessions.forEach(session => {
-        allItems[session] = { element: createTerminalItem(session), groupId: _cachedSessionGroups[session] || null };
-    });
-    // Sort chatSessions: children immediately after their parents
-    const sortedChats = [];
-    const childrenByParent = {};
-    const roots = [];
-    chatSessions.forEach(chat => {
-        if (chat.parent_id) {
-            if (!childrenByParent[chat.parent_id]) childrenByParent[chat.parent_id] = [];
-            childrenByParent[chat.parent_id].push(chat);
-        } else {
-            roots.push(chat);
-        }
-    });
-    const collapsedParents = getCollapsedParents();
-    const processedChats = new Set();
-    function addWithChildren(chat, parentCollapsed = false) {
-        processedChats.add(chat.id);
-        const children = childrenByParent[chat.id] || [];
-        chat._hasChildren = children.length > 0;
-        chat._isCollapsed = collapsedParents.has(chat.id);
-        if (!parentCollapsed) {
-            sortedChats.push(chat);
-        }
-        const isCollapsed = parentCollapsed || chat._isCollapsed;
-        children.forEach(child => {
-            child._isChild = true;
-            addWithChildren(child, isCollapsed);
-        });
-    }
-    roots.forEach(r => addWithChildren(r, false));
-    chatSessions.forEach(chat => {
-        if (!processedChats.has(chat.id)) {
-            chat._isChild = !!chat.parent_id;
-            sortedChats.push(chat);
-        }
-    });
-    sortedChats.forEach(chat => {
-        const key = 'chat:' + chat.id;
-        allItems[key] = { element: createChatItem(chat), groupId: _cachedSessionGroups[key] || null };
-    });
 
     // Get local group order, merge with server groups
     const localOrder = getGroupOrder();
@@ -1701,19 +1280,7 @@ socket.on('sessions_list', data => {
 });
 
 function broadcastGroupColors() {
-    for (const pn of [1, 2]) {
-        const browser = document.getElementById(`browser${pn}`);
-        if (!browser) continue;
-        const iframe = browser.querySelector('iframe');
-        if (!iframe || !iframe.contentWindow) continue;
-        const sessionKey = paneController.get(pn).contentKey;
-        if (!sessionKey || !sessionKey.startsWith('chat:')) continue;
-        const groupId = _cachedSessionGroups[sessionKey];
-        if (!groupId) continue;
-        const group = _cachedGroups.find(g => g.id === groupId);
-        if (!group || !group.color) continue;
-        iframe.contentWindow.postMessage({ type: 'group-color', color: group.color, split: isSplit }, window.location.origin);
-    }
+    paneController.broadcastState();
 }
 
 setInterval(() => { emitWithCsrf('get_sessions'); }, 2000);
@@ -1736,25 +1303,10 @@ socket.on('session_closed', (data) => {
 
 // --- Attach / Detach ---
 function attachSession(sessionName) {
-    if (sessionName === 'desktop') { toggleDesktop(); return; }
-    if (sessionName.startsWith('notebook:')) { openNotebook(sessionName.slice(9)); return; }
-    // Already attached to this pane — no-op.
-    // In split mode, if the user recently directly clicked a different pane,
-    // honor that as the target (handles race where activeTerminal hasn't updated).
-    const currentSession = paneController.get(activeTerminal).terminalSession;
-    if (paneController.get(activeTerminal).surface === 'terminal' && currentSession === sessionName) {
-        if (isSplit && _lastDirectPaneTarget !== activeTerminal
-            && Date.now() - _lastDirectPaneTouch < 5000) {
-            setActiveTerminal(_lastDirectPaneTarget, true);
-        } else {
-            highlightSidebarItem(sessionName);
-            return;
-        }
-    }
-    if (paneController.get(activeTerminal).surface === 'browser') {
-        paneController.showTerminal(activeTerminal, { clearLocation: true });
-    }
-    updateKbdBtn();
+    return paneController.open(sessionName);
+}
+
+function mountTerminal({ key: sessionName }) {
     paneController.get(activeTerminal).terminalSession = sessionName;
     sessionStorage.setItem('fernando_session' + activeTerminal, sessionName);
     _paneSession[activeTerminal] = sessionName;
@@ -1773,11 +1325,7 @@ function attachSession(sessionName) {
     const skipReplay = entry.ready && !entry.firstAttach;
     entry.firstAttach = false;
     emitWithCsrf('attach_session', { terminal: activeTerminal, session: sessionName, skip_replay: skipReplay });
-    highlightSidebarItem(sessionName);
-    updatePaneBorders();
-    if (entry.ready) entry.wterm.focus();
-    setTimeout(doFit, 100);
-    syncUrlParams();
+    return { entry };
 }
 
 function getBrowserPaneSession(pane) {
@@ -1792,8 +1340,8 @@ function syncUrlParams() {
     params.delete('session2');
     params.delete('split');
     params.delete('active');
-    const s1 = paneController.sessionKey(1);
-    const s2 = paneController.sessionKey(2);
+    const s1 = paneController.locationKey(1);
+    const s2 = paneController.locationKey(2);
     if (s1) params.set('session', s1);
     if (isSplit && s2) { params.set('session2', s2); params.set('split', '1'); params.set('active', String(activeTerminal)); }
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
@@ -1804,15 +1352,7 @@ function syncUrlParams() {
 
 // Notify chat iframes which pane is active (for mark-read logic)
 function broadcastPaneActive() {
-    for (const pn of [1, 2]) {
-        const browser = document.getElementById(`browser${pn}`);
-        if (!browser) continue;
-        const iframe = browser.querySelector('iframe');
-        if (!iframe || !iframe.contentWindow) continue;
-        const sessionKey = paneController.get(pn).contentKey;
-        if (!sessionKey || !sessionKey.startsWith('chat:')) continue;
-        iframe.contentWindow.postMessage({ type: 'pane-active', active: pn === activeTerminal }, window.location.origin);
-    }
+    paneController.broadcastState();
 }
 
 // Click handlers
@@ -1843,75 +1383,34 @@ document.getElementById('terminal2-container').addEventListener('touchstart', ac
 
 // iframe focus detection handled by container touchstart/mousedown handlers
 
-// Handle focus from iframes (notes, desktop) via postMessage
-window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'notes-focus') {
-        for (const pn of [1, 2]) {
-            const browser = document.getElementById('browser' + pn);
-            if (!browser) continue;
-            const iframe = browser.querySelector('iframe');
-            if (!iframe) continue;
-            try {
-                if (iframe.contentWindow === e.source) {
-                    if (pn === 1) activatePane1();
-                    else activatePane2();
-                    return;
-                }
-            } catch(ex) {}
-        }
-        // Fallback: if source matching failed, activate whichever pane has a notebook/jupyter
-        for (const pn of [1, 2]) {
-            if (paneController.get(pn).contentKey && activeTerminal !== pn) {
-                if (pn === 1) activatePane1();
-                else activatePane2();
-                return;
-            }
+function navigateJupyter(pane, location) {
+    const state = paneController.get(pane);
+    const oldPath = state.jupyterPath;
+    if (location.path) {
+        state.jupyterPath = '/jupyter' + location.path.replace(/^\/jupyter/, '');
+        _jupyterNamePaths[location.name] = state.jupyterPath;
+    }
+    const oldName = state.contentKey.slice(8);
+    if (oldName === location.name) {
+        if (state.jupyterPath !== oldPath) syncUrlParams();
+        return;
+    }
+    state.contentKey = 'jupyter:' + location.name;
+    const item = [...document.querySelectorAll('.session-item')].find(item => item.dataset.session === 'jupyter:' + oldName);
+    if (item) {
+        item.dataset.session = state.contentKey;
+        const label = item.querySelector('.session-name');
+        if (label) {
+            label.innerHTML = paneController.sessionTypes.get('jupyter').sidebar().icon;
+            label.appendChild(document.createTextNode(location.name));
         }
     }
-    // Update Jupyter sidebar label when notebook name changes
-    if (e.data && e.data.type === 'jupyter-name' && e.data.name) {
-        for (const pn of [1, 2]) {
-            const browser = document.getElementById('browser' + pn);
-            if (!browser) continue;
-            const iframe = browser.querySelector('iframe');
-            if (!iframe) continue;
-            try {
-                if (iframe.contentWindow === e.source && paneController.get(pn).contentKey && paneController.get(pn).contentKey.startsWith('jupyter:')) {
-                    // Save the current Jupyter path for reload restoration
-                    const oldPath = paneController.get(pn).jupyterPath;
-                    if (e.data.jpath) {
-                        paneController.get(pn).jupyterPath = '/jupyter' + e.data.jpath.replace(/^\/jupyter/, '');
-                        _jupyterNamePaths[e.data.name] = paneController.get(pn).jupyterPath;
-                    }
-                    const oldName = paneController.get(pn).contentKey.slice(8);
-                    const newName = e.data.name;
-                    if (oldName === newName) {
-                        // Name unchanged but path may have changed — sync URL
-                        if (paneController.get(pn).jupyterPath !== oldPath) syncUrlParams();
-                        continue;
-                    }
-                    paneController.get(pn).contentKey = 'jupyter:' + newName;
-                    // Update sidebar item
-                    const item = document.querySelector(`.session-item[data-session="jupyter:${oldName}"]`);
-                    if (item) {
-                        item.dataset.session = 'jupyter:' + newName;
-                        const nameSpan = item.querySelector('.session-name');
-                        if (nameSpan) {
-                            const icon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-1px;margin-right:4px"><path d="M7.157 22.201A1.784 1.799 0 0 1 5.374 24a1.784 1.799 0 0 1-1.784-1.799 1.784 1.799 0 0 1 1.784-1.799 1.784 1.799 0 0 1 1.783 1.799zM20.582 1.427a1.415 1.427 0 0 1-1.415 1.428 1.415 1.427 0 0 1-1.416-1.428A1.415 1.427 0 0 1 19.167 0a1.415 1.427 0 0 1 1.415 1.427zM4.992 3.336A1.047 1.056 0 0 1 3.946 4.39a1.047 1.056 0 0 1-1.047-1.055A1.047 1.056 0 0 1 3.946 2.28a1.047 1.056 0 0 1 1.046 1.056zm7.336 1.517c3.769 0 7.06 1.38 8.768 3.424a9.363 9.363 0 0 0-3.393-4.547 9.238 9.238 0 0 0-5.377-1.728A9.238 9.238 0 0 0 6.95 3.73a9.363 9.363 0 0 0-3.394 4.547c1.713-2.04 5.004-3.424 8.772-3.424zm.001 13.295c-3.768 0-7.06-1.381-8.768-3.425a9.363 9.363 0 0 0 3.394 4.547A9.238 9.238 0 0 0 12.33 21a9.238 9.238 0 0 0 5.377-1.729 9.363 9.363 0 0 0 3.393-4.547c-1.712 2.044-5.003 3.425-8.772 3.425Z"/></svg>';
-                            nameSpan.innerHTML = icon + newName;
-                        }
-                    }
-                    // Update backend tracking - preserve group assignment
-                    const oldGroupId = _cachedSessionGroups['jupyter:' + oldName];
-                    emitWithCsrf('close_jupyter', { name: oldName, preserve_group: true });
-                    emitWithCsrf('open_jupyter', { name: newName, group_id: oldGroupId });
-                    refreshSidebarHighlights();
-                    syncUrlParams();
-                }
-            } catch(ex) {}
-        }
-    }
-});
+    const groupId = _cachedSessionGroups['jupyter:' + oldName];
+    emitWithCsrf('close_jupyter', { name: oldName, preserve_group: true });
+    emitWithCsrf('open_jupyter', { name: location.name, group_id: groupId });
+    refreshSidebarHighlights();
+    syncUrlParams();
+}
 
 // --- New Session Modal ---
 let newSessionTargetGroupId = null;
@@ -1936,9 +1435,7 @@ function createSessionType(type) {
 }
 function closeSession(event, sessionName) {
     event.stopPropagation();
-    showConfirm(`Close session "${sessionName}"?`).then(result => {
-        if (result) emitWithCsrf('close_session', { session: sessionName });
-    });
+    paneController.close(sessionName);
 }
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
@@ -1955,16 +1452,12 @@ if (window.innerWidth > 500 && localStorage.getItem('fernando_sidebar_collapsed'
     document.getElementById('sidebar').classList.add('collapsed');
 }
 
-// Close sidebar on outside click (mobile)
-document.addEventListener('click', (e) => {
-    if (window.innerWidth <= 500) {
-        const sidebar = document.getElementById('sidebar');
-        const sidebarToggle = document.querySelector('.sidebar-toggle');
-        if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && e.target !== sidebarToggle) {
-            sidebar.classList.remove('open');
-        }
-    }
-});
+bindBackdropDismissal(document, target => {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.querySelector('.sidebar-toggle');
+    return target !== null && window.innerWidth <= 500 && sidebar.classList.contains('open')
+        && !sidebar.contains(target) && !sidebarToggle.contains(target);
+}, () => document.getElementById('sidebar').classList.remove('open'));
 
 // --- Initial load ---
 emitWithCsrf('get_sessions');
