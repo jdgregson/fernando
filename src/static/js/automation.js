@@ -327,7 +327,7 @@ function _renderDomainInputs(domains) {
         row.appendChild(inp);
         if (val) {
             const btn = document.createElement('button');
-            btn.className = 'close-btn';
+            btn.className = 'icon-btn';
             btn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';
             btn.onclick = () => { row.remove(); };
             row.appendChild(btn);

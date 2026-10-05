@@ -857,6 +857,28 @@ def register_handlers(socketio):
         logger.info(f"[acp_execute_command] result: {result}")
         emit("acp_command_result", {"session_id": session_id, "command": command, "result": result})
 
+    @socketio.on("acp_get_message_pins")
+    def acp_get_message_pins(data):
+        if not validate_csrf(data):
+            return {"error": "Invalid CSRF token"}
+        return acp_manager.message_pins(data.get("session_id"))
+
+    @socketio.on("acp_set_message_pin")
+    def acp_set_message_pin(data):
+        if not validate_csrf(data):
+            return {"error": "Invalid CSRF token"}
+        session_id = data.get("session_id")
+        key = data.get("message_key")
+        pinned = data.get("pinned")
+        if key is None:
+            return {"error": "Invalid message pin"}
+        result = acp_manager.message_pins(session_id, key, pinned)
+        if 'error' in result:
+            return result
+        for sid in acp_subscribers.get(session_id, set()):
+            socketio.emit("acp_message_pins", {"session_id": session_id, **result}, room=sid)
+        return result
+
     @socketio.on("acp_subscribe")
     def acp_subscribe(data):
         if not validate_csrf(data):

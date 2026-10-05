@@ -109,11 +109,11 @@ div.cell {
 }
 
 .cell.selected {
-    border-color: #3465a3 !important;
+    border-color: var(--fernando-group-color, #3465a3) !important;
 }
 
 .cell.selected::before {
-    background-color: #3465a3 !important;
+    background-color: var(--fernando-group-color, #3465a3) !important;
 }
 
 .input_area {

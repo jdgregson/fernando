@@ -33,7 +33,7 @@ paneController.register('jupyter', {
     context: key => ({ type: 'jupyter', notebook: key.slice(8) }),
     keyFromUrl: url => url.includes('/jupyter/') ? 'jupyter:Jupyter' : null,
     prepare(key) {
-        const groupId = getNewSessionGroupId();
+        const groupId = key === 'jupyter' ? getNewSessionGroupId() : undefined;
         closeNewSessionModal();
         const name = key === 'jupyter' ? 'Jupyter-' + (++_jupyterCounter) : key.slice(8);
         return { key: 'jupyter:' + name, name, groupId };

@@ -66,6 +66,44 @@
     margin: 4px 0;
 }
 
+:is(.group-context-menu, .msg-context-menu, .plus-menu, :where(#fileContextMenu)) input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1px solid #3465a3;
+    border-radius: 3px;
+    background: #091d35;
+    cursor: pointer;
+    vertical-align: middle;
+    position: relative;
+    flex-shrink: 0;
+}
+
+:is(.group-context-menu, .msg-context-menu, .plus-menu, :where(#fileContextMenu)) input[type="checkbox"]:checked {
+    background: #3465a3;
+    border-color: #5b9be5;
+}
+
+:is(.group-context-menu, .msg-context-menu, .plus-menu, :where(#fileContextMenu)) input[type="checkbox"]:checked::after {
+    content: '';
+    width: 4px;
+    height: 8px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    position: absolute;
+    top: 0;
+    left: 4px;
+    transform: rotate(45deg);
+}
+
+:is(.group-context-menu, .msg-context-menu, .plus-menu, :where(#fileContextMenu)) input[type="checkbox"]:focus-visible {
+    outline: 2px solid #9cdcfe;
+    outline-offset: 3px;
+}
+
 @media (hover: hover) {
     :is(.context-menu-item, .msg-context-item, .plus-menu-item, :where(#fileContextMenu) > button):not(:disabled):hover {
         background: #163859;

@@ -1116,7 +1116,8 @@ def jupyter_proxy(path):
                 "</script>"
             )
             bridge = '<script src="/static/js/pane-bridge.js" data-activate-on="click"></script>'
-            content = content.replace("</head>", bridge + intercept + "</head>", 1)
+            theme = '<script src="/static/js/jupyter-theme.js"></script>'
+            content = content.replace("</head>", bridge + theme + intercept + "</head>", 1)
             content = content.encode("utf-8")
 
         flask_resp = make_response(content, resp.status_code)

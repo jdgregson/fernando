@@ -248,6 +248,7 @@ class ACPSession:
         self.on_event = on_event
         self.backend = backend  # "kiro" or "opencode"
         self.context_snapshot = None  # Last applied context, refreshed before every process launch
+        self.pinned_messages = []
         self.proc = None
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
@@ -1191,6 +1192,7 @@ class ACPManager:
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id), backend=backend)
             session.display_name = name
             session.context_snapshot = info.get('context_snapshot') if isinstance(info, dict) else None
+            session.pinned_messages = list(info.get('pinned_messages', [])) if isinstance(info, dict) else []
             session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
             self._wire_session_status_callback(session)
             with self._lock:
@@ -1459,6 +1461,7 @@ class ACPManager:
                 "backend": backend,
                 "model": model,
                 "context_snapshot": session.context_snapshot,
+                **({'pinned_messages': session.pinned_messages} if session.pinned_messages else {}),
                 "archived_at": time.time()
             }
             _save_archived_map(archived)
@@ -1492,6 +1495,7 @@ class ACPManager:
         session = ACPSession(session_id, on_event=on_event, backend=backend)
         session.display_name = info.get("name", "Chat-" + session_id)
         session.context_snapshot = info.get('context_snapshot')
+        session.pinned_messages = list(info.get('pinned_messages', []))
         session.model = info.get("model", ACPSession.DEFAULT_MODEL)
         self._wire_session_status_callback(session)
         with self._lock:
@@ -1744,6 +1748,48 @@ class ACPManager:
         threading.Thread(target=self._load_existing, args=(new_id, session, new_acp_id), daemon=True).start()
         return new_id
 
+    def message_pins(self, session_id, message_key=None, pinned=None):
+        if not isinstance(session_id, str) or not re.fullmatch(r'[a-f0-9]{8}', session_id):
+            return {'error': 'Invalid session ID'}
+        if message_key is not None and (
+            not isinstance(message_key, str)
+            or not re.fullmatch(r'(user|assistant):\d{1,9}:\d{1,9}', message_key)
+            or type(pinned) is not bool
+        ):
+            return {'error': 'Invalid message pin'}
+        with self._lock:
+            session = self.sessions.get(session_id)
+            if session:
+                pins = set(session.pinned_messages)
+                if message_key is not None:
+                    if pinned:
+                        pins.add(message_key)
+                    else:
+                        pins.discard(message_key)
+                    session.pinned_messages = sorted(pins)
+                result = {'pins': sorted(pins)}
+            else:
+                with _archived_lock:
+                    archived = _load_archived_map()
+                    record = archived.get(session_id)
+                    if record is None:
+                        return {'error': 'Chat not found'}
+                    pins = set(record.get('pinned_messages', []))
+                    if message_key is not None:
+                        if pinned:
+                            pins.add(message_key)
+                        else:
+                            pins.discard(message_key)
+                        if pins:
+                            record['pinned_messages'] = sorted(pins)
+                        else:
+                            record.pop('pinned_messages', None)
+                        _save_archived_map(archived)
+                    return {'pins': sorted(pins)}
+        if message_key is not None:
+            self._save()
+        return result
+
     def _save(self):
         with self._lock:
             mapping = {
@@ -1754,11 +1800,12 @@ class ACPManager:
                     "backend": s.backend,
                     "loaded": s.is_loaded,
                     "context_snapshot": s.context_snapshot,
+                    **({'pinned_messages': s.pinned_messages} if s.pinned_messages else {}),
                 }
                 for sid, s in self.sessions.items()
                 if s.acp_session_id or s._start_on_open
             }
-        _save_sessions_map(mapping)
+            _save_sessions_map(mapping)
 
     def _save_pid_map(self):
         with self._lock:

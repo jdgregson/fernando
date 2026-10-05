@@ -6,6 +6,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/chat-pins.css">
     <link rel="stylesheet" href="/static/css/context-menu.css">
     <link rel="stylesheet" href="/static/css/image-viewer.css">
     <script src="/static/js/image-viewer.js" defer></script>
@@ -13,6 +14,7 @@
     <script src="/static/js/pane-bridge.js" data-activate-on="mousedown"></script>
     <script src="/static/js/file-drag.js"></script>
     <script src="/static/js/modal.js"></script>
+    <script src="/static/js/chat-pins.js"></script>
 </head>
 <body>
     <div class="chat-header" id="chatHeader">
@@ -32,7 +34,10 @@
             <div class="tb-list" id="tbList"></div>
         </div>
     </div>
-    <div class="messages" id="messages"></div>
+    <div class="messages-viewport">
+        <div class="messages" id="messages"></div>
+        <nav class="pin-navigation" id="pinNavigation" aria-label="Message navigation"></nav>
+    </div>
     <form class="input-area" id="chat-composer" aria-label="Chat message composer" autocomplete="off" onsubmit="event.preventDefault()">
         <div class="attached-files" id="attachedFiles"></div>
         <span class="uploading-indicator" id="uploadingIndicator" style="display:none">Uploading...</span>
@@ -176,6 +181,13 @@
         csrfToken = data.csrf_token;
         if (historyOffset === 0) setStatus('connecting', 'Loading...');
         socket.emit('acp_subscribe', { csrf_token: csrfToken, session_id: sessionId, history_offset: historyOffset });
+        socket.timeout(15000).emit('acp_get_message_pins', {csrf_token: csrfToken, session_id: sessionId}, (error, result) => {
+            if (error || !result || result.error) {
+                showAlert(result?.error || 'Could not load pinned messages.');
+                return;
+            }
+            messagePins.receive(result.pins);
+        });
         // Fetch reward balance and unread child messages for context injection
         socket.emit('reward_get_balance', { csrf_token: csrfToken, session_id: sessionId });
     });
@@ -191,6 +203,9 @@
 
     // Apply group color to chat header and task bar
     function applyGroupColor(groupColor, isSplit) {
+        if (/^#[0-9a-f]{6}$/i.test(groupColor)) {
+            document.documentElement.style.setProperty('--pinned-message-color', groupColor);
+        }
         const header = document.getElementById('chatHeader');
         const taskBar = document.getElementById('taskBar');
         if (!header || !groupColor) return;
@@ -242,13 +257,12 @@
 
     if (window.parent !== window) {
         FernandoPane.on('context', ctx => {
-            if (ctx.group) {
-                _currentGroupId = ctx.group.id;
-                applyGroupColor(ctx.group.color, ctx.split);
-            }
+            _currentGroupId = ctx.group?.id || null;
+            applyGroupColor(ctx.group?.color || '#3465a3', ctx.split);
         });
         FernandoPane.on('state', state => {
-            if (state.group?.color) applyGroupColor(state.group.color, state.split);
+            _currentGroupId = state.group?.id || null;
+            applyGroupColor(state.group?.color || '#3465a3', state.split);
             isActivePane = state.active;
         });
         // Request context with a small delay to ensure parent has session data
@@ -1130,12 +1144,10 @@
 
     // --- Message context menu for Fork ---
     function showMsgContextMenu(x, y, turnIndex, msgType, label) {
-        // Only allow forking from user messages (natural conversation boundaries)
-        if (msgType !== 'user') return;
-        
         dismissMsgContextMenu();
         const menu = document.createElement('div');
         menu.className = 'msg-context-menu';
+        if (msgType === 'user') {
         const contextBtn = document.createElement('div');
         contextBtn.className = 'msg-context-item';
         contextBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg><span>View context</span>';
@@ -1153,6 +1165,20 @@
             forkAtTurn(turnIndex);
         };
         menu.appendChild(forkBtn);
+        }
+        const message = label.closest('.msg');
+        const pinBtn = document.createElement('button');
+        pinBtn.type = 'button';
+        pinBtn.className = 'msg-context-item';
+        pinBtn.innerHTML = ChatPins.pinIcon;
+        const pinText = document.createElement('span');
+        pinText.textContent = messagePins.pins.has(message.dataset.pinKey) ? 'Unpin message' : 'Pin message';
+        pinBtn.appendChild(pinText);
+        pinBtn.onclick = () => {
+            menu.remove();
+            messagePins.toggle(message);
+        };
+        menu.appendChild(pinBtn);
         
         document.body.appendChild(menu);
         menu.style.left = x + 'px';
@@ -1238,8 +1264,9 @@
             label.className = 'msg-label';
             label.textContent = 'Fernando';
             if (msgTs) _addTimestampSpan(label, msgTs, msgModel);
-            // No context menu on assistant labels - fork only from user messages
+            addMsgLabelContextMenu(label, currentTurnIndex, 'assistant');
             currentAssistantMsg.appendChild(label);
+            messagePins.register(currentAssistantMsg, 'assistant', currentTurnIndex);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }
         return currentAssistantMsg;
@@ -2212,6 +2239,27 @@
     });
 
     let _suppressScroll = false;
+    const messagePins = new ChatPins({
+        messages: _messagesEl,
+        navigation: document.getElementById('pinNavigation'),
+        pauseFollowing: () => { _userScrolledUp = true; },
+        bottom: () => scrollToBottom(true),
+        save: (key, pinned, done) => {
+            socket.timeout(15000).emit('acp_set_message_pin', {
+                csrf_token: csrfToken, session_id: sessionId, message_key: key, pinned,
+            }, (error, result) => {
+                if (error || !result || result.error) {
+                    done(null);
+                    showAlert(result?.error || 'Could not save the message pin.');
+                    return;
+                }
+                done(result.pins);
+            });
+        },
+    });
+    socket.on('acp_message_pins', data => {
+        if (data.session_id === sessionId) messagePins.receive(data.pins);
+    });
     function scrollToBottom(force) {
         if (_suppressScroll) return;
         if (force) _userScrolledUp = false;
@@ -2523,6 +2571,7 @@
         // Add context menu for forking
         addMsgLabelContextMenu(label, currentTurnIndex, 'user');
         el.appendChild(label);
+        messagePins.register(el, 'user', currentTurnIndex);
         if (collapsed) {
             const preview = document.createElement('span');
             preview.style.cssText = 'color:#888;cursor:pointer';

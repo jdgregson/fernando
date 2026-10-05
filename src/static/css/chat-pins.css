@@ -1,0 +1,13 @@
+.messages-viewport { position: relative; display: flex; flex: 1; min-height: 0; }
+.messages-viewport > .messages { min-width: 0; min-height: 0; }
+.msg.pinned { background: color-mix(in srgb, var(--pinned-message-color, #3465a3) 50%, transparent); }
+.message-unpin { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; margin-left: 6px; padding: 2px; border: 0; border-radius: 3px; background: transparent; color: inherit; cursor: pointer; height: 10px; margin-top: -3px; }
+.message-unpin:hover { background: #ffffff20; }
+.pin-navigation { position: absolute; inset: 0; pointer-events: none; z-index: 5; }
+.pin-nav-top { position: absolute; top: 16px; left: 16px; }
+.pin-nav-end { position: absolute; bottom: 16px; right: 16px; }
+.pin-nav-bottom { position: absolute; bottom: 16px; left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.pin-nav-button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 32px; padding: 5px 9px; border: 1px solid #283d5b; border-radius: 4px; background: #0d2848; color: #b8cfe5; cursor: pointer; pointer-events: auto; box-shadow: 0 2px 8px #0005; }
+.pin-nav-button:hover { background: #163859; color: #e1effa; }
+.pin-nav-button[hidden] { display: none; }
+.message-unpin:focus-visible, .pin-nav-button:focus-visible { outline: 2px solid #9cdcfe; outline-offset: 2px; }
