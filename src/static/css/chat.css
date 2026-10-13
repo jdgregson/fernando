@@ -365,13 +365,30 @@ body { display: flex; flex-direction: column; }
     }
 }
 
-.msg.queued-agent-message {
+.queued-messages {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 25vh;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+.queued-messages:empty { display: none; }
+.queued-agent-message {
     display: flex;
     align-items: center;
+    flex-shrink: 0;
     width: 100%;
     padding: 0 0 0 12px;
+    color: #5a9bcf;
+    font-size: 12px;
+    line-height: 1.4;
+    background: #0a213d;
+    border: 1px solid #102d50;
+    border-radius: 6px;
 }
 .queued-agent-preview,
+.queued-agent-edit,
 .queued-agent-remove {
     color: inherit;
     background: none;
@@ -380,6 +397,7 @@ body { display: flex; flex-direction: column; }
 }
 .queued-agent-preview {
     min-width: 0;
+    margin-right: 8px;
     padding: 6px 0;
     font: inherit;
     white-space: nowrap;
@@ -387,11 +405,17 @@ body { display: flex; flex-direction: column; }
     text-overflow: ellipsis;
     text-align: left;
 }
+.queued-agent-edit,
 .queued-agent-remove {
     flex: 0 0 44px;
     min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+.queued-agent-edit {
     margin-left: auto;
-    transform: translateY(5px);
 }
 
 .input-area {

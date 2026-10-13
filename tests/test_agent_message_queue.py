@@ -61,20 +61,58 @@ class AgentMessageQueueTests(unittest.TestCase):
         self.session._send.assert_called_once()
         self.assertEqual(self.session._agent_message_queue, [])
 
-    def test_user_and_agent_messages_share_fifo_without_cancelling(self):
+    def test_user_messages_merge_at_original_queue_position_without_cancelling(self):
         self.session._is_prompting = True
         self.session.cancel = Mock()
         self.assertFalse(self.session.queue_user_message('user first'))
         self.assertFalse(self.session.send_agent_message('child', 'agent second'))
         self.assertFalse(self.session.queue_user_message('user third'))
         self.session._send.assert_not_called()
-        for expected in ('[Pane context: current]\nuser first', '[AGENT MESSAGE from child] agent second', '[Pane context: current]\nuser third'):
+        for expected in ('[Pane context: current]\nuser first\n\nuser third', '[AGENT MESSAGE from child] agent second'):
             self.finish_turn()
             self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'][0]['text'], expected)
         self.session.cancel.assert_not_called()
         delivered = [e for e in self.session.history if e.get('type') == 'user_prompt']
-        self.assertEqual(len(delivered), 2)
+        self.assertEqual(len(delivered), 1)
         self.assertTrue(all(e.get('queue_id') for e in delivered))
+
+    def test_idle_user_message_never_enters_queue(self):
+        self.assertTrue(self.session.queue_user_message('hello'))
+        self.session._send.assert_called_once()
+        self.assertEqual(self.session._agent_message_queue, [])
+        self.assertEqual([e['type'] for e in self.session.history], ['user_prompt'])
+        self.assertNotIn('queue_id', self.session.history[0])
+        self.assertEqual(self.session.history[0]['text'], '[Pane context: current]\nhello')
+        self.assertFalse(any(call.args[1].get('type') == 'user_message_queued'
+                             for call in self.session.on_event.call_args_list))
+
+    def test_merged_user_message_restores_and_delivers_once(self):
+        self.session._is_prompting = True
+        for text in ('first', 'second\nwith another line', 'third'):
+            self.assertFalse(self.session.queue_user_message(text))
+        updates = [e for e in self.session.history if e['type'] == 'user_message_queued']
+        self.assertEqual(len({e['id'] for e in updates}), 1)
+        self.assertEqual(updates[0]['text'], 'first')
+        with patch.object(acp, 'load_history_file', return_value=list(self.session.history)):
+            self.session._load_history()
+        self.assertEqual(len(self.session._agent_message_queue), 1)
+        self.finish_turn()
+        self.session._send.assert_called_once()
+        self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'][0]['text'],
+                         '[Pane context: current]\nfirst\n\nsecond\nwith another line\n\nthird')
+        self.finish_turn()
+        self.session._send.assert_called_once()
+
+    def test_merged_user_message_deletes_as_one_message(self):
+        self.session._is_prompting = True
+        self.session.queue_user_message('first')
+        message_id = self.session.history[-1]['id']
+        self.session.queue_user_message('second')
+        self.assertTrue(self.session.delete_queued_agent_message(message_id))
+        with patch.object(acp, 'load_history_file', return_value=list(self.session.history)):
+            self.session._load_history()
+        self.finish_turn()
+        self.session._send.assert_not_called()
 
     def test_context_is_resolved_at_delivery_not_enqueue(self):
         self.session._is_prompting = True
@@ -95,6 +133,25 @@ class AgentMessageQueueTests(unittest.TestCase):
         with patch.object(acp, 'load_history_file', return_value=list(self.session.history)):
             self.session._load_history()
         self.assertEqual([e['text'] for e in self.session._agent_message_queue], ['pending'])
+
+    def test_take_for_edit_returns_latest_text_and_prevents_delivery(self):
+        self.session._is_prompting = True
+        self.session.queue_user_message('first')
+        message_id = self.session.history[-1]['id']
+        self.session.queue_user_message('second')
+        self.assertEqual(self.session.take_queued_message(message_id)['text'], 'first\n\nsecond')
+        self.assertIsNone(self.session.take_queued_message(message_id))
+        with patch.object(acp, 'load_history_file', return_value=list(self.session.history)):
+            self.session._load_history()
+        self.finish_turn()
+        self.session._send.assert_not_called()
+
+    def test_take_cannot_restore_already_delivered_message(self):
+        self.session._is_prompting = True
+        self.session.queue_user_message('first')
+        message_id = self.session.history[-1]['id']
+        self.finish_turn()
+        self.assertIsNone(self.session.take_queued_message(message_id))
 
     def test_deleted_message_is_not_delivered_and_cannot_delete_delivered_message(self):
         self.session._is_prompting = True

@@ -4,7 +4,7 @@ const {test} = require('node:test');
 const {JSDOM} = require('jsdom');
 
 test('queued message safely previews the full prompt and requests authenticated deletion', t => {
-    const dom = new JSDOM('<div id="messages"></div>', {runScripts: 'outside-only'});
+    const dom = new JSDOM('<div id="messages"></div><form id="chat-composer"><div id="queuedMessages"></div></form>', {runScripts: 'outside-only'});
     t.after(() => dom.window.close());
     const win = dom.window;
     const emitted = [];
@@ -12,13 +12,17 @@ test('queued message safely previews the full prompt and requests authenticated 
     win.socket = {emit: (...args) => emitted.push(args)};
     win.csrfToken = 'csrf-token';
     win.sessionId = 'recipient';
-    win.scrollToBottom = () => {};
+    win.scrollToBottom = () => assert.fail('Queue must not scroll the conversation');
     win.showAgentMessageModal = (...args) => modals.push(args);
     const source = fs.readFileSync('src/templates/chat.html', 'utf8');
     win.eval(source.slice(source.indexOf('    function addQueuedAgentMessage('), source.indexOf('    function addAgentMessage(')));
     const text = '<img src=x onerror=alert(1)>\nFull message';
     win.addQueuedAgentMessage({id: 'queue-id', from: 'sender', text});
     const row = win.document.querySelector('[data-queue-id]');
+    assert.equal(row.parentElement.id, 'queuedMessages');
+    assert.equal(win.document.getElementById('messages').children.length, 0);
+    assert.equal(row.querySelector('.queued-agent-preview').type, 'button');
+    assert.equal(row.querySelector('.queued-agent-remove').type, 'button');
     assert.equal(row.querySelector('img'), null);
     row.querySelector('.queued-agent-preview').click();
     assert.deepEqual(modals, [['sender', '[AGENT MESSAGE from sender] ' + text]]);
@@ -38,6 +42,91 @@ test('all inline chat scripts parse', () => {
         const code = match[1].replace(/\{\{[\s\S]*?\}\}/g, 'null');
         new (require('node:vm').Script)(code);
     }
+});
+
+for (const draft of ['', 'Existing draft']) {
+    test('pencil restores acknowledged queue text and preserves draft: ' + JSON.stringify(draft), t => {
+        const dom = new JSDOM('<div id="queuedMessages"></div><textarea id="chat-message"></textarea>', {runScripts: 'outside-only'});
+        t.after(() => dom.window.close());
+        const win = dom.window;
+        let acknowledge;
+        let saved = false;
+        let inputEvents = 0;
+        Object.assign(win, {
+            csrfToken: 'csrf', sessionId: 'recipient',
+            saveDraft: () => { saved = true; },
+            socket: {emit: (name, data, callback) => {
+                assert.equal(name, 'acp_edit_queued_message');
+                assert.equal(data.csrf_token, 'csrf');
+                assert.equal(data.session_id, 'recipient');
+                assert.equal(data.message_id, 'queued');
+                acknowledge = callback;
+            }}
+        });
+        const source = fs.readFileSync('src/templates/chat.html', 'utf8');
+        win.eval(source.slice(source.indexOf('    function addQueuedAgentMessage('), source.indexOf('    function addAgentMessage(')));
+        const input = win.document.getElementById('chat-message');
+        input.value = draft;
+        input.addEventListener('input', () => inputEvents++);
+        win.addQueuedAgentMessage({type: 'user_message_queued', id: 'queued', text: 'first'});
+        const edit = win.document.querySelector('.queued-agent-edit');
+        assert.equal(edit.nextElementSibling.className, 'queued-agent-remove');
+        edit.click();
+        assert.equal(input.value, draft);
+        assert.equal(edit.disabled, true);
+        acknowledge({text: 'first\n\nsecond'});
+        assert.equal(input.value, 'first\n\nsecond' + (draft ? '\n\n' + draft : ''));
+        assert.equal(win.document.querySelector('[data-queue-id]'), null);
+        assert.equal(win.document.activeElement, input);
+        assert.equal(inputEvents, 1);
+        assert.equal(saved, true);
+    });
+}
+
+test('failed queue edit does not restore text or change draft', t => {
+    const dom = new JSDOM('<div id="queuedMessages"></div><textarea id="chat-message">Draft</textarea>', {runScripts: 'outside-only'});
+    t.after(() => dom.window.close());
+    const win = dom.window;
+    const errors = [];
+    Object.assign(win, {
+        csrfToken: 'csrf', sessionId: 'recipient',
+        addSystemMessage: text => errors.push(text),
+        socket: {emit: (name, data, callback) => callback({error: 'Message is no longer queued'})}
+    });
+    const source = fs.readFileSync('src/templates/chat.html', 'utf8');
+    win.eval(source.slice(source.indexOf('    function addQueuedAgentMessage('), source.indexOf('    function addAgentMessage(')));
+    win.addQueuedAgentMessage({type: 'user_message_queued', id: 'queued', text: 'first'});
+    win.document.querySelector('.queued-agent-edit').click();
+    assert.equal(win.document.getElementById('chat-message').value, 'Draft');
+    assert.deepEqual(errors, ['Message is no longer queued']);
+});
+
+test('user queue updates one row in place and previews the complete merged message', t => {
+    const dom = new JSDOM('<div id="messages"></div><form id="chat-composer"><div id="queuedMessages"></div></form>', {runScripts: 'outside-only'});
+    t.after(() => dom.window.close());
+    const win = dom.window;
+    const modals = [];
+    Object.assign(win, {
+        scrollToBottom: () => {},
+        showContinuationModal: (...args) => modals.push(args)
+    });
+    const source = fs.readFileSync('src/templates/chat.html', 'utf8');
+    win.eval(source.slice(source.indexOf('    function addQueuedAgentMessage('), source.indexOf('    function addAgentMessage(')));
+    const evt = {type: 'user_message_queued', id: 'user-queue', text: 'first'};
+    win.addQueuedAgentMessage(evt);
+    const row = win.document.querySelector('[data-queue-id]');
+    win.addQueuedAgentMessage({id: 'agent-queue', from: 'child', text: 'agent message'});
+    const text = 'first\n\n<img src=x onerror=alert(1)>\n\nthird';
+    win.addQueuedAgentMessage({...evt, text});
+    assert.equal(win.document.querySelectorAll('[data-queue-id]').length, 2);
+    assert.equal(win.document.getElementById('queuedMessages').firstElementChild, row);
+    assert.equal(win.document.getElementById('messages').children.length, 0);
+    assert.equal(row.querySelector('img'), null);
+    assert.equal(row.querySelector('.queued-agent-preview').textContent, 'Queued · You: ' + text);
+    row.querySelector('.queued-agent-preview').click();
+    assert.deepEqual(modals, [[text, 'Queued Message']]);
+    win.removeQueuedAgentMessage(evt.id);
+    assert.equal(win.document.querySelectorAll('[data-queue-id]').length, 1);
 });
 
 test('Send appears beside Stop only with text and queues without disturbing the current turn', t => {

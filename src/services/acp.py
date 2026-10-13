@@ -541,6 +541,18 @@ class ACPSession:
 
     def queue_user_message(self, text):
         with self._lock:
+            if (not self._is_prompting and not self._turn_finishing and not self._reloading
+                    and not self._retry_pending and self.ready and self._alive
+                    and self.acp_session_id and not self._agent_message_queue):
+                context = acp_manager._initial_prompt_context(self.id)
+                self.send_prompt(context + '\n' + text)
+                return True
+            for index, pending in enumerate(self._agent_message_queue):
+                if pending['type'] == 'user_message_queued':
+                    evt = {**pending, 'text': pending['text'] + '\n\n' + text}
+                    self._agent_message_queue[index] = evt
+                    self._publish_agent_queue_event(evt)
+                    return self._drain_agent_messages() == evt['id']
             evt = {'type': 'user_message_queued', 'id': uuid.uuid4().hex,
                    'session_id': self.id, 'text': text, 'ts': time.time()}
             self._agent_message_queue.append(evt)
@@ -562,14 +574,17 @@ class ACPSession:
             self.on_event(self.id, evt)
 
     def delete_queued_agent_message(self, message_id):
+        return self.take_queued_message(message_id) is not None
+
+    def take_queued_message(self, message_id):
         with self._lock:
             for index, evt in enumerate(self._agent_message_queue):
                 if evt['id'] == message_id:
                     self._agent_message_queue.pop(index)
                     self._publish_agent_queue_event({
                         'type': 'agent_message_removed', 'id': message_id, 'ts': time.time()})
-                    return True
-            return False
+                    return evt
+            return None
 
     def _drain_agent_messages(self):
         with self._lock:

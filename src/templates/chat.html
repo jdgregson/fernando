@@ -39,6 +39,7 @@
         <nav class="pin-navigation" id="pinNavigation" aria-label="Message navigation"></nav>
     </div>
     <form class="input-area" id="chat-composer" aria-label="Chat message composer" autocomplete="off" onsubmit="event.preventDefault()">
+        <div class="queued-messages" id="queuedMessages" role="region" aria-label="Queued messages"></div>
         <div class="attached-files" id="attachedFiles"></div>
         <span class="uploading-indicator" id="uploadingIndicator" style="display:none">Uploading...</span>
         <div class="input-row">
@@ -2712,10 +2713,13 @@
     }
 
     function addQueuedAgentMessage(evt) {
-        const el = document.createElement('div');
-        el.className = 'msg agent-message queued-agent-message';
+        const existing = Array.from(document.querySelectorAll('[data-queue-id]'))
+            .find(row => row.dataset.queueId === evt.id);
+        const el = existing || document.createElement('div');
+        el.className = 'queued-agent-message';
         el.dataset.queueId = evt.id;
         const preview = document.createElement('button');
+        preview.type = 'button';
         preview.className = 'queued-agent-preview';
         const isUser = evt.type === 'user_message_queued';
         preview.textContent = (isUser ? 'Queued · You: ' : 'Queued · Agent ' + evt.from + ': ') + evt.text;
@@ -2723,6 +2727,7 @@
             ? showContinuationModal(evt.text, 'Queued Message')
             : showAgentMessageModal(evt.from, '[AGENT MESSAGE from ' + evt.from + '] ' + evt.text);
         const remove = document.createElement('button');
+        remove.type = 'button';
         remove.className = 'queued-agent-remove';
         remove.setAttribute('aria-label', 'Delete queued message');
         remove.title = 'Delete queued message';
@@ -2730,9 +2735,32 @@
         remove.onclick = () => socket.emit('acp_delete_queued_message', {
             csrf_token: csrfToken, session_id: sessionId, message_id: evt.id
         });
-        el.append(preview, remove);
-        document.getElementById('messages').appendChild(el);
-        scrollToBottom(true);
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'queued-agent-edit';
+        edit.setAttribute('aria-label', 'Edit queued message');
+        edit.title = 'Edit queued message';
+        edit.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 5 5-13 13H3v-5L16 3Z"/><path d="m13 6 5 5"/></svg>';
+        edit.onclick = () => {
+            edit.disabled = true;
+            socket.emit('acp_edit_queued_message', {
+                csrf_token: csrfToken, session_id: sessionId, message_id: evt.id
+            }, result => {
+                edit.disabled = false;
+                if (result.error) {
+                    addSystemMessage(result.error);
+                    return;
+                }
+                removeQueuedAgentMessage(evt.id);
+                const input = document.getElementById('chat-message');
+                input.value = result.text + (input.value ? '\n\n' + input.value : '');
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                saveDraft();
+                input.focus();
+            });
+        };
+        el.replaceChildren(preview, edit, remove);
+        if (!existing) document.getElementById('queuedMessages').appendChild(el);
     }
 
     function removeQueuedAgentMessage(id) {
@@ -2915,6 +2943,7 @@
             window._historyLoadedOnce = true;
             const messagesContainer = document.getElementById('messages');
             messagesContainer.innerHTML = '';
+            document.getElementById('queuedMessages').replaceChildren();
             currentUserMsg = null;
             currentAssistantMsg = null;
             currentTurnTs = null;

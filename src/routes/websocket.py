@@ -1058,6 +1058,16 @@ def register_handlers(socketio):
         if session:
             session.delete_queued_agent_message(data.get("message_id"))
 
+    @socketio.on("acp_edit_queued_message")
+    def acp_edit_queued_message(data):
+        if not validate_csrf(data):
+            return {'error': 'Invalid CSRF token'}
+        session = acp_manager.get_session(data.get("session_id"))
+        message = session.take_queued_message(data.get("message_id")) if session else None
+        if message is None:
+            return {'error': 'Message is no longer queued'}
+        return {'text': message['text']}
+
     @socketio.on("acp_cancel")
     def acp_cancel(data):
         if not validate_csrf(data):
