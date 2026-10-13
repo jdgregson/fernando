@@ -195,7 +195,6 @@ body { display: flex; flex-direction: column; }
 .tool-call-header .arrow svg { width: 10px; height: 10px; }
 .tool-call-header .arrow.open { transform: rotate(90deg); }
 .tool-call-header .tool-name { color: #3465a3; font-weight: bold; overflow-wrap: break-word; min-width: 0; flex: 1; text-overflow: ellipsis; overflow: hidden; text-wrap: nowrap; position: relative; z-index: 1; }
-.tool-call-header .arrow.open ~ .tool-name { text-overflow: clip; overflow: visible; text-wrap: wrap; }
 .tool-call-header .tool-status { color: #888; font-style: italic; margin-left: auto; flex-shrink: 0; position: relative; z-index: 1; }
 .tool-call-header .tool-duration + .tool-status { margin-left: 6px; }
 .tool-call-header .tool-duration { color: #565f89; font-size: 11px; flex-shrink: 0; position: relative; z-index: 1; margin-left: auto; }
