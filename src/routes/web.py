@@ -397,6 +397,35 @@ def api_mcp_toggle():
     return json.dumps(result), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/prompts", methods=["GET", "POST"])
+@bp.route("/api/prompts/<prompt_id>", methods=["PUT", "DELETE"])
+def api_prompts(prompt_id=None):
+    if not _check_api_key():
+        return {"error": "Unauthorized"}, 401
+    from src.services import prompts
+    if request.method == "DELETE":
+        if not prompts.delete_prompt(prompt_id):
+            return {"error": "Prompt not found"}, 404
+        return {"deleted": prompt_id}
+    if request.method == "GET":
+        return {"prompts": prompts.list_prompts()}
+    data = request.get_json()
+    if not isinstance(data, dict):
+        return {"error": "Expected a JSON object"}, 400
+    text = data.get("text")
+    if not isinstance(text, str) or not text.strip() or len(text) > 100000:
+        return {"error": "Prompt must contain between 1 and 100,000 characters"}, 400
+    title = data.get("title", "")
+    if not isinstance(title, str) or len(title) > 200:
+        return {"error": "Prompt title must be a string of at most 200 characters"}, 400
+    if request.method == "PUT":
+        prompt = prompts.update_prompt(prompt_id, text, title.strip())
+        if prompt is None:
+            return {"error": "Prompt not found"}, 404
+        return {"prompt": prompt}
+    return {"prompt": prompts.add_prompt(text, title.strip())}, 201
+
+
 @bp.route("/api/settings")
 def api_settings_get():
     """Get all Fernando settings."""

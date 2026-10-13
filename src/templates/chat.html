@@ -49,6 +49,7 @@
                 <div id="slashMenu" style="display:none;position:absolute;bottom:100%;left:0;margin-bottom:4px;background:#1e2030;border:1px solid #333a50;border-radius:6px;padding:4px 0;z-index:100;min-width:160px;box-shadow:0 2px 8px rgba(0,0,0,0.3);font-size:13px;"></div>
                 <div class="attach-btn" id="attachBtn" onclick="togglePlusMenu(event)"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="10" y1="4" x2="10" y2="16"/><line x1="4" y1="10" x2="16" y2="10"/></svg>
                     <div class="plus-menu" id="plusMenu">
+                        <div class="plus-menu-item" onclick="event.stopPropagation(); openPromptModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M8 13h8M8 17h6"/></svg>Prompt</div>
                         <div class="plus-menu-item" onclick="plusMenuAttach()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>File or image</div>
                         <div class="plus-menu-item" onclick="plusMenuTool()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>Tool call</div>
                     </div>
@@ -59,6 +60,38 @@
             <button type="button" id="sendBtn" tabindex="-1" class="disabled" onclick="sendMessage()">Send</button>
         </div>
     </form>
+
+    <div class="tool-modal-overlay" id="promptModalOverlay" role="dialog" aria-modal="true" aria-labelledby="promptModalTitle">
+        <div class="tool-modal" onclick="event.stopPropagation()">
+            <div class="tool-modal-header">
+                <span class="tool-modal-title" id="promptModalTitle">Prompt Library</span>
+                <span class="tool-modal-close" role="button" tabindex="0" aria-label="Close prompt library" onclick="closePromptModal()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();closePromptModal()}"><svg width="14" height="14" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></span>
+            </div>
+            <div class="tool-modal-body">
+                <div id="promptPickerView">
+                    <input type="text" class="tool-search" id="promptSearch" placeholder="Search prompts..." aria-label="Search prompts" oninput="renderPrompts()">
+                    <div class="tool-list" id="promptList"></div>
+                    <div class="tool-exec-footer">
+                        <button type="button" class="tool-exec-back" onclick="closePromptModal()">Cancel</button>
+                        <button type="button" class="tool-exec-run" onclick="showPromptEditor()">Add prompt</button>
+                    </div>
+                </div>
+                <div id="promptEditorView" hidden>
+                    <div class="tool-exec-params">
+                        <label for="promptTitle">Title <span class="param-optional">Optional</span></label>
+                        <input type="text" id="promptTitle" maxlength="200">
+                        <label for="promptText">Prompt</label>
+                        <textarea id="promptText" rows="8" maxlength="100000" oninput="document.getElementById('promptSaveBtn').disabled=!this.value.trim()"></textarea>
+                    </div>
+                    <div class="tool-exec-footer">
+                        <button type="button" class="tool-exec-back" onclick="showPromptPicker()">Back</button>
+                        <button type="button" class="tool-exec-run" id="promptSaveBtn" onclick="savePrompt()" disabled>Save</button>
+                    </div>
+                </div>
+                <div class="tool-exec-desc" id="promptStatus" role="status">&nbsp;</div>
+            </div>
+        </div>
+    </div>
 
     <div class="tool-modal-overlay" id="toolModalOverlay">
         <div class="tool-modal" onclick="event.stopPropagation()">
@@ -96,6 +129,174 @@
     bindModalBackdrop(document.getElementById('toolModalOverlay'), closeToolModal);
     const sessionId = "{{ acp_session_id }}";
     const apiKey = "{{ api_key }}";
+    let savedPrompts = [];
+    let promptSaving = false;
+    let editingPromptId = null;
+    const promptOverlay = document.getElementById('promptModalOverlay');
+    bindModalBackdrop(promptOverlay, closePromptModal);
+    promptOverlay.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            event.stopPropagation();
+            closePromptModal();
+        }
+        if (event.key === 'Tab') {
+            const controls = [...promptOverlay.querySelectorAll('button, input, textarea, [tabindex="0"]')].filter(el => !el.disabled && el.getClientRects().length);
+            const first = controls[0];
+            const last = controls[controls.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        }
+    });
+
+    async function openPromptModal() {
+        _closePlusMenu();
+        document.getElementById('promptSearch').value = '';
+        const response = await fetch('/api/prompts', {headers: {'X-API-Key': apiKey}}).catch(promptRequestFailed);
+        if (!response) return;
+        if (!response.ok) {
+            promptRequestFailed();
+            return;
+        }
+        const data = await response.json();
+        savedPrompts = data.prompts;
+        document.getElementById('promptStatus').textContent = '\u00a0';
+        promptOverlay.classList.add('open');
+        showPromptPicker();
+    }
+
+    function promptRequestFailed() {
+        document.getElementById('promptStatus').textContent = 'Unable to access the prompt library. Please try again.';
+        promptOverlay.classList.add('open');
+    }
+
+    function closePromptModal() {
+        promptOverlay.classList.remove('open');
+        document.getElementById('chat-message').focus();
+    }
+
+    function showPromptPicker() {
+        document.getElementById('promptEditorView').hidden = true;
+        document.getElementById('promptPickerView').hidden = false;
+        renderPrompts();
+        document.getElementById('promptSearch').focus();
+    }
+
+    function showPromptEditor(prompt = null) {
+        editingPromptId = prompt ? prompt.id : null;
+        document.getElementById('promptTitle').value = prompt && prompt.title ? prompt.title : '';
+        document.getElementById('promptText').value = prompt ? prompt.text : '';
+        document.getElementById('promptSaveBtn').disabled = !prompt;
+        document.getElementById('promptPickerView').hidden = true;
+        document.getElementById('promptEditorView').hidden = false;
+        document.getElementById('promptTitle').focus();
+    }
+
+    function renderPrompts() {
+        const list = document.getElementById('promptList');
+        const query = document.getElementById('promptSearch').value.toLowerCase();
+        list.replaceChildren();
+        for (const prompt of savedPrompts.filter(prompt => prompt.text.toLowerCase().includes(query) || (prompt.title && prompt.title.toLowerCase().includes(query)))) {
+            const row = document.createElement('div');
+            row.className = 'queued-agent-message';
+            const text = document.createElement('button');
+            text.type = 'button';
+            text.className = 'queued-agent-preview';
+            text.textContent = prompt.title || prompt.text;
+            text.title = prompt.text;
+            row.appendChild(text);
+            const insert = () => {
+                const composer = document.getElementById('chat-message');
+                composer.setRangeText(prompt.text, composer.selectionStart, composer.selectionEnd, 'end');
+                composer.dispatchEvent(new Event('input', {bubbles: true}));
+                closePromptModal();
+            };
+            row.onclick = event => {
+                if (!event.target.closest('.queued-agent-edit, .queued-agent-remove')) insert();
+            };
+            const edit = document.createElement('button');
+            edit.type = 'button';
+            edit.className = 'queued-agent-edit';
+            edit.setAttribute('aria-label', 'Edit prompt');
+            edit.title = 'Edit prompt';
+            edit.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m16 3 5 5-13 13H3v-5L16 3Z"/><path d="m13 6 5 5"/></svg>';
+            edit.onclick = () => showPromptEditor(prompt);
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'queued-agent-remove';
+            remove.setAttribute('aria-label', 'Delete prompt');
+            remove.title = 'Delete prompt';
+            remove.innerHTML = '<svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 1L9 9M9 1L1 9"/></svg>';
+            remove.onclick = () => deletePrompt(prompt.id, remove);
+            row.appendChild(edit);
+            row.appendChild(remove);
+            list.appendChild(row);
+        }
+        if (!list.childElementCount) {
+            const empty = document.createElement('div');
+            empty.className = 'tool-exec-desc';
+            empty.textContent = query ? 'No matching prompts.' : 'No saved prompts yet.';
+            list.appendChild(empty);
+        }
+    }
+
+    async function savePrompt() {
+        const text = document.getElementById('promptText').value;
+        const title = document.getElementById('promptTitle').value.trim();
+        if (promptSaving || !text.trim()) return;
+        promptSaving = true;
+        document.getElementById('promptSaveBtn').disabled = true;
+        document.getElementById('promptStatus').textContent = 'Saving prompt...';
+        const promptId = editingPromptId;
+        const response = await fetch(promptId ? '/api/prompts/' + encodeURIComponent(promptId) : '/api/prompts', {
+            method: promptId ? 'PUT' : 'POST',
+            headers: {'X-API-Key': apiKey, 'Content-Type': 'application/json'},
+            body: JSON.stringify({text, title})
+        }).catch(promptRequestFailed);
+        promptSaving = false;
+        document.getElementById('promptSaveBtn').disabled = !document.getElementById('promptText').value.trim();
+        if (!response) return;
+        if (!response.ok) {
+            promptRequestFailed();
+            return;
+        }
+        const data = await response.json();
+        if (promptId) {
+            savedPrompts = savedPrompts.map(prompt => prompt.id === promptId ? data.prompt : prompt);
+        } else {
+            savedPrompts.push(data.prompt);
+        }
+        document.getElementById('promptTitle').value = '';
+        document.getElementById('promptText').value = '';
+        document.getElementById('promptSaveBtn').disabled = true;
+        document.getElementById('promptSearch').value = '';
+        document.getElementById('promptStatus').textContent = '\u00a0';
+        showPromptPicker();
+    }
+
+    async function deletePrompt(promptId, button) {
+        if (promptSaving) return;
+        promptSaving = true;
+        button.disabled = true;
+        const response = await fetch('/api/prompts/' + encodeURIComponent(promptId), {
+            method: 'DELETE', headers: {'X-API-Key': apiKey}
+        }).catch(promptRequestFailed);
+        promptSaving = false;
+        button.disabled = false;
+        if (!response) return;
+        if (!response.ok) {
+            promptRequestFailed();
+            return;
+        }
+        savedPrompts = savedPrompts.filter(prompt => prompt.id !== promptId);
+        editingPromptId = null;
+        document.getElementById('promptStatus').textContent = '\u00a0';
+        showPromptPicker();
+    }
     const homeDir = "{{ home_dir }}";
     const agentCwd = "{{ agent_cwd }}";
     let csrfToken = null;
@@ -183,7 +384,13 @@
             const channel = value / 255;
             return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
         }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
-        document.documentElement.style.setProperty('--group-btn-foreground', luminance > 0.179 ? '#000000' : '#ffffff');
+        let foreground = 255;
+        for (; foreground > 0; foreground--) {
+            const channel = foreground / 255;
+            const candidate = channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+            if ((Math.max(luminance, candidate) + 0.05) / (Math.min(luminance, candidate) + 0.05) >= 4.5) break;
+        }
+        document.documentElement.style.setProperty('--group-btn-foreground', `rgb(${foreground}, ${foreground}, ${foreground})`);
         // Mix 20% group color with base #0a213d
         const br = 10, bg = 33, bb = 61;
         const mr = Math.round(br * 0.8 + r * 0.2);
@@ -256,6 +463,7 @@
         document.getElementById('status').className = 'status ' + state;
         document.getElementById('statusText').textContent = text;
         const btn = document.getElementById('sendBtn');
+        btn.style.color = state === 'working' ? '#fff' : '';
         if (state === 'ready') {
             isReady = true;
             if (document.hasFocus()) {

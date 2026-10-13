@@ -566,6 +566,9 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .tool-search { width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #283d5b; background: #0d1a2e; color: #c0caf5; font-size: 13px; margin-bottom: 8px; outline: none; }
 .tool-search:focus { border-color: #7aa2f7; }
 .tool-list { max-height: 50vh; overflow-y: auto; }
+#promptList {
+    margin-bottom: 10px;
+}
 .tool-server-section { margin-bottom: 2px; }
 .tool-server-header { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 @media (hover: hover) { .tool-server-header:hover { background: #283d5b; } }
