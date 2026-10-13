@@ -25,7 +25,7 @@ function workspace(shared) {
     win.socket = {emit:()=>assert.fail('A reference drop must not send a message')};
     win.escapeHtml = text => {const element=win.document.createElement('span');element.textContent=text;return element.innerHTML;};
     win.eval(fs.readFileSync('src/static/js/file-drag.js','utf8'));
-    win.eval('const CLIP_SVG=""; let _stagedReward=null; ' +
+    win.eval('const CLIP_SVG=""; ' +
         section('let attachedFiles = [];','function downsampleImage') +
         section('function renderAttached()','function removeAttached') +
         section('function removeAttached(idx)','// iOS: throttle') +

@@ -1217,7 +1217,7 @@ class ACPManager:
             self.destroy_session(session_id)
 
     def _initial_prompt_context(self, session_id):
-        from src.services import groups, rewards
+        from src.services import groups
         from src.services.notebooks import list_notebooks
         from src.services.pty_service import pty_service
         from src.routes.websocket import _open_jupyter
@@ -1250,7 +1250,6 @@ class ACPManager:
             ]
             if members:
                 parts.append('group_members: ' + ', '.join(members))
-        parts.append(f'reward balance: {rewards.get_balance()}')
         return '[Pane context: ' + ', '.join(parts) + ']'
 
     def restore_sessions(self, on_event_factory):

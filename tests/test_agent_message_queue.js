@@ -137,8 +137,7 @@ test('Send appears beside Stop only with text and queues without disturbing the 
     const win = dom.window;
     const emitted = [];
     Object.assign(win, {
-        isReady: true, isWorking: true, attachedFiles: [], _stagedReward: null,
-        _unreadChildMessagesCache: 0, _rewardBalanceCache: 23,
+        isReady: true, isWorking: true, attachedFiles: [],
         draftKey: 'draft', csrfToken: 'csrf-token', sessionId: 'recipient',
         socket: {emit: (...args) => emitted.push(args)}, scrollToBottom: () => {},
         addUserMessage: () => assert.fail('Must not finish or append to the active turn'),

@@ -531,25 +531,6 @@ body { display: flex; flex-direction: column; }
 .file-chip svg { flex-shrink: 0; }
 .file-chip span { text-overflow: ellipsis; overflow: auto; }
 @media (hover: hover) { .file-chip:hover { background: #143151; color: #9cdcfe; } }
-.reward-chip {
-    background: rgba(78, 201, 176, 0.15);
-    border: 1px solid rgba(78, 201, 176, 0.4);
-    border-radius: 4px;
-    padding: 3px 8px;
-    font-size: 12px;
-    color: #4ec9b0;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-bottom: 4px;
-}
-.reward-chip.debit {
-    background: rgba(227, 126, 126, 0.15);
-    border: 1px solid rgba(227, 126, 126, 0.4);
-    color: #e37e7e;
-}
-.reward-chip svg { flex-shrink: 0; }
-
 .canvas-wrap { border: 1px solid #143151; border-radius: 6px; overflow: hidden; margin: 8px 0; background: #0c213c; }
 .canvas-bar { display: flex; align-items: center; gap: 2px; padding: 4px 8px; background: #091d35; border-bottom: 1px solid #143151; font-size: 12px; user-select: none; }
 .canvas-tab { padding: 2px 10px; border-radius: 3px; cursor: pointer; color: #888; }
@@ -808,63 +789,6 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
 .tb-group-separator { border-top: 1px solid #143151; margin: 8px 0; }
 .tb-list > .tb-group-desc:first-child { border-top: none; margin-top: 0; }
 
-
-/* Reward / Debit modal */
-.reward-balance-chat {
-    text-align: center;
-    font-size: 22px;
-    font-weight: 600;
-    margin-bottom: 14px;
-    color: #7ea8e3;
-}
-.reward-toggle-chat {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 14px;
-}
-.reward-toggle-btn-chat {
-    flex: 1;
-    padding: 8px;
-    border: 1px solid #333a50;
-    background: #1e2030;
-    color: #888;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-    transition: all 0.15s;
-}
-@media (hover: hover) { .reward-toggle-btn-chat:hover { background: #2a3040; } }
-.reward-toggle-btn-chat.active {
-    background: #2a5080;
-    color: #fff;
-    border-color: #7ea8e3;
-}
-.reward-toggle-btn-chat.debit.active {
-    background: #802a2a;
-    border-color: #e37e7e;
-}
-.reward-ledger-entry-chat {
-    display: flex;
-    justify-content: space-between;
-    padding: 5px 0;
-    border-bottom: 1px solid #2a3040;
-}
-.reward-ledger-entry-chat:last-child { border-bottom: none; }
-.reward-ledger-amount-chat {
-    font-weight: 600;
-    min-width: 45px;
-}
-.reward-ledger-amount-chat.positive { color: #7ea8e3; }
-.reward-ledger-amount-chat.negative { color: #e37e7e; }
-.reward-ledger-note-chat {
-    flex: 1;
-    margin-left: 8px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: #888;
-}
-.reward-ledger-time-chat { color: #555; margin-left: 8px; }
 
 /* Session metadata (clickable stats in header) */
 .header-stats .stats-clickable {

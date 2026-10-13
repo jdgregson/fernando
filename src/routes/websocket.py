@@ -1377,52 +1377,6 @@ def register_handlers(socketio):
 
     automation_manager.start(on_dispatch=_automation_dispatch)
 
-    # --- Reward/Debit handlers ---
-
-    @socketio.on("reward_add")
-    def reward_add(data):
-        if not validate_csrf(data):
-            emit("error", {"message": "Invalid CSRF token"})
-            return
-        from src.services import rewards
-        amount = data.get("amount", 0)
-        note = data.get("note", "")
-        session_id = data.get("session_id")
-        entry, new_balance = rewards.add_entry(amount, note=note, session_id=session_id)
-        # Record in session history so it persists across reloads
-        if session_id:
-            session = acp_manager.get_session(session_id)
-            if session:
-                import time
-                reward_event = {
-                    "type": "reward",
-                    "amount": amount,
-                    "note": note,
-                    "balance": new_balance,
-                    "ts": time.time(),
-                }
-                session.history.append(reward_event)
-                session._save_history()
-        emit("reward_added", {"entry": entry, "balance": new_balance}, broadcast=True)
-
-    @socketio.on("reward_get_balance")
-    def reward_get_balance(data={}):
-        if not validate_csrf(data):
-            return
-        from src.services import rewards
-        from src.services.acp import count_unread_child_messages
-        session_id = data.get("session_id")
-        unread = count_unread_child_messages(session_id) if session_id else 0
-        emit("reward_balance", {"balance": rewards.get_balance(), "unread_child_messages": unread})
-
-    @socketio.on("reward_get_ledger")
-    def reward_get_ledger(data={}):
-        if not validate_csrf(data):
-            return
-        from src.services import rewards
-        limit = min(data.get("limit", 50), 200)
-        emit("reward_ledger", {"ledger": rewards.get_ledger(limit)})
-
     # --- Git dirty indicator ---
     _last_dirty = [None]
     _git_check_started = [False]

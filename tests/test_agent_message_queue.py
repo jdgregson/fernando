@@ -6,19 +6,17 @@ from src.services import acp
 
 
 class DeliveryContextTests(unittest.TestCase):
-    def test_current_panes_and_reward_are_resolved_and_disconnected_panes_removed(self):
+    def test_current_panes_are_resolved_and_disconnected_panes_removed(self):
         manager = acp.ACPManager.__new__(acp.ACPManager)
         manager._lock = threading.Lock()
         manager._pane_contexts = {}
         manager.set_pane_context('browser', {'aaaaaaaa'}, {'pane1': 'this chat', 'pane2': 'old terminal'})
         manager.set_pane_context('browser', {'aaaaaaaa'}, {'pane1': 'this chat', 'pane2': 'new terminal'})
         with patch('src.services.groups.get_all', return_value={'session_groups': {}, 'groups': []}), \
-                patch('src.services.rewards.get_balance', return_value=42), \
                 patch.object(acp, 'count_unread_child_messages', return_value=2):
             context = manager._initial_prompt_context('aaaaaaaa')
             self.assertIn('pane2: new terminal', context)
             self.assertNotIn('old terminal', context)
-            self.assertIn('reward balance: 42', context)
             self.assertIn('subagent_messages: 2 unread', context)
             manager.set_pane_context('browser', set(), {})
             self.assertNotIn('pane2:', manager._initial_prompt_context('aaaaaaaa'))

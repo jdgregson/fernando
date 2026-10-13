@@ -215,7 +215,7 @@ class ContextTests(ContextFixture, unittest.TestCase):
         manager._on_status_change = None
         manager._save = Mock()
         manager._save_pid_map = Mock()
-        manager._initial_prompt_context = Mock(return_value='[Pane context: reward balance: 13]')
+        manager._initial_prompt_context = Mock(return_value='[Pane context: pane1: this chat]')
         for backend in ('kiro', 'opencode'):
             for group_id, enabled, expected in (
                 (self.group['id'], True, 'Begin work'),
@@ -231,7 +231,7 @@ class ContextTests(ContextFixture, unittest.TestCase):
                     session.send_prompt = Mock()
                     manager._start_new(*thread.call_args.kwargs['args'])
                     if expected:
-                        session.send_prompt.assert_called_once_with('[Pane context: reward balance: 13]\n' + expected, initial_only=True)
+                        session.send_prompt.assert_called_once_with('[Pane context: pane1: this chat]\n' + expected, initial_only=True)
                     else:
                         session.send_prompt.assert_not_called()
                     session.send_prompt.reset_mock()
