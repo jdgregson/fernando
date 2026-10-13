@@ -264,6 +264,7 @@ def register_handlers(socketio):
         # Clean up active pane tracking for this socket
         if sid in _socket_active_panes:
             del _socket_active_panes[sid]
+            acp_manager.set_pane_context(sid, set(), {})
             _rebuild_active_pane_sessions()
 
     @socketio.on("restart_desktop")
@@ -1046,7 +1047,16 @@ def register_handlers(socketio):
         session = acp_manager.get_session(data.get("session_id"))
         if session:
             text = data.get("text", "")
-            session.send_prompt(text)
+            if isinstance(text, str) and text.strip():
+                session.queue_user_message(text)
+
+    @socketio.on("acp_delete_queued_message")
+    def acp_delete_queued_message(data):
+        if not validate_csrf(data):
+            return
+        session = acp_manager.get_session(data.get("session_id"))
+        if session:
+            session.delete_queued_agent_message(data.get("message_id"))
 
     @socketio.on("acp_cancel")
     def acp_cancel(data):
@@ -1080,7 +1090,11 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         session_ids = set(data.get("session_ids", []))
+        panes = data.get('panes', {})
+        if not isinstance(panes, dict):
+            return
         socket_sid = request.sid
+        acp_manager.set_pane_context(socket_sid, session_ids, panes)
         logger.info(f"[active-panes] socket={socket_sid[:8]} sessions={session_ids}")
         
         # Get this socket's previous sessions
@@ -1176,6 +1190,7 @@ def register_handlers(socketio):
                 acp_manager._save_pid_map()
                 if session.on_event:
                     session.on_event(sid, {"type": "session_ready"})
+                session._drain_agent_messages()
             except Exception as e:
                 logger.error(f"acp_restart failed for {sid}: {e}")
                 if session.on_event:

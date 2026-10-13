@@ -63,6 +63,8 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 }
 
 .sidebar {
+    -webkit-user-select: none;
+    user-select: none;
     position: relative;
     width: 250px;
     background: #0d2848;
@@ -72,6 +74,13 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     height: 100%;
     transition: transform 0.3s;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.sidebar input,
+.sidebar textarea,
+.sidebar [contenteditable="true"] {
+    -webkit-user-select: text;
+    user-select: text;
 }
 
 .sidebar-header {
@@ -185,10 +194,11 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 
 .session-item.active {
     background: transparent;
+    color: var(--group-foreground, #fff);
 }
 .session-item.active .chat-icon {
-    fill: #fff !important;
-    stroke: #fff !important;
+    fill: currentColor !important;
+    stroke: currentColor !important;
 }
 
 .session-name {
@@ -235,7 +245,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     color: #77889e;
 }
 .session-item.active .session-tree {
-    color: #d4deec;
+    color: inherit;
 }
 .session-tree-line {
     position: absolute;
@@ -1482,18 +1492,107 @@ button.notebook-delete-btn {
 
 /* Group color picker */
 .group-color-picker {
+    box-sizing: border-box;
     position: fixed;
     background: #0d2848;
     border: 1px solid #143151;
     border-radius: 6px;
     padding: 8px;
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
     z-index: 2000;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    color: #c0caf5;
+    font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+}
+.group-custom-panel {
+    position: fixed;
+    z-index: 2001;
+    box-sizing: border-box;
+    width: 258px;
+    min-width: 0;
+    display: grid;
+    gap: 12px;
+    padding: 8px;
+    background: #0d2848;
+    border: 1px solid #143151;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    overflow-y: auto;
+    color: #c0caf5;
+    font: 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.group-color-wheel {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1;
+}
+.group-color-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+    touch-action: none;
+    cursor: crosshair;
+}
+.group-color-ring::before {
+    content: '';
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    background: #0d2848;
+}
+.group-color-field {
+    position: absolute;
+    inset: 25%;
+    background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+    border-radius: 4px;
+    touch-action: none;
+    cursor: crosshair;
+}
+.group-color-field span, .group-hue-marker {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px #000;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+.group-custom-panel .settings-input {
+    width: 100%;
+    min-width: 0;
+}
+@media (pointer: coarse) {
+    .group-custom-panel .settings-input { font-size: 16px; }
+}
+.group-color-controls {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
+}
+.group-color-controls .sa-btn:disabled { opacity: 0.45; cursor: default; }
+.group-custom-panel input[aria-invalid="true"] { border-color: #e47878; }
+.group-color-picker :focus-visible, .group-custom-panel :focus-visible { outline: none; }
+.custom-color-swatch {
+    position: relative;
+    display: grid;
+    place-items: center;
+    color: #c0caf5;
+    background: #143151;
+}
+.custom-color-swatch svg {
+    width: 20px;
+    height: 20px;
 }
 .color-swatch {
+    padding: 0;
+    border: 1px solid #537092;
+    justify-self: center;
     width: 24px;
     height: 24px;
     border-radius: 50%;

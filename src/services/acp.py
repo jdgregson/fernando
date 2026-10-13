@@ -259,7 +259,9 @@ class ACPSession:
         self._stderr_thread = None
         self._next_id = 0
         self._pending = {}
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._agent_message_queue = []
+        self._turn_finishing = False
         self._alive = False
         self.history = []
         self.ready = False
@@ -457,7 +459,7 @@ class ACPSession:
         self._recording = True
         self._broadcasting = True
 
-    def send_prompt(self, text, *, initial_only=False, error_retry=False):
+    def send_prompt(self, text, *, initial_only=False, error_retry=False, queue_id=None):
         with self._lock:
             if not self.acp_session_id or not self.ready or self._reloading:
                 logger.warning(f"[{self.id}] send_prompt called but session not ready")
@@ -491,6 +493,8 @@ class ACPSession:
         self._notify_status_change()
         self._last_activity = time.time()
         evt = {"type": "user_prompt", "text": text, "ts": time.time()}
+        if queue_id:
+            evt['queue_id'] = queue_id
         if error_retry:
             evt['error_retry'] = True
         self.history.append(evt)
@@ -535,23 +539,60 @@ class ACPSession:
         })
         return was_idle
 
+    def queue_user_message(self, text):
+        with self._lock:
+            evt = {'type': 'user_message_queued', 'id': uuid.uuid4().hex,
+                   'session_id': self.id, 'text': text, 'ts': time.time()}
+            self._agent_message_queue.append(evt)
+            self._publish_agent_queue_event(evt)
+            return self._drain_agent_messages() == evt['id']
+
     def send_agent_message(self, from_session, text):
-        """Send a message from another agent (parent). Displays distinctly from continuations.
-        Returns True if agent was idle (immediate delivery), False if busy (queued)."""
-        if not self.acp_session_id:
-            return False
-        was_idle = not self._is_prompting
-        logger.info(f"[{self.id}] agent_message from {from_session}: {len(text)} chars, was_idle={was_idle}")
-        self._is_prompting = True
-        self._has_unread = False
-        self._notify_status_change()
-        self._last_activity = time.time()
-        prefixed = f"[AGENT MESSAGE from {from_session}] {text}"
-        evt = {"type": "agent_message", "from": from_session, "text": text, "ts": time.time()}
+        with self._lock:
+            evt = {"type": "agent_message_queued", "id": uuid.uuid4().hex,
+                   "session_id": self.id, "from": from_session, "text": text, "ts": time.time()}
+            self._agent_message_queue.append(evt)
+            self._publish_agent_queue_event(evt)
+            return self._drain_agent_messages() == evt['id']
+
+    def _publish_agent_queue_event(self, evt):
         self.history.append(evt)
         self._save_history()
         if self.on_event:
             self.on_event(self.id, evt)
+
+    def delete_queued_agent_message(self, message_id):
+        with self._lock:
+            for index, evt in enumerate(self._agent_message_queue):
+                if evt['id'] == message_id:
+                    self._agent_message_queue.pop(index)
+                    self._publish_agent_queue_event({
+                        'type': 'agent_message_removed', 'id': message_id, 'ts': time.time()})
+                    return True
+            return False
+
+    def _drain_agent_messages(self):
+        with self._lock:
+            if (self._is_prompting or self._turn_finishing or self._reloading
+                    or self._retry_pending or not self.ready or not self._alive
+                    or not self.acp_session_id or not self._agent_message_queue):
+                return None
+            evt = self._agent_message_queue.pop(0)
+            if evt['type'] == 'user_message_queued':
+                context = acp_manager._initial_prompt_context(self.id)
+                self.send_prompt(context + '\n' + evt['text'], queue_id=evt['id'])
+            else:
+                self._deliver_agent_message(evt)
+            return evt['id']
+
+    def _deliver_agent_message(self, queued):
+        self._is_prompting = True
+        self._has_unread = False
+        self._notify_status_change()
+        self._last_activity = time.time()
+        prefixed = f"[AGENT MESSAGE from {queued['from']}] {queued['text']}"
+        evt = {**queued, 'type': 'agent_message', 'ts': time.time()}
+        self._publish_agent_queue_event(evt)
         self._send({
             "jsonrpc": "2.0",
             "id": self._get_id(),
@@ -561,7 +602,6 @@ class ACPSession:
                 "prompt": [{"type": "text", "text": prefixed}],
             },
         })
-        return was_idle
 
     def cancel(self):
         if not self.acp_session_id:
@@ -785,6 +825,15 @@ class ACPSession:
     def _load_history(self):
         self.history = load_history_file(self.id)
         self._flushed = len(self.history)
+        queued = {}
+        for evt in self.history:
+            if evt.get('type') in ('agent_message_queued', 'user_message_queued') and evt['session_id'] == self.id:
+                queued[evt['id']] = evt
+            elif evt.get('type') in ('agent_message', 'agent_message_removed'):
+                queued.pop(evt.get('id'), None)
+            elif evt.get('type') == 'user_prompt':
+                queued.pop(evt.get('queue_id'), None)
+        self._agent_message_queue = list(queued.values())
 
     def _patch_our_incomplete_mutate(self):
         """If history has a mutate/reboot tool_call without a completed tool_call_update, append one."""
@@ -977,7 +1026,9 @@ class ACPSession:
             stop_reason = msg.get("result", {}).get("stopReason")
             if stop_reason:
                 logger.info(f"[{self.id}] turn ended: stopReason={stop_reason}")
-                self._is_prompting = False
+                with self._lock:
+                    self._turn_finishing = True
+                    self._is_prompting = False
                 self._has_unread = True  # Agent finished, mark as unread
                 self._retry_count = 0
                 self._notify_status_change()
@@ -987,6 +1038,10 @@ class ACPSession:
                     self.on_event(self.id, msg)
                 except Exception:
                     pass
+            if stop_reason:
+                with self._lock:
+                    self._turn_finishing = False
+                    self._drain_agent_messages()
             return
 
         if msg_id is not None and "error" in msg:
@@ -1058,11 +1113,21 @@ class ACPManager:
         self._reaper_thread = threading.Thread(target=self._idle_reaper_loop, daemon=True)
         self._reaper_thread.start()
         self._active_pane_sessions = set()  # sessions currently open in a UI pane
+        self._pane_contexts = {}
         self._on_sessions_change = None  # callback for live UI updates
 
     def set_active_pane_sessions(self, session_ids):
         """Update the set of sessions currently open in UI panes."""
         self._active_pane_sessions = set(session_ids)
+
+    def set_pane_context(self, socket_id, session_ids, panes):
+        with self._lock:
+            self._pane_contexts.pop(socket_id, None)
+            if session_ids:
+                self._pane_contexts[socket_id] = (set(session_ids), {
+                    key: value for key, value in panes.items()
+                    if key in ('pane1', 'pane2') and isinstance(value, str) and len(value) <= 2048
+                })
 
     def _idle_reaper_loop(self):
         """Periodically check for idle sessions and unload them."""
@@ -1143,6 +1208,11 @@ class ACPManager:
         from src.routes.websocket import _open_jupyter
 
         parts = []
+        with self._lock:
+            for sessions, panes in reversed(list(self._pane_contexts.values())):
+                if session_id in sessions:
+                    parts.extend(f'{key}: {value}' for key, value in panes.items())
+                    break
         unread = count_unread_child_messages(session_id)
         if unread:
             parts.append(f'subagent_messages: {unread} unread')
@@ -1299,6 +1369,7 @@ class ACPManager:
                 session.on_event(session_id, {"type": "session_ready"})
             if continuation and continuation.get("session_id") == session_id:
                 session.send_continuation(continuation["message"])
+            session._drain_agent_messages()
         except Exception as e:
             session._reloading = False
             logger.error(f"ACP session load failed for {session_id}: {e}", exc_info=True)

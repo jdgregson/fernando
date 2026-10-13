@@ -286,6 +286,7 @@ def api_acp_wake():
     session.load(acp_id)
     session.ready = True
     acp_manager._save_pid_map()
+    session._drain_agent_messages()
     if wait:
         import time
         for _ in range(60):  # Wait up to 60 seconds

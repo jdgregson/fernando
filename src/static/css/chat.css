@@ -365,6 +365,35 @@ body { display: flex; flex-direction: column; }
     }
 }
 
+.msg.queued-agent-message {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0 0 0 12px;
+}
+.queued-agent-preview,
+.queued-agent-remove {
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+}
+.queued-agent-preview {
+    min-width: 0;
+    padding: 6px 0;
+    font: inherit;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: left;
+}
+.queued-agent-remove {
+    flex: 0 0 44px;
+    min-height: 44px;
+    margin-left: auto;
+    transform: translateY(5px);
+}
+
 .input-area {
     background: #0d2848;
     padding: 20px;
@@ -437,9 +466,9 @@ body { display: flex; flex-direction: column; }
     bottom: 14px;
 }
 @media (hover: hover) { .attach-btn:hover { color: #aaa; } }
-#sendBtn {
+#sendBtn, #queueSendBtn {
     background: var(--group-btn-color, #3465a3);
-    color: #fff;
+    color: var(--group-btn-foreground, #fff);
     transition: background 0.2s;
     padding: 8px 16px;
     border-radius: 6px;
@@ -452,9 +481,10 @@ body { display: flex; flex-direction: column; }
     align-items: center;
     justify-content: center;
 }
-@media (hover: hover) { #sendBtn:hover { background: var(--group-btn-hover, #143151); } }
+#queueSendBtn { padding: 8px 10px; flex-shrink: 0; }
+@media (hover: hover) { #sendBtn:hover, #queueSendBtn:hover { background: var(--group-btn-hover, #143151); color: #fff; } }
 @media (max-width: 600px) { .msg { padding: 12px 10px; } .input-area { padding: 10px; } }
-#sendBtn.disabled { background: #555; cursor: not-allowed; pointer-events: none; }
+#sendBtn.disabled { background: #555; color: #fff; cursor: not-allowed; pointer-events: none; }
 
 .file-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
 .file-chip {
@@ -475,6 +505,7 @@ body { display: flex; flex-direction: column; }
     gap: 4px;
 }
 .file-chip svg { flex-shrink: 0; }
+.file-chip span { text-overflow: ellipsis; overflow: auto; }
 @media (hover: hover) { .file-chip:hover { background: #143151; color: #9cdcfe; } }
 .reward-chip {
     background: rgba(78, 201, 176, 0.15);

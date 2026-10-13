@@ -113,6 +113,29 @@ test('modal instances track separate gestures', t => {
     assert.equal(w.dismissals(), 0);
 });
 
+test('mobile sidebar stays open for body-mounted context menus and nested submenus', t => {
+    const w = sidebarFixture(t);
+    const doc = w.win.document;
+    const sidebar = doc.getElementById('sidebar');
+    for (const className of ['group-context-menu', 'group-context-menu template-submenu', 'group-color-picker', 'group-custom-panel']) {
+        const menu = doc.createElement('div');
+        menu.className = className;
+        const item = doc.createElement('button');
+        item.innerHTML = '<span>Menu action</span>';
+        menu.append(item);
+        doc.body.append(menu);
+        let invoked = false;
+        item.onclick = () => { invoked = true; menu.remove(); };
+        const target = item.firstChild;
+        w.fire('pointerdown', target);
+        w.hit(target);
+        w.fire('pointerup', target);
+        w.fire('click', target);
+        assert.equal(invoked, true);
+        assert.equal(sidebar.classList.contains('open'), true);
+    }
+});
+
 function sidebarFixture(t) {
     const w = fixture(t);
     const doc = w.overlay.ownerDocument;

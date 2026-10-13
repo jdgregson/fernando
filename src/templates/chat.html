@@ -55,6 +55,7 @@
                 </div>
                 <input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">
             </div>
+            <button type="button" id="queueSendBtn" style="display:none" aria-label="Queue message" title="Queue message" onclick="sendMessage()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
             <button type="button" id="sendBtn" tabindex="-1" class="disabled" onclick="sendMessage()">Send</button>
         </div>
     </form>
@@ -213,6 +214,11 @@
         const r = parseInt(hex.substring(0, 2), 16);
         const g = parseInt(hex.substring(2, 4), 16);
         const b = parseInt(hex.substring(4, 6), 16);
+        const luminance = [r, g, b].map(value => {
+            const channel = value / 255;
+            return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+        }).reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+        document.documentElement.style.setProperty('--group-btn-foreground', luminance > 0.179 ? '#000000' : '#ffffff');
         // Mix 20% group color with base #0a213d
         const br = 10, bg = 33, bb = 61;
         const mr = Math.round(br * 0.8 + r * 0.2);
@@ -275,6 +281,12 @@
         }, 1000);
     }
 
+    function updateQueueSendButton() {
+        const working = document.getElementById('status').classList.contains('working');
+        const hasText = document.getElementById('chat-message').value.trim().length > 0;
+        document.getElementById('queueSendBtn').style.display = working && hasText ? 'flex' : 'none';
+    }
+
     function setStatus(state, text) {
         document.getElementById('status').className = 'status ' + state;
         document.getElementById('statusText').textContent = text;
@@ -308,6 +320,7 @@
             btn.onclick = sendMessage;
             btn.style.background = '';
         }
+        updateQueueSendButton();
     }
 
     function updateHeaderStats() {
@@ -641,6 +654,7 @@
     }
 
     let _stopClicks = [];
+    document.getElementById('queueSendBtn').addEventListener('pointerdown', event => event.preventDefault());
     document.getElementById('sendBtn').addEventListener('pointerdown', function(e) {
         if (this.textContent !== 'Stop') return;
         e.preventDefault();
@@ -1620,23 +1634,29 @@
 
         currentAssistantMsg.appendChild(div);
 
-        toolCalls[toolCallId] = { div, nameSpan, statusSpan, body, panelInPretty, panelInRaw, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput };
+        toolCalls[toolCallId] = { div, nameSpan, statusSpan, body, panelInPretty, panelInRaw, panelOutPretty, panelOutRaw, tcState, title: title || '', rawInput, status: status || 'pending' };
         renderToolImages(toolCalls[toolCallId]);
-
-        const isTimedTool = (title && (title.includes('run_command') || title.includes('run_daemon'))) && rawInput && rawInput.timeout;
-        if (isTimedTool && status !== 'completed' && status !== 'failed') {
-            const bar = document.createElement('span');
-            bar.className = 'tc-bar tc-bar-running';
-            bar.style.setProperty('--tc-timeout', rawInput.timeout + 's');
-            const barStart = startedAt ? startedAt * 1000 : Date.now();
-            bar.style.animationDelay = `-${Math.max(0, (Date.now() - barStart) / 1000)}s`;
-            header.appendChild(bar);
-            toolCalls[toolCallId]._bar = bar;
-            toolCalls[toolCallId]._barStart = barStart;
-            toolCalls[toolCallId]._barTimeout = rawInput.timeout;
-        }
+        startToolProgress(toolCalls[toolCallId], startedAt);
 
         scrollToBottom();
+    }
+
+    function startToolProgress(tc, startedAt) {
+        // OpenCode supplies input on tool_call_update, after creating an empty card.
+        // Kiro supplies it on tool_call. Start once, whichever event has the timeout.
+        if (tc._bar || ['completed', 'failed', 'cancelled'].includes(tc.status)) return;
+        if (!tc.title.includes('run_command') && !tc.title.includes('run_daemon')) return;
+        const timeout = Number(tc.rawInput?.timeout);
+        if (!Number.isFinite(timeout) || timeout <= 0) return;
+        const bar = document.createElement('span');
+        bar.className = 'tc-bar tc-bar-running';
+        bar.style.setProperty('--tc-timeout', timeout + 's');
+        const barStart = startedAt ? startedAt * 1000 : Date.now();
+        bar.style.animationDelay = `-${Math.max(0, (Date.now() - barStart) / 1000)}s`;
+        tc.statusSpan.parentNode.appendChild(bar);
+        tc._bar = bar;
+        tc._barStart = barStart;
+        tc._barTimeout = timeout;
     }
 
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
@@ -1790,6 +1810,7 @@
         const tc = toolCalls[toolCallId];
         if (!tc) return;
         if (status) {
+            tc.status = status;
             tc.statusSpan.className = 'tool-status ' + status;
             tc.statusSpan.textContent = status;
         }
@@ -1851,6 +1872,7 @@
         }
         if (reportedTitle) tc.reportedTitle = reportedTitle;
         tc.nameSpan.textContent = toolPreview(tc.title, tc.rawInput, tc.reportedTitle);
+        startToolProgress(tc, updatedAt);
         renderToolImages(tc, content);
         // Render attach_file output as a downloadable chip
         if (status === 'completed' && tc.title.includes('attach_file') && !tc.attachmentRendered) {
@@ -2689,6 +2711,36 @@
         document.addEventListener('keydown', function _esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', _esc); } });
     }
 
+    function addQueuedAgentMessage(evt) {
+        const el = document.createElement('div');
+        el.className = 'msg agent-message queued-agent-message';
+        el.dataset.queueId = evt.id;
+        const preview = document.createElement('button');
+        preview.className = 'queued-agent-preview';
+        const isUser = evt.type === 'user_message_queued';
+        preview.textContent = (isUser ? 'Queued · You: ' : 'Queued · Agent ' + evt.from + ': ') + evt.text;
+        preview.onclick = () => isUser
+            ? showContinuationModal(evt.text, 'Queued Message')
+            : showAgentMessageModal(evt.from, '[AGENT MESSAGE from ' + evt.from + '] ' + evt.text);
+        const remove = document.createElement('button');
+        remove.className = 'queued-agent-remove';
+        remove.setAttribute('aria-label', 'Delete queued message');
+        remove.title = 'Delete queued message';
+        remove.innerHTML = '<svg width="12" height="12" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 1L9 9M9 1L1 9"/></svg>';
+        remove.onclick = () => socket.emit('acp_delete_queued_message', {
+            csrf_token: csrfToken, session_id: sessionId, message_id: evt.id
+        });
+        el.append(preview, remove);
+        document.getElementById('messages').appendChild(el);
+        scrollToBottom(true);
+    }
+
+    function removeQueuedAgentMessage(id) {
+        document.querySelectorAll('[data-queue-id]').forEach(el => {
+            if (el.dataset.queueId === id) el.remove();
+        });
+    }
+
     function addAgentMessage(fromSession, text, ts) {
         const el = document.createElement('div');
         el.className = 'msg agent-message';
@@ -2731,15 +2783,17 @@
 
     function sendMessage() {
         document.getElementById('sendBtn').blur();
+        document.getElementById('queueSendBtn').blur();
         document.getElementById('slashMenu').style.display = 'none';
         slashIdx = -1;
         const input = document.getElementById('chat-message');
         let text = input.value.trim();
-        if ((!text && attachedFiles.length === 0 && !_stagedReward) || isWorking || !isReady) return;
+        if ((!text && attachedFiles.length === 0 && !_stagedReward) || !isReady) return;
+        const queueing = isWorking || document.getElementById('status').classList.contains('working');
 
         // Intercept /model <name> to switch model directly
         const modelMatch = text.match(/^\/model\s+(.+)$/);
-        if (modelMatch) {
+        if (modelMatch && !queueing) {
             const newModel = modelMatch[1].trim();
             input.value = '';
             input.style.height = 'auto';
@@ -2752,7 +2806,7 @@
         }
 
         // Intercept /restart to reload the agent session
-        if (text === '/restart') {
+        if (text === '/restart' && !queueing) {
             input.value = '';
             input.style.height = 'auto';
             localStorage.removeItem(draftKey);
@@ -2764,14 +2818,14 @@
         }
 
         // Flag bare /model so we show the model picker directly (client-side)
-        if (text === '/authorization') {
+        if (text === '/authorization' && !queueing) {
             input.value = '';
             input.style.height = 'auto';
             localStorage.removeItem(draftKey);
             showAuthorizationModal();
             return;
         }
-        if (text === '/model') {
+        if (text === '/model' && !queueing) {
             input.value = '';
             input.style.height = 'auto';
             localStorage.removeItem(draftKey);
@@ -2816,74 +2870,25 @@
         }
         text = rewardPrefix + text;
 
-        _lastSentTs = Date.now();  // Track for broadcast deduplication
-        const userMessage = addUserMessage(text, false, Date.now() / 1000);
+        _lastSentTs = null;
         _userScrolledUp = false;
 
         input.value = '';
         input.style.height = 'auto';
         localStorage.removeItem(draftKey);
-        isWorking = true;
-        setStatus('working', 'Thinking...');
-        resetStallTimer();
+        if (!queueing) {
+            isWorking = true;
+            setStatus('working', 'Thinking...');
+            resetStallTimer();
+        }
+        updateQueueSendButton();
 
-        // Request pane context from parent, then send prompt
-        function doSend(contextText) {
-            userMessage.dataset.promptContext = contextText;
-            const fullText = contextText ? contextText + '\n' + text : text;
-            socket.emit('acp_prompt', {
-                csrf_token: csrfToken,
-                session_id: sessionId,
-                text: fullText,
-            });
-            scrollToBottom(true);
-        }
-        if (window.parent !== window) {
-            const ctxTimeout = setTimeout(() => { unsubscribe(); doSend(''); }, 500);
-            const unsubscribe = FernandoPane.on('context', c => {
-                    unsubscribe();
-                    clearTimeout(ctxTimeout);
-                    const parts = [];
-                    for (const [k, v] of Object.entries(c)) {
-                        if (k === 'split' || k === 'group') continue;
-                        if (v.type === 'chat') parts.push(`${k}: this chat`);
-                        else if (v.type === 'jupyter') parts.push(`${k}: Jupyter notebook "${v.notebook}"`);
-                        else if (v.type === 'notebook') parts.push(`${k}: SilverBullet notebook "${v.notebook}"`);
-                        else if (v.type === 'terminal') parts.push(`${k}: terminal session "${v.session || 'none'}"`);
-                        else if (v.type === 'desktop') parts.push(`${k}: Kasm desktop`);
-                        else if (v.description) parts.push(`${k}: ${v.description}`);
-                    }
-                    // Add group context if present
-                    if (c.group) {
-                        const colorWithHash = c.group.color.startsWith('#') ? c.group.color : '#' + c.group.color;
-                        parts.push(`group_name: "${c.group.name}", group_id: ${c.group.id}, group_color: ${colorWithHash}`);
-                        if (c.group.sessions && c.group.sessions.length > 0) {
-                            parts.push(`group_members: ${c.group.sessions.join(', ')}`);
-                        }
-                        applyGroupColor(c.group.color, c.split);
-                    }
-                    // Add unread child messages count if any
-                    if (_unreadChildMessagesCache > 0) {
-                        parts.unshift(`subagent_messages: ${_unreadChildMessagesCache} unread`);
-                    }
-                    // Build full context text including reward balance in the pane context
-                    if (typeof _rewardBalanceCache === 'number') {
-                        parts.push(`reward balance: ${_rewardBalanceCache}`);
-                    }
-                    doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
-            });
-            FernandoPane.requestContext();
-        } else {
-            // No parent window, just include reward context in pane context format
-            const parts = [];
-            if (_unreadChildMessagesCache > 0) {
-                parts.push(`subagent_messages: ${_unreadChildMessagesCache} unread`);
-            }
-            if (typeof _rewardBalanceCache === 'number') {
-                parts.push(`reward balance: ${_rewardBalanceCache}`);
-            }
-            doSend(parts.length ? '[Pane context: ' + parts.join(', ') + ']' : '');
-        }
+        socket.emit('acp_prompt', {
+            csrf_token: csrfToken,
+            session_id: sessionId,
+            text,
+        });
+        scrollToBottom(true);
     }
 
     socket.on('acp_history_size', (data) => {
@@ -3275,6 +3280,7 @@
 
         // Handle user prompt from our history
         if (evt.type === 'user_prompt' || evt.type === 'continuation') {
+            if (evt.queue_id) removeQueuedAgentMessage(evt.queue_id);
             // Skip if this is a broadcast of our own message (we already added it locally)
             if (evt.type === 'user_prompt' && !evt.error_retry && _lastSentTs && evt.ts && Math.abs(evt.ts * 1000 - _lastSentTs) < 3000) {
                 _lastSentTs = null;  // Clear after matching once
@@ -3287,13 +3293,28 @@
                 addUserMessage(evt.text || '', false, evt.ts);
             }
             if (evt.error_retry && !_replayingHistory) setStatus('working', 'Retrying...');
+            else if (evt.queue_id && !_replayingHistory) {
+                isWorking = true;
+                setStatus('working', 'Thinking...');
+                resetStallTimer();
+            }
             return;
         }
 
         // Handle agent-to-agent messages
+        if (evt.type === 'agent_message_queued' || evt.type === 'user_message_queued') {
+            if (evt.session_id === sessionId) addQueuedAgentMessage(evt);
+            return;
+        }
+        if (evt.type === 'agent_message_removed') {
+            removeQueuedAgentMessage(evt.id);
+            return;
+        }
         if (evt.type === 'agent_message') {
+            if (evt.id) removeQueuedAgentMessage(evt.id);
             if (currentAssistantMsg) finishTurn();
             addAgentMessage(evt.from, evt.text, evt.ts);
+            if (!_replayingHistory) setStatus('working', 'Working...');
             return;
         }
 
@@ -3453,12 +3474,14 @@
 
     window.completeSlash = function(cmd) {
         input.value = cmd;
+        updateQueueSendButton();
         document.getElementById('slashMenu').style.display = 'none';
         slashIdx = -1;
         input.focus();
     };
 
     input.addEventListener('input', () => {
+        updateQueueSendButton();
         if (!resizeRaf) {
             resizeRaf = requestAnimationFrame(() => {
                 input.style.height = 'auto';

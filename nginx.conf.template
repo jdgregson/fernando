@@ -35,6 +35,10 @@ http {
         listen {{NGINX_HOST}}:{{NGINX_PORT}};
         server_name _;
 
+        location = /auth/callback {
+            return 404;
+        }
+
         # Main Flask app
         location / {
             proxy_pass http://localhost:{{FLASK_PORT}};

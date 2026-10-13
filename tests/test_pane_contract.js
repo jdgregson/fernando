@@ -20,7 +20,7 @@ function workspace(search = '') {
     win._paneSession = {1: null, 2: null};
     win.term1 = win.term2 = {focus() {}};
     win.showTermInPane = () => ({ready: true, firstAttach: false, wterm: {focus() {}}});
-    for (const name of ['panes', 'session-adapters', 'file-session', 'sessions', 'chat', 'mobile']) {
+    for (const name of ['modal', 'panes', 'session-adapters', 'file-session', 'sessions', 'chat', 'mobile']) {
         vm.runInContext(fs.readFileSync('src/static/js/' + name + '.js', 'utf8'), context);
     }
     const controller = vm.runInContext('paneController', context);

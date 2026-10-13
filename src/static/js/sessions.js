@@ -52,7 +52,18 @@ function syncActiveChatPanes() {
         const m = iframe.src.match(/\/chat\/([^/?#]+)/);
         if (m) chatIds.push(m[1]);
     }
-    emitWithCsrf('acp_set_active_panes', { session_ids: chatIds });
+    const panes = {};
+    for (const pane of [1, 2]) {
+        const v = paneController.context(pane);
+        let description = v.description;
+        if (v.type === 'chat') description = 'this chat';
+        else if (v.type === 'jupyter') description = `Jupyter notebook "${v.notebook}"`;
+        else if (v.type === 'notebook') description = `SilverBullet notebook "${v.notebook}"`;
+        else if (v.type === 'terminal') description = `terminal session "${v.session || 'none'}"`;
+        else if (v.type === 'desktop') description = 'Kasm desktop';
+        if (description) panes['pane' + pane] = description;
+    }
+    emitWithCsrf('acp_set_active_panes', { session_ids: chatIds, panes });
 }
 
 // Called from core.js on socket 'connected'
@@ -533,6 +544,9 @@ const GROUP_COLORS = [
     '#8b4dab', // purple - darker
     '#2a8a8a', // cyan/teal - darker
     '#a85d8a', // rose - darker
+    '#64748b',
+    '#b52b83',
+    '#594237',
 ];
 
 function chatSidebarLabel(chat) {
@@ -599,6 +613,7 @@ function createGroupElement(group, sessionItems, isExpanded, isFirst) {
     const color = group.color || '#7ea8e3';
     if (!isUngrouped) {
         wrapper.style.setProperty('--group-color', color);
+        wrapper.style.setProperty('--group-foreground', groupColorForeground(color));
         wrapper.style.background = color + '33'; // ~20% opacity tint
     }
     
@@ -749,41 +764,256 @@ function startGroupRename(groupId, nameSpan) {
     input.addEventListener('click', (e) => e.stopPropagation());
 }
 
+function groupColorForeground(color) {
+    const channels = color.slice(1).match(/../g).map(channel => {
+        const value = parseInt(channel, 16) / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    });
+    const luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    return luminance > 0.179 ? '#000000' : '#ffffff';
+}
+
+let groupColorPickerCleanup = null;
+
 function showGroupColorPicker(groupId, anchor) {
-    // Remove any existing picker
-    document.querySelectorAll('.group-color-picker').forEach(p => p.remove());
+    if (groupColorPickerCleanup) groupColorPickerCleanup();
     
     const picker = document.createElement('div');
     picker.className = 'group-color-picker';
+    const anchorRect = anchor.getBoundingClientRect();
+    let customPanel = null;
+    let dismissTimer = null;
+    const controller = new AbortController();
+    const close = () => {
+        clearTimeout(dismissTimer);
+        controller.abort();
+        picker.remove();
+        if (customPanel) customPanel.remove();
+        groupColorPickerCleanup = null;
+    };
+    groupColorPickerCleanup = close;
+    const position = () => {
+        const viewport = window.visualViewport;
+        const left = (viewport ? viewport.offsetLeft : 0) + 8;
+        const top = (viewport ? viewport.offsetTop : 0) + 8;
+        const right = left + (viewport ? viewport.width : window.innerWidth) - 16;
+        const bottom = top + (viewport ? viewport.height : window.innerHeight) - 16;
+        const rect = anchorRect;
+        picker.style.left = Math.max(left, Math.min(rect.left, right - picker.offsetWidth)) + 'px';
+        picker.style.top = Math.max(top, Math.min(rect.bottom + 4, bottom - picker.offsetHeight)) + 'px';
+        if (!customPanel) return;
+        customPanel.style.maxWidth = (right - left) + 'px';
+        customPanel.style.maxHeight = (bottom - top) + 'px';
+        const menu = picker.getBoundingClientRect();
+        const width = customPanel.offsetWidth;
+        const height = customPanel.offsetHeight;
+        let x = menu.right + 6;
+        let y = menu.top;
+        if (x + width > right) {
+            if (menu.left - width - 6 >= left) {
+                x = menu.left - width - 6;
+            } else {
+                x = menu.left;
+                y = menu.bottom + 6;
+                if (y + height > bottom && menu.top - height - 6 >= top) y = menu.top - height - 6;
+            }
+        }
+        customPanel.style.left = Math.max(left, Math.min(x, right - width)) + 'px';
+        customPanel.style.top = Math.max(top, Math.min(y, bottom - height)) + 'px';
+    };
     
     GROUP_COLORS.forEach(color => {
-        const swatch = document.createElement('div');
+        const swatch = document.createElement('button');
+        swatch.type = 'button';
+        swatch.setAttribute('aria-label', color);
         swatch.className = 'color-swatch';
         swatch.style.background = color;
         swatch.addEventListener('click', () => {
             emitWithCsrf('group_set_color', { group_id: groupId, color: color });
-            picker.remove();
+            close();
         });
         picker.appendChild(swatch);
     });
+
+    const custom = document.createElement('button');
+    custom.type = 'button';
+    custom.setAttribute('aria-label', 'Custom color');
+    custom.className = 'color-swatch custom-color-swatch';
+    custom.title = 'Custom color';
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('fill', 'none');
+    icon.setAttribute('stroke', 'currentColor');
+    icon.setAttribute('stroke-width', '1.5');
+    icon.setAttribute('aria-hidden', 'true');
+    const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    outline.setAttribute('d', 'M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z');
+    icon.appendChild(outline);
+    for (const [cx, cy] of [[7, 10], [10, 6.5], [15, 7], [18, 10.5]]) {
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', cx);
+        dot.setAttribute('cy', cy);
+        dot.setAttribute('r', '1');
+        dot.setAttribute('fill', 'currentColor');
+        icon.appendChild(dot);
+    }
+    custom.append(icon);
+    custom.addEventListener('click', () => {
+        if (customPanel) return;
+        const panel = document.createElement('div');
+        panel.className = 'group-custom-panel';
+        customPanel = panel;
+        const wheel = document.createElement('div');
+        wheel.className = 'group-color-wheel';
+        const ring = document.createElement('div');
+        ring.className = 'group-color-ring';
+        ring.setAttribute('aria-label', 'Hue');
+        ring.setAttribute('role', 'slider');
+        ring.setAttribute('aria-valuemin', '0');
+        ring.setAttribute('aria-valuemax', '360');
+        ring.tabIndex = 0;
+        const hueMarker = document.createElement('span');
+        hueMarker.className = 'group-hue-marker';
+        ring.append(hueMarker);
+        const field = document.createElement('div');
+        field.className = 'group-color-field';
+        field.setAttribute('aria-label', 'Saturation and brightness; enter an exact color in the hex input');
+        const marker = document.createElement('span');
+        field.append(marker);
+        let hue = 0, saturation = 0, brightness = 0;
+        const hex = document.createElement('input');
+        hex.type = 'text';
+        hex.className = 'settings-input';
+        hex.maxLength = 7;
+        hex.spellcheck = false;
+        hex.setAttribute('aria-label', 'Hex color');
+        const controls = document.createElement('div');
+        controls.className = 'group-color-controls';
+        const selectButton = document.createElement('button');
+        selectButton.type = 'button';
+        selectButton.className = 'sa-btn';
+        selectButton.textContent = 'Select';
+        const save = () => {
+            if (!/^#[0-9a-f]{6}$/i.test(hex.value)) return;
+            emitWithCsrf('group_set_color', { group_id: groupId, color: hex.value.toLowerCase() });
+            close();
+        };
+        selectButton.addEventListener('click', save);
+        const render = () => {
+            const h = hue / 60;
+            const s = saturation / 100;
+            const v = brightness / 100;
+            const channel = n => {
+                const k = (n + h) % 6;
+                return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1)))).toString(16).padStart(2, '0');
+            };
+            hex.value = '#' + channel(5) + channel(3) + channel(1);
+            hex.setAttribute('aria-invalid', 'false');
+            selectButton.disabled = false;
+            field.style.backgroundColor = `hsl(${hue} 100% 50%)`;
+            ring.setAttribute('aria-valuenow', String(Math.round(hue)));
+            const angle = hue * Math.PI / 180;
+            hueMarker.style.left = (50 + 44 * Math.sin(angle)) + '%';
+            hueMarker.style.top = (50 - 44 * Math.cos(angle)) + '%';
+            marker.style.left = saturation + '%';
+            marker.style.top = (100 - brightness) + '%';
+        };
+        const loadHex = color => {
+            const [r, g, b] = color.slice(1).match(/../g).map(value => parseInt(value, 16) / 255);
+            const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
+            hue = delta === 0 ? 0 : (60 * (max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4) + 360) % 360;
+            saturation = max === 0 ? 0 : delta / max * 100;
+            brightness = max * 100;
+            render();
+            hex.value = color.toLowerCase();
+        };
+        hex.addEventListener('input', () => {
+            const valid = /^#[0-9a-f]{6}$/i.test(hex.value);
+            hex.setAttribute('aria-invalid', String(!valid));
+            selectButton.disabled = !valid;
+            if (valid) {
+                loadHex(hex.value);
+            }
+        });
+        const select = e => {
+            const rect = field.getBoundingClientRect();
+            saturation = Math.max(0, Math.min(100, (e.clientX - rect.left) / rect.width * 100));
+            brightness = Math.max(0, Math.min(100, 100 - (e.clientY - rect.top) / rect.height * 100));
+            render();
+        };
+        const selectHue = e => {
+            const rect = ring.getBoundingClientRect();
+            hue = (Math.atan2(e.clientX - rect.left - rect.width / 2, rect.top + rect.height / 2 - e.clientY) * 180 / Math.PI + 360) % 360;
+            render();
+        };
+        ring.addEventListener('pointerdown', e => {
+            if (e.button !== 0) return;
+            ring.setPointerCapture(e.pointerId);
+            selectHue(e);
+        });
+        ring.addEventListener('pointermove', e => {
+            if (ring.hasPointerCapture(e.pointerId)) selectHue(e);
+        });
+        ring.addEventListener('pointerup', e => {
+            if (!ring.hasPointerCapture(e.pointerId)) return;
+            selectHue(e);
+            ring.releasePointerCapture(e.pointerId);
+        });
+        ring.addEventListener('keydown', e => {
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+            e.preventDefault();
+            hue = (hue + (['ArrowRight', 'ArrowUp'].includes(e.key) ? 1 : -1) + 360) % 360;
+            render();
+        });
+        field.addEventListener('pointerdown', e => {
+            if (e.button !== 0) return;
+            field.setPointerCapture(e.pointerId);
+            select(e);
+        });
+        field.addEventListener('pointermove', e => {
+            if (field.hasPointerCapture(e.pointerId)) select(e);
+        });
+        field.addEventListener('pointerup', e => {
+            if (!field.hasPointerCapture(e.pointerId)) return;
+            select(e);
+            field.releasePointerCapture(e.pointerId);
+        });
+        controls.append(hex, selectButton);
+        wheel.append(ring, field);
+        panel.append(wheel, controls);
+        document.body.append(panel);
+        loadHex(_cachedGroups.find(group => group.id === groupId).color);
+        position();
+    });
+    picker.appendChild(custom);
     
     document.body.appendChild(picker);
-    const rect = anchor.getBoundingClientRect();
-    picker.style.left = rect.left + 'px';
-    picker.style.top = (rect.bottom + 4) + 'px';
-    
-    // Close on outside click/touch
-    setTimeout(() => {
-        function closePicker(e) {
-            if (!picker.contains(e.target)) {
-                picker.remove();
-                document.removeEventListener('click', closePicker);
-                document.removeEventListener('touchstart', closePicker);
-            }
+    position();
+    document.addEventListener('pointerdown', e => {
+        if (!picker.contains(e.target) && !(customPanel && customPanel.contains(e.target)) && !anchor.contains(e.target)) close();
+    }, { signal: controller.signal });
+    document.addEventListener('pointermove', e => {
+        if (e.pointerType === 'touch' || !window.matchMedia('(hover: hover)').matches) return;
+        if (e.buttons || picker.contains(e.target) || (customPanel && customPanel.contains(e.target)) || anchor.contains(e.target)) {
+            clearTimeout(dismissTimer);
+            dismissTimer = null;
+        } else if (dismissTimer === null) {
+            dismissTimer = setTimeout(close, 250);
         }
-        document.addEventListener('click', closePicker);
-        document.addEventListener('touchstart', closePicker);
-    }, 10);
+    }, { signal: controller.signal });
+    document.addEventListener('pointerout', e => {
+        if (e.pointerType !== 'touch' && (!e.relatedTarget || e.relatedTarget.tagName === 'IFRAME') && dismissTimer === null) {
+            dismissTimer = setTimeout(close, 250);
+        }
+    }, { signal: controller.signal });
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') close();
+    }, { signal: controller.signal });
+    window.addEventListener('resize', position, { signal: controller.signal });
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', position, { signal: controller.signal });
+        window.visualViewport.addEventListener('scroll', position, { signal: controller.signal });
+    }
 }
 
 let contextMenuCleanup = null;
@@ -853,7 +1083,6 @@ function trackContextMenu(menu, templatesBtn = null, groupId = null) {
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') dismissContextMenus();
     }, options);
-    window.addEventListener('blur', dismissContextMenus, options);
     window.addEventListener('resize', dismissContextMenus, options);
     menu.addEventListener('click', e => {
         if (templatesBtn && templatesBtn.contains(e.target)) openTemplates();
@@ -971,7 +1200,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     newSessionBtn.textContent = 'New Session';
     newSessionBtn.onclick = () => {
         menu.remove();
-        openNewSessionModal(groupId);
+        openNewSessionModal(groupId, true);
     };
     menu.appendChild(newSessionBtn);
 
@@ -1415,10 +1644,10 @@ function navigateJupyter(pane, location) {
 // --- New Session Modal ---
 let newSessionTargetGroupId = null;
 
-function openNewSessionModal(targetGroupId = null) {
+function openNewSessionModal(targetGroupId = null, keepSidebarOpen = false) {
     newSessionTargetGroupId = targetGroupId;
     document.getElementById('newSessionModal').classList.add('open');
-    if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+    if (!keepSidebarOpen && window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
 function closeNewSessionModal() { 
     document.getElementById('newSessionModal').classList.remove('open');
@@ -1456,6 +1685,7 @@ bindBackdropDismissal(document, target => {
     const sidebar = document.getElementById('sidebar');
     const sidebarToggle = document.querySelector('.sidebar-toggle');
     return target !== null && window.innerWidth <= 500 && sidebar.classList.contains('open')
+        && !target.closest('.group-context-menu, .group-color-picker, .group-custom-panel')
         && !sidebar.contains(target) && !sidebarToggle.contains(target);
 }, () => document.getElementById('sidebar').classList.remove('open'));
 
