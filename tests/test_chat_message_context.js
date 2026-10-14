@@ -23,7 +23,7 @@ const sandbox = vm.createContext({
     currentTurnIndex: 0,
     document: {createElement: element, body, getElementById() { return messages; }, addEventListener() {}},
     window: {innerWidth: 1000, innerHeight: 1000},
-    addMsgLabelContextMenu() {}, _addTimestampSpan() {}, scrollToBottom() {},
+    addMsgContextMenu() {}, _addTimestampSpan() {}, scrollToBottom() {},
     parseAttachedFiles() {},
     _renderUserBody(el, text) { el.renderedBody = text; },
     dismissMsgContextMenu() {}, setTimeout() {}, bindModalBackdrop() {},

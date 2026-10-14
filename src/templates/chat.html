@@ -6,6 +6,7 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/select.css">
     <link rel="stylesheet" href="/static/css/chat-pins.css">
     <link rel="stylesheet" href="/static/css/context-menu.css">
     <link rel="stylesheet" href="/static/css/image-viewer.css">
@@ -1406,34 +1407,29 @@
         socket.emit('acp_fork_at_turn', payload);
     }
     
-    function addMsgLabelContextMenu(label, turnIndex, msgType) {
-        // Right-click on desktop
-        label.addEventListener('contextmenu', (e) => {
+    function addMsgContextMenu(message, label, turnIndex, msgType) {
+        message.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             showMsgContextMenu(e.clientX, e.clientY, turnIndex, msgType, label);
         });
         
-        // Long-press on mobile
         let holdTimer = null;
-        label.addEventListener('touchstart', (e) => {
+        message.addEventListener('touchstart', (e) => {
             holdTimer = setTimeout(() => {
                 holdTimer = 'fired';
                 const touch = e.touches[0];
                 showMsgContextMenu(touch.clientX, touch.clientY, turnIndex, msgType, label);
             }, 500);
         });
-        label.addEventListener('touchend', () => {
+        const cancelHold = () => {
             if (holdTimer && holdTimer !== 'fired') {
                 clearTimeout(holdTimer);
                 holdTimer = null;
             }
-        });
-        label.addEventListener('touchmove', () => {
-            if (holdTimer && holdTimer !== 'fired') {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
-        });
+        };
+        message.addEventListener('touchend', cancelHold);
+        message.addEventListener('touchmove', cancelHold);
+        message.addEventListener('touchcancel', cancelHold);
     }
 
     function ensureAssistantMsg(ts) {
@@ -1451,7 +1447,7 @@
             label.className = 'msg-label';
             label.textContent = 'Fernando';
             if (msgTs) _addTimestampSpan(label, msgTs, msgModel);
-            addMsgLabelContextMenu(label, currentTurnIndex, 'assistant');
+            addMsgContextMenu(currentAssistantMsg, label, currentTurnIndex, 'assistant');
             currentAssistantMsg.appendChild(label);
             messagePins.register(currentAssistantMsg, 'assistant', currentTurnIndex);
             document.getElementById('messages').appendChild(currentAssistantMsg);
@@ -2740,7 +2736,7 @@
         label.textContent = 'You';
         if (ts) _addTimestampSpan(label, ts);
         // Add context menu for forking
-        addMsgLabelContextMenu(label, currentTurnIndex, 'user');
+        addMsgContextMenu(el, label, currentTurnIndex, 'user');
         el.appendChild(label);
         messagePins.register(el, 'user', currentTurnIndex);
         if (collapsed) {

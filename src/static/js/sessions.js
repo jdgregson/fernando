@@ -415,8 +415,6 @@ function updatePaneBorders() {
     c1.style.removeProperty('border-color');
     c2.style.removeProperty('border-color');
     
-    if (!isSplit) return;
-    
     // Get session keys for both panes
     const s1 = paneController.sessionKey(1);
     const s2 = paneController.sessionKey(2);
@@ -425,8 +423,17 @@ function updatePaneBorders() {
     
     // Apply group colors to pane borders (or default blue for ungrouped)
     function applyColor(container, sessionKey, isActive) {
-        if (!sessionKey) return;
         const groupId = _cachedSessionGroups[sessionKey];
+        const group = groupId ? _cachedGroups.find(g => g.id === groupId) : null;
+        container.toggleAttribute('data-group-selection', !!group);
+        if (group) {
+            container.style.setProperty('--group-selection-background', group.color);
+            container.style.setProperty('--group-selection-foreground', groupColorForeground(group.color));
+        } else {
+            container.style.removeProperty('--group-selection-background');
+            container.style.removeProperty('--group-selection-foreground');
+        }
+        if (!sessionKey || !isSplit) return;
         let color = defaultColor;
         if (groupId) {
             const group = _cachedGroups.find(g => g.id === groupId);
@@ -614,6 +621,9 @@ function createGroupElement(group, sessionItems, isExpanded, isFirst) {
     if (!isUngrouped) {
         wrapper.style.setProperty('--group-color', color);
         wrapper.style.setProperty('--group-foreground', groupColorForeground(color));
+        wrapper.setAttribute('data-group-selection', '');
+        wrapper.style.setProperty('--group-selection-background', color);
+        wrapper.style.setProperty('--group-selection-foreground', groupColorForeground(color));
         wrapper.style.background = color + '33'; // ~20% opacity tint
     }
     
@@ -1645,10 +1655,25 @@ function navigateJupyter(pane, location) {
 let newSessionTargetGroupId = null;
 
 function openNewSessionModal(targetGroupId = null, keepSidebarOpen = false) {
-    newSessionTargetGroupId = targetGroupId;
+    newSessionTargetGroupId = targetGroupId || getActivePaneGroupId() || '__ungrouped__';
+    const target = document.getElementById('newSessionTarget');
+    target.replaceChildren(new Option('Other', '__ungrouped__'));
+    for (const group of _cachedGroups) {
+        target.add(new Option(group.name, group.id));
+    }
+    target.value = newSessionTargetGroupId;
+    updateNewSessionTarget();
     document.getElementById('newSessionModal').classList.add('open');
     if (!keepSidebarOpen && window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
 }
+function updateNewSessionTarget() {
+    const target = document.getElementById('newSessionTarget');
+    newSessionTargetGroupId = target.value;
+    target.title = target.selectedOptions[0].textContent;
+    const group = _cachedGroups.find(group => group.id === target.value);
+    target.style.setProperty('--target-group-color', group ? group.color : '#7ea8e3');
+}
+
 function closeNewSessionModal() { 
     document.getElementById('newSessionModal').classList.remove('open');
     newSessionTargetGroupId = null;

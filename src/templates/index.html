@@ -15,6 +15,8 @@
     <script src="/static/vendor/wterm/wterm.bundle.js"></script>
     <link rel="stylesheet" href="/static/vendor/wterm/wterm.css" />
     <link rel="stylesheet" href="/static/css/index.css">
+    <link rel="stylesheet" href="/static/css/select.css">
+    <link rel="stylesheet" href="/static/css/group-selection.css">
     <link rel="stylesheet" href="/static/css/context-menu.css">
     <link rel="stylesheet" href="/static/css/automation.css">
 </head>
@@ -127,7 +129,12 @@
                         <div class="session-card-desc">Graphical chat UI</div>
                     </div>
                 </div>
-                <button class="modal-close" onclick="closeNewSessionModal()">Cancel</button>
+                <div class="new-session-actions">
+                    <button class="modal-close" onclick="closeNewSessionModal()">Cancel</button>
+                    <label class="new-session-target" for="newSessionTarget">Target group:
+                        <select class="settings-select" id="newSessionTarget" onchange="updateNewSessionTarget()"></select>
+                    </label>
+                </div>
             </div>
         </div>
     </div>

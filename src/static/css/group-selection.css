@@ -1,0 +1,14 @@
+[data-group-selection]::selection,
+[data-group-selection] ::selection {
+    background-color: var(--group-selection-background) !important;
+    color: var(--group-selection-foreground) !important;
+    text-shadow: none !important;
+}
+
+[data-group-selection] .cm-focused .cm-selectionBackground {
+    background-color: transparent !important;
+}
+
+[data-group-selection] .cm-editor:not(.cm-focused) .cm-selectionBackground {
+    background-color: color-mix(in srgb, var(--group-selection-background) 30%, transparent) !important;
+}

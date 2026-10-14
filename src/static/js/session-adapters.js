@@ -70,7 +70,8 @@ paneController.register('notebook', {
         return match ? 'notebook:' + match[1] : null;
     },
     prepare(key) {
-        const groupId = _cachedSessionGroups[key] ? null : (window._notebookTargetGroupId || getActivePaneGroupId());
+        const targetGroupId = window._notebookTargetGroupId;
+        const groupId = _cachedSessionGroups[key] ? null : (targetGroupId === '__ungrouped__' ? null : (targetGroupId || getActivePaneGroupId()));
         window._notebookTargetGroupId = null;
         return { key, groupId };
     },

@@ -95,7 +95,6 @@ body { display: flex; flex-direction: column; }
     opacity: 0.6;
     user-select: none;
     -webkit-user-select: none;
-    cursor: context-menu;
 }
 .msg .msg-label .msg-ts {
     font-weight: 400;
