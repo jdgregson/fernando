@@ -1210,7 +1210,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
     newSessionBtn.textContent = 'New Session';
     newSessionBtn.onclick = () => {
         menu.remove();
-        openNewSessionModal(groupId, true);
+        openNewSessionModal(groupId);
     };
     menu.appendChild(newSessionBtn);
 

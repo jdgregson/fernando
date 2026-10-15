@@ -3579,6 +3579,9 @@
                 setStatus('working', 'Running tool...');
             } else {
                 finishTurn();
+                if (evt.result.stopReason === 'refusal') {
+                    addSystemMessage('Error: The model refused the request.', 'error');
+                }
             }
         }
     }
