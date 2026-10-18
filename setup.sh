@@ -212,8 +212,8 @@ fi
 
 # Set up daily update cron job (6:00 AM)
 gecho "Configuring daily update cron job..."
-CRON_LINE="0 6 * * * $INSTALL_DIR/scripts/update-kiro.sh >> /tmp/fernando-update-kiro.log 2>&1; $INSTALL_DIR/scripts/update-desktop.sh >> /tmp/fernando-update-desktop.log 2>&1"
-(sudo -u "$FERNANDO_USER" crontab -l 2>/dev/null | grep -v 'update-kiro\|update-desktop'; echo "$CRON_LINE") | sudo -u "$FERNANDO_USER" crontab -
+CRON_LINE="0 6 * * * $INSTALL_DIR/scripts/update-backends.sh >> /tmp/fernando-update-backends.log 2>&1; $INSTALL_DIR/scripts/update-desktop.sh >> /tmp/fernando-update-desktop.log 2>&1"
+(sudo -u "$FERNANDO_USER" crontab -l 2>/dev/null | grep -v 'update-kiro\|update-backends\|update-desktop'; echo "$CRON_LINE") | sudo -u "$FERNANDO_USER" crontab -
 
 # Install global Kiro steering file
 gecho "Installing Kiro steering file..."

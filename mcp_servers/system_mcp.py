@@ -177,7 +177,7 @@ def _health_check():
     log_files = [
         ("/tmp/fernando-flask.log", "flask"),
         ("/tmp/fernando-mutate.log", "mutate"),
-        ("/tmp/fernando-update-kiro.log", "update-kiro"),
+        ("/tmp/fernando-update-backends.log", "update-backends"),
         ("/tmp/fernando-update-desktop.log", "update-desktop"),
     ]
     health["logs"] = {}

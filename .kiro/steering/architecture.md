@@ -41,7 +41,7 @@ Operational scripts for running Fernando:
 - `stop.sh` — Stop all services gracefully. Same `REPO_DIR` pattern.
 - `restart.sh` — Restart via systemd (`sudo systemctl restart fernando`)
 - `mutate.sh` — Self-mutation: runs stop/start in a detached process so tmux sessions survive. Called by `fernando_mcp.py`.
-- `update-kiro.sh` — Update Kiro CLI installation
+- `update-backends.sh` — Update Kiro CLI and enabled OpenCode installations, retaining three versions for rollback
 - `patch_cft_infobar.py` — Binary patch to remove Chrome for Testing infobar. Used during Docker image build only (`Dockerfile.desktop` COPYs it).
 
 ## Root-Level Files
