@@ -21,10 +21,10 @@ class ErrorRetryTests(unittest.TestCase):
     def test_error_is_recorded_and_broadcast_before_user_retry(self):
         self.fail_turn()
         self.assertEqual([e['type'] for e in self.session.history], ['acp_error', 'user_prompt'])
-        self.assertEqual(self.session.history[-1]['text'], 'Coninue')
+        self.assertEqual(self.session.history[-1]['text'], 'Continue')
         events = [call.args[1]['type'] for call in self.session.on_event.call_args_list]
         self.assertEqual(events, ['acp_error', 'user_prompt'])
-        self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'], [{'type': 'text', 'text': 'Coninue'}])
+        self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'], [{'type': 'text', 'text': 'Continue'}])
 
     def test_rolling_limit_survives_success_and_allows_expired_retry(self):
         with patch.object(acp.time, 'time', return_value=1000):
@@ -41,10 +41,10 @@ class ErrorRetryTests(unittest.TestCase):
 
     def test_busy_or_unready_session_is_not_interrupted(self):
         self.session._is_prompting = True
-        self.session.send_prompt('Coninue', error_retry=True)
+        self.session.send_prompt('Continue', error_retry=True)
         self.session._is_prompting = False
         self.session.ready = False
-        self.session.send_prompt('Coninue', error_retry=True)
+        self.session.send_prompt('Continue', error_retry=True)
         self.session._send.assert_not_called()
 
     def test_pending_rpc_error_does_not_retry_prompt(self):

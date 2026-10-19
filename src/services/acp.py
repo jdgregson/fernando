@@ -987,7 +987,7 @@ class ACPSession:
                 self.on_event(self.id, {"type": "system_message", "text": "Session reloaded. MCP tools restored."})
             # Auto-continue the agent so it resumes work
             if error_retry:
-                self.send_prompt("Coninue", error_retry=True)
+                self.send_prompt("Continue", error_retry=True)
             else:
                 self.send_continuation("The MCP server connection was lost and has been automatically restored. All tools are available again. Continue where you left off.")
         except Exception as e:
@@ -1087,7 +1087,7 @@ class ACPSession:
                     self._save_history()
                     if self.on_event and self._broadcasting:
                         self.on_event(self.id, error_evt)
-                    self.send_prompt("Coninue", error_retry=True)
+                    self.send_prompt("Continue", error_retry=True)
                 return
             self._retry_count = 0
             error_evt = {"type": "acp_error", "error": err_text or "Unknown error", "ts": time.time()}
@@ -1099,7 +1099,7 @@ class ACPSession:
                 logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
                 threading.Thread(target=self._auto_reload, kwargs={"error_retry": True}, daemon=True).start()
             else:
-                self.send_prompt("Coninue", error_retry=True)
+                self.send_prompt("Continue", error_retry=True)
             return
 
         # Notification (no id) — log session/update type

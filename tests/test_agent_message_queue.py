@@ -234,7 +234,7 @@ class AgentMessageQueueTests(unittest.TestCase):
         self.session._is_prompting = True
         self.session.send_agent_message('child', 'pending')
         self.session._dispatch({'id': 42, 'error': {'message': 'Response failed'}})
-        self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'][0]['text'], 'Coninue')
+        self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'][0]['text'], 'Continue')
         self.assertEqual(len(self.session._agent_message_queue), 1)
         self.finish_turn()
         self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'][0]['text'],
