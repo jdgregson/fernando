@@ -125,12 +125,13 @@ function filterArchived() {
 }
 
 function filterArchivedEntries(query) {
-    const q = query.toLowerCase();
+    const quoted = query.match(/^"([^"]+)"$|^“([^”]+)”$/u);
+    const q = (quoted ? quoted[1] || quoted[2] : query).toLowerCase();
     let count = 0;
     const ranges = [];
     document.querySelectorAll(showArchived ? '.archived-item' : '#sessionList .session-item:not(.archived-item)').forEach(item => {
         const group = item.closest('.group-wrapper');
-        const groupMatch = group && group.querySelector('.group-name').textContent.toLowerCase().includes(q);
+        const groupMatch = !quoted && group && group.querySelector('.group-name').textContent.toLowerCase().includes(q);
         const name = item.querySelector('.session-name');
         if (!name) return;
         const hit = conversationSearchMatches.get(item.dataset.session);
@@ -165,7 +166,7 @@ function filterArchivedEntries(query) {
         }
     });
     document.querySelectorAll(showArchived ? '.archived-group' : '#sessionList .group-wrapper:not(.archived-group)').forEach(group => {
-        const nameMatch = group.querySelector('.group-name').textContent.toLowerCase().includes(q);
+        const nameMatch = !quoted && group.querySelector('.group-name').textContent.toLowerCase().includes(q);
         const childMatch = Array.from(group.querySelectorAll('.session-item')).some(item => item.style.display !== 'none');
         group.style.display = !q || nameMatch || childMatch ? '' : 'none';
         if (q && !group.hasAttribute('data-search-expanded')) group.dataset.searchExpanded = String(group.querySelector('.group-body').classList.contains('expanded'));
@@ -180,7 +181,7 @@ function filterArchivedEntries(query) {
             delete group.dataset.searchExpanded;
         }
     });
-    document.getElementById('conversationSearchStatus').textContent = count + ' matches in ' + (showArchived ? 'archived' : 'active') + ' · Esc to clear';
+    document.getElementById('conversationSearchStatus').textContent = count + (quoted ? ' exact matches in ' : ' matches in ') + (showArchived ? 'archived' : 'active') + ' · Esc to clear';
     if (window.CSS?.highlights) CSS.highlights.set('conversation-search', new Highlight(...ranges));
 }
 

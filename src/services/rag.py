@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import threading
 from pathlib import Path
 from src.services.rag_chunking import chunk_text as _chunk_text
@@ -129,6 +130,11 @@ def _delete_session(session_id):
         logger.info(f"Deleted {len(results['ids'])} chunks for session {session_id}")
 
 
+def exact_search_phrase(query):
+    match = re.fullmatch(r'"([^"]+)"|“([^”]+)”', query.strip())
+    return (match.group(1) or match.group(2)).casefold() if match else None
+
+
 def search(query, limit=5, session_ids=None, distinct_sessions=False):
     """Search conversations. Returns list of {session_id, session_name, turn_index, snippet, score}."""
     if session_ids is not None and not session_ids:
@@ -138,6 +144,25 @@ def search(query, limit=5, session_ids=None, distinct_sessions=False):
         return []
     limit = max(1, min(int(limit), 100))
     scope = {'where': {'session_id': {'$in': list(session_ids)}}} if session_ids is not None else {}
+    phrase = exact_search_phrase(query)
+    if phrase is not None:
+        hits = []
+        seen = set()
+        offset = 0
+        while True:
+            page = collection.get(limit=256, offset=offset, include=['documents', 'metadatas'], **scope)
+            for document, meta in zip(page['documents'], page['metadatas']):
+                key = meta['session_id'] if distinct_sessions else (meta['session_id'], meta['turn_index'])
+                if key in seen or phrase not in document.casefold():
+                    continue
+                seen.add(key)
+                start = max(0, document.casefold().index(phrase) - 120)
+                hits.append({'session_id': meta['session_id'], 'session_name': meta.get('session_name', ''), 'turn_index': meta.get('turn_index', 0), 'snippet': document[start:start + 500], 'score': 0})
+                if len(hits) >= limit:
+                    return hits
+            if len(page['ids']) < 256:
+                return hits
+            offset += 256
     results = collection.query(query_texts=[query], n_results=min(limit * 5, collection.count()), **scope)
     hits = []
     seen = set()

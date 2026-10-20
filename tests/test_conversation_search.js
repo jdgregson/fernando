@@ -28,5 +28,11 @@ test('active search scopes requests, rejects stale results, safely highlights sn
     assert.equal(win.document.querySelector('.conversation-search-preview'), null);
     assert.equal(win.document.getElementById('conversationSearchStatus').hidden, true);
     assert.equal(win.document.querySelector('[data-session="chat:b"]').style.display, '');
+    input.value = '"Camping"';
+    win.filterArchived();
+    assert.equal(win.document.querySelector('[data-session="chat:a"]').style.display, '');
+    assert.equal(win.document.querySelector('[data-session="chat:b"]').style.display, 'none');
+    assert.match(win.document.getElementById('conversationSearchStatus').textContent, /1 exact matches/);
+    win.clearConversationSearch();
     dom.window.close();
 });

@@ -1313,6 +1313,7 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return
         from difflib import SequenceMatcher
+        from src.services.rag import exact_search_phrase
         import re
         query = (data.get("query") or "").strip()[:500]
         scope = data.get('scope')
@@ -1324,13 +1325,16 @@ def register_handlers(socketio):
         for hit in hits:
             best.setdefault(hit['session_id'], hit)
         tokens = re.findall(r'\w+', query.casefold())
+        phrase = exact_search_phrase(query)
         results = []
         for session in sessions:
             words = re.findall(r'\w+', session['name'].casefold())
             title_match = bool(tokens) and all(any(token in word or (len(token) >= 4 and SequenceMatcher(None, token, word).ratio() >= .78) for word in words) for token in tokens)
+            if phrase is not None:
+                title_match = phrase in session['name'].casefold()
             hit = best.get(session['id'])
             if title_match or hit:
-                results.append({**session, 'snippet': hit['snippet'] if hit else '', 'match': 'Title' if title_match else 'Related content'})
+                results.append({**session, 'snippet': hit['snippet'] if hit else '', 'match': 'Title' if title_match else 'Exact phrase' if phrase is not None else 'Related content'})
         emit('acp_conversation_search_results', {'query': query, 'scope': scope, 'request_id': data.get('request_id'), 'sessions': results})
 
     @socketio.on("acp_restore")
