@@ -314,6 +314,41 @@ def api_acp_terminate():
     return json.dumps({"ok": True, "session_id": session_id, "terminated": True}), 200, {"Content-Type": "application/json"}
 
 
+@bp.route("/api/acp/child_messages", methods=["POST"])
+def api_acp_child_messages():
+    if not _check_api_key():
+        return {"error": "Unauthorized"}, 401
+    from src.services.acp import get_parent
+    data = request.get_json(force=True)
+    child_id = data.get('session_id')
+    message = data.get('message')
+    if not isinstance(child_id, str) or not isinstance(message, str) or not message:
+        return {"error": "Missing session_id or message"}, 400
+    parent_id = get_parent(child_id)
+    if not parent_id:
+        return {"error": "Session has no parent"}, 403
+    session = acp_manager.get_session(parent_id)
+    if not session:
+        return {"error": "Parent session not found"}, 404
+    message_id = session.receive_child_message(child_id, message)
+    return {"ok": True, "message_id": message_id, "parent_session": parent_id}
+
+
+@bp.route("/api/acp/child_messages/read", methods=["POST"])
+def api_acp_read_child_messages():
+    if not _check_api_key():
+        return {"error": "Unauthorized"}, 401
+    data = request.get_json(force=True)
+    session_id = data.get('session_id')
+    if not isinstance(session_id, str) or not session_id:
+        return {"error": "Missing session_id"}, 400
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return {"error": "Session not found"}, 404
+    messages = session.read_child_messages()
+    return {"messages": messages, "count": len(messages)}
+
+
 @bp.route("/api/acp/agent_message", methods=["POST"])
 def api_acp_agent_message():
     """Send a message from one agent to another (parent-child messaging)."""

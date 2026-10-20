@@ -355,25 +355,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not my_session:
             result = {"error": "Could not determine your session ID"}
         else:
-            from src.services.acp import get_parent, queue_child_message
-            parent_id = get_parent(my_session)
-            if not parent_id:
-                result = {"error": "You were not spawned by another agent (no parent)"}
-            else:
-                msg_id = queue_child_message(parent_id, my_session, arguments["message"])
-                # Wake parent via agent_message API
-                api_key = read_api_key()
-                wake_msg = f"[Subagent {my_session} sent you a message. Use read_child_messages() to read it.]"
-                req = urllib.request.Request(
-                    "http://localhost:5000/api/acp/agent_message",
-                    data=json.dumps({"session_id": parent_id, "from_session": my_session, "message": wake_msg}).encode(),
-                    headers={"Content-Type": "application/json", "X-API-Key": api_key},
-                )
-                try:
-                    urllib.request.urlopen(req, timeout=5)
-                except Exception:
-                    pass  # Parent may be busy, that's OK - message is queued
-                result = {"ok": True, "message_id": msg_id, "parent_session": parent_id}
+            req = urllib.request.Request(
+                "http://localhost:5000/api/acp/child_messages",
+                data=json.dumps({"session_id": my_session, "message": arguments["message"]}).encode(),
+                headers={"Content-Type": "application/json", "X-API-Key": read_api_key()},
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.load(response)
     elif name == "message_child":
         my_session = find_my_session_id()
         if not my_session:
@@ -433,9 +421,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not my_session:
             result = {"error": "Could not determine your session ID"}
         else:
-            from src.services.acp import get_unread_child_messages
-            messages = get_unread_child_messages(my_session)
-            result = {"messages": messages, "count": len(messages)}
+            req = urllib.request.Request(
+                "http://localhost:5000/api/acp/child_messages/read",
+                data=json.dumps({"session_id": my_session}).encode(),
+                headers={"Content-Type": "application/json", "X-API-Key": read_api_key()},
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.load(response)
     elif name == "sleep_subagent":
         my_session = find_my_session_id()
         if not my_session:

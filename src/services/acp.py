@@ -559,10 +559,30 @@ class ACPSession:
             self._publish_agent_queue_event(evt)
             return self._drain_agent_messages() == evt['id']
 
-    def send_agent_message(self, from_session, text):
+    def receive_child_message(self, child_id, text):
+        with self._lock:
+            message_id = queue_child_message(self.id, child_id, text)
+            self.send_agent_message(
+                child_id,
+                'Unread subagent messages are available. Use read_child_messages() to read all unread messages.',
+                child_message_id=message_id)
+            return message_id
+
+    def read_child_messages(self):
+        with self._lock:
+            messages = get_unread_child_messages(self.id)
+            consumed = {message['id'] for message in messages}
+            for queued in list(self._agent_message_queue):
+                if queued.get('child_message_id') in consumed:
+                    self.delete_queued_agent_message(queued['id'])
+            return messages
+
+    def send_agent_message(self, from_session, text, child_message_id=None):
         with self._lock:
             evt = {"type": "agent_message_queued", "id": uuid.uuid4().hex,
                    "session_id": self.id, "from": from_session, "text": text, "ts": time.time()}
+            if child_message_id is not None:
+                evt['child_message_id'] = child_message_id
             self._agent_message_queue.append(evt)
             self._publish_agent_queue_event(evt)
             return self._drain_agent_messages() == evt['id']
@@ -591,6 +611,18 @@ class ACPSession:
             if (self._is_prompting or self._turn_finishing or self._reloading
                     or self._retry_pending or not self.ready or not self._alive
                     or not self.acp_session_id or not self._agent_message_queue):
+                return None
+            unread_ids = None
+            while self._agent_message_queue:
+                pending = self._agent_message_queue[0]
+                if 'child_message_id' not in pending:
+                    break
+                if unread_ids is None:
+                    unread_ids = {message['id'] for message in get_unread_child_messages(self.id, mark_read=False)}
+                if pending['child_message_id'] in unread_ids:
+                    break
+                self.delete_queued_agent_message(pending['id'])
+            if not self._agent_message_queue:
                 return None
             evt = self._agent_message_queue.pop(0)
             if evt['type'] == 'user_message_queued':

@@ -1,6 +1,11 @@
 import threading
+import tempfile
+import ast
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
+
+from flask import Flask, request
 
 from src.services import acp
 
@@ -22,8 +27,65 @@ class DeliveryContextTests(unittest.TestCase):
             self.assertNotIn('pane2:', manager._initial_prompt_context('aaaaaaaa'))
 
 
+class ChildMessageRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.manager = Mock()
+        self.app = Flask(__name__)
+        source = Path(__file__).resolve().parents[1] / 'src/routes/web.py'
+        names = {'api_acp_child_messages': '/api/acp/child_messages',
+                 'api_acp_read_child_messages': '/api/acp/child_messages/read'}
+        nodes = [node for node in ast.parse(source.read_text()).body
+                 if isinstance(node, ast.FunctionDef) and node.name in names]
+        for node in nodes:
+            node.decorator_list = []
+        namespace = {'request': request, 'acp_manager': self.manager,
+                     '_check_api_key': lambda: request.headers.get('X-API-Key') == 'test-key'}
+        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), 'exec'), namespace)
+        for name, route in names.items():
+            self.app.add_url_rule(route, view_func=namespace[name], methods=['POST'])
+        self.client = self.app.test_client()
+
+    def test_both_routes_require_api_key(self):
+        for route in ('/api/acp/child_messages', '/api/acp/child_messages/read'):
+            self.assertEqual(self.client.post(route, json={'session_id': 'child'}).status_code, 401)
+        self.manager.get_session.assert_not_called()
+
+    def test_parent_is_derived_from_lineage_and_sleeping_parent_accepts_message(self):
+        parent = self.manager.get_session.return_value
+        parent.ready = False
+        parent.receive_child_message.return_value = 'message-id'
+        with patch.object(acp, 'get_parent', return_value='actual-parent'):
+            response = self.client.post('/api/acp/child_messages',
+                                        json={'session_id': 'child', 'parent_session': 'other', 'message': 'hello'},
+                                        headers={'X-API-Key': 'test-key'})
+        self.assertEqual(response.status_code, 200)
+        self.manager.get_session.assert_called_once_with('actual-parent')
+        parent.receive_child_message.assert_called_once_with('child', 'hello')
+        self.assertEqual(response.json['message_id'], 'message-id')
+
+    def test_unrelated_sender_is_rejected(self):
+        with patch.object(acp, 'get_parent', return_value=None):
+            response = self.client.post('/api/acp/child_messages',
+                                        json={'session_id': 'child', 'message': 'hello'},
+                                        headers={'X-API-Key': 'test-key'})
+        self.assertEqual(response.status_code, 403)
+        self.manager.get_session.assert_not_called()
+
+    def test_read_uses_session_coordinator(self):
+        self.manager.get_session.return_value.read_child_messages.return_value = [{'id': 'one'}]
+        response = self.client.post('/api/acp/child_messages/read', json={'session_id': 'parent'},
+                                    headers={'X-API-Key': 'test-key'})
+        self.assertEqual(response.json, {'messages': [{'id': 'one'}], 'count': 1})
+        self.manager.get_session.assert_called_once_with('parent')
+
+
 class AgentMessageQueueTests(unittest.TestCase):
     def setUp(self):
+        inbox = tempfile.TemporaryDirectory()
+        self.addCleanup(inbox.cleanup)
+        inbox_patch = patch.object(acp, 'CHILD_MESSAGES_DIR', inbox.name)
+        inbox_patch.start()
+        self.addCleanup(inbox_patch.stop)
         self.session = acp.ACPSession('aaaaaaaa', on_event=Mock())
         self.session.acp_session_id = 'native-session'
         self.session.ready = True
@@ -37,6 +99,89 @@ class AgentMessageQueueTests(unittest.TestCase):
 
     def finish_turn(self):
         self.session._dispatch({'id': 42, 'result': {'stopReason': 'end_turn'}})
+
+    def test_bulk_read_removes_only_consumed_pokes_and_persists_removals(self):
+        self.session._is_prompting = True
+        first = self.session.receive_child_message('child1', 'first')
+        self.session.queue_user_message('user message')
+        self.session.send_agent_message('parent', 'actual message')
+        second = self.session.receive_child_message('child2', 'second')
+        messages = self.session.read_child_messages()
+        self.assertEqual([message['id'] for message in messages], [first, second])
+        self.assertEqual(self.session.read_child_messages(), [])
+        with patch.object(acp, 'load_history_file', return_value=list(self.session.history)):
+            self.session._load_history()
+        self.assertEqual([entry['text'] for entry in self.session._agent_message_queue],
+                         ['user message', 'actual message'])
+        self.assertEqual(len([event for event in self.session.history
+                              if event['type'] == 'agent_message_removed']), 2)
+
+    def test_same_child_new_message_after_read_keeps_its_poke(self):
+        self.session._is_prompting = True
+        self.session.receive_child_message('child', 'first')
+        self.session.read_child_messages()
+        second = self.session.receive_child_message('child', 'second')
+        self.assertEqual(self.session._agent_message_queue[0]['child_message_id'], second)
+        self.finish_turn()
+        self.session._send.assert_called_once()
+        self.assertEqual([message['id'] for message in self.session.read_child_messages()], [second])
+
+    def test_delayed_stale_poke_is_skipped_without_blocking_real_message(self):
+        self.session._is_prompting = True
+        message_id = self.session.receive_child_message('child', 'first')
+        self.session.read_child_messages()
+        self.session.send_agent_message('child', 'stale poke', child_message_id=message_id)
+        self.session.send_agent_message('parent', 'real message')
+        self.finish_turn()
+        self.session._send.assert_called_once()
+        self.assertEqual(self.session._send.call_args.args[0]['params']['prompt'][0]['text'],
+                         '[AGENT MESSAGE from parent] real message')
+
+    def test_restart_discards_stale_pokes_even_if_removal_was_not_saved(self):
+        self.session._is_prompting = True
+        self.session.receive_child_message('child', 'first')
+        queued_history = list(self.session.history)
+        self.session.read_child_messages()
+        with patch.object(acp, 'load_history_file', return_value=queued_history):
+            self.session._load_history()
+        self.finish_turn()
+        self.session._send.assert_not_called()
+        self.assertEqual(self.session._agent_message_queue, [])
+
+    def test_sleeping_parent_keeps_inbox_and_poke_until_ready(self):
+        self.session.ready = False
+        message_id = self.session.receive_child_message('child', 'first')
+        self.session._send.assert_not_called()
+        self.session.ready = True
+        self.session._drain_agent_messages()
+        self.session._send.assert_called_once()
+        self.assertEqual(self.session.read_child_messages()[0]['id'], message_id)
+
+    def test_concurrent_read_and_arrival_do_not_lose_message_or_leave_stale_poke(self):
+        self.session._is_prompting = True
+        self.session.receive_child_message('child', 'first')
+        barrier = threading.Barrier(3)
+        consumed = []
+
+        def read():
+            barrier.wait()
+            consumed.extend(self.session.read_child_messages())
+
+        def send():
+            barrier.wait()
+            self.session.receive_child_message('child', 'second')
+
+        threads = [threading.Thread(target=read), threading.Thread(target=send)]
+        for thread in threads:
+            thread.start()
+        barrier.wait()
+        for thread in threads:
+            thread.join(timeout=2)
+            self.assertFalse(thread.is_alive())
+        unread = acp.get_unread_child_messages(self.session.id, mark_read=False)
+        self.assertEqual({message['message'] for message in consumed + unread}, {'first', 'second'})
+        self.assertEqual({entry['child_message_id'] for entry in self.session._agent_message_queue},
+                         {message['id'] for message in unread})
 
     def test_busy_messages_wait_and_deliver_one_per_turn_in_order(self):
         self.session._is_prompting = True
