@@ -129,18 +129,21 @@ def _delete_session(session_id):
         logger.info(f"Deleted {len(results['ids'])} chunks for session {session_id}")
 
 
-def search(query, limit=5):
+def search(query, limit=5, session_ids=None, distinct_sessions=False):
     """Search conversations. Returns list of {session_id, session_name, turn_index, snippet, score}."""
+    if session_ids is not None and not session_ids:
+        return []
     collection = _get_collection()
     if collection.count() == 0:
         return []
     limit = max(1, min(int(limit), 100))
-    results = collection.query(query_texts=[query], n_results=min(limit * 5, collection.count()))
+    scope = {'where': {'session_id': {'$in': list(session_ids)}}} if session_ids is not None else {}
+    results = collection.query(query_texts=[query], n_results=min(limit * 5, collection.count()), **scope)
     hits = []
     seen = set()
     for i, doc_id in enumerate(results["ids"][0]):
         meta = results["metadatas"][0][i]
-        key = (meta['session_id'], meta['turn_index'])
+        key = meta['session_id'] if distinct_sessions else (meta['session_id'], meta['turn_index'])
         if key in seen:
             continue
         seen.add(key)

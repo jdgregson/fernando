@@ -69,7 +69,10 @@
                 {% endfor %}
             </div>
             <div class="sidebar-fade"></div>
-            <input type="text" id="archiveSearch" class="archive-search" placeholder="Search archived…" oninput="filterArchived()" style="display:none">
+            <div id="conversationSearch" class="conversation-search">
+                <div class="conversation-search-field"><input type="text" id="archiveSearch" class="archive-search" maxlength="500" placeholder="Search active conversations…" aria-label="Search conversations" oninput="filterArchived()" onkeydown="if(event.key === 'Escape') clearConversationSearch()"><button id="clearConversationSearch" onclick="clearConversationSearch()" aria-label="Clear conversation search" title="Clear search (Escape)" hidden><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m2 2 8 8M10 2l-8 8"/></svg></button></div>
+                <div id="conversationSearchStatus" role="status" hidden></div>
+            </div>
             <div class="archive-switch" id="archivedToggleBtn">
                 <span class="archive-switch-label active" id="switchLabelActive" onclick="switchToActive()">Active</span>
                 <span class="archive-switch-label" id="switchLabelArchived" onclick="switchToArchived()">Archived</span>

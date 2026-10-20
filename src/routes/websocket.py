@@ -1308,27 +1308,30 @@ def register_handlers(socketio):
             "session_groups": groups.get_session_groups(),
         })
 
-    @socketio.on("acp_search_archived")
-    def acp_search_archived(data):
+    @socketio.on("acp_search_conversations")
+    def acp_search_conversations(data):
         if not validate_csrf(data):
             return
-        query = (data.get("query") or "").strip()
-        if not query:
-            emit("acp_archived_search_results", {"sessions": []})
+        from difflib import SequenceMatcher
+        import re
+        query = (data.get("query") or "").strip()[:500]
+        scope = data.get('scope')
+        if scope not in ('active', 'archived'):
             return
-        # Get all archived sessions for title matching
-        archived = acp_manager.list_archived()
-        archived_ids = {s["id"] for s in archived}
-        # Title matches (substring, case-insensitive)
-        q_lower = query.lower()
-        title_matches = {s["id"] for s in archived if q_lower in s["name"].lower()}
-        # RAG matches (semantic search across all conversations, then filter to archived only)
-        rag_hits = rag_search(query, limit=20)
-        rag_matches = {h["session_id"] for h in rag_hits if h["session_id"] in archived_ids}
-        # Merge: title matches first, then RAG-only matches
-        all_match_ids = title_matches | rag_matches
-        results = [s for s in archived if s["id"] in all_match_ids]
-        emit("acp_archived_search_results", {"sessions": results})
+        sessions = acp_manager.list_archived() if scope == 'archived' else acp_manager.list_sessions()
+        hits = rag_search(query, limit=20, session_ids=[s['id'] for s in sessions], distinct_sessions=True) if query else []
+        best = {}
+        for hit in hits:
+            best.setdefault(hit['session_id'], hit)
+        tokens = re.findall(r'\w+', query.casefold())
+        results = []
+        for session in sessions:
+            words = re.findall(r'\w+', session['name'].casefold())
+            title_match = bool(tokens) and all(any(token in word or (len(token) >= 4 and SequenceMatcher(None, token, word).ratio() >= .78) for word in words) for token in tokens)
+            hit = best.get(session['id'])
+            if title_match or hit:
+                results.append({**session, 'snippet': hit['snippet'] if hit else '', 'match': 'Title' if title_match else 'Related content'})
+        emit('acp_conversation_search_results', {'query': query, 'scope': scope, 'request_id': data.get('request_id'), 'sessions': results})
 
     @socketio.on("acp_restore")
     def acp_restore(data):

@@ -1,0 +1,32 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const {test} = require('node:test');
+const {JSDOM} = require('jsdom');
+
+test('active search scopes requests, rejects stale results, safely highlights snippets and clears', async () => {
+    const dom = new JSDOM('<div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="session-item" data-session="chat:a"><span class="session-name">Camping</span></div><div class="session-item" data-session="chat:b"><span class="session-name">Other</span></div></div>', {runScripts: 'outside-only'});
+    const win = dom.window;
+    const events = new Map();
+    const emitted = [];
+    win.socket = {on: (name, handler) => events.set(name, handler)};
+    win.emitWithCsrf = (name, data) => emitted.push({name, data});
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    const input = win.document.getElementById('archiveSearch');
+    input.value = 'tent';
+    win.filterArchived();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    assert.equal(emitted.at(-1).data.scope, 'active');
+    const response = {...emitted.at(-1).data, sessions: [{id: 'a', snippet: '<img src=x onerror=alert(1)> tent', match: 'Related content'}]};
+    events.get('acp_conversation_search_results')({...response, scope: 'archived'});
+    assert.equal(win.document.querySelector('[data-session="chat:a"]').style.display, 'none');
+    events.get('acp_conversation_search_results')(response);
+    assert.equal(win.document.querySelector('.conversation-search-preview mark').textContent, 'tent');
+    assert.equal(win.document.querySelector('img'), null);
+    assert.equal(win.document.getElementById('clearConversationSearch').hidden, false);
+    win.clearConversationSearch();
+    events.get('acp_conversation_search_results')(response);
+    assert.equal(win.document.querySelector('.conversation-search-preview'), null);
+    assert.equal(win.document.getElementById('conversationSearchStatus').hidden, true);
+    assert.equal(win.document.querySelector('[data-session="chat:b"]').style.display, '');
+    dom.window.close();
+});

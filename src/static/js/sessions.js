@@ -1478,6 +1478,8 @@ function updateSessionList(sessions, chatSessions, data) {
         document.querySelectorAll('#sessionList > .group-wrapper').forEach(el => el.style.display = 'none');
         document.querySelectorAll('#sessionList > .new-group-btn').forEach(el => el.style.display = 'none');
         emitWithCsrf('acp_list_archived');
+    } else {
+        filterArchivedEntries(document.getElementById('archiveSearch').value.trim());
     }
 }
 

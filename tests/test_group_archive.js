@@ -5,7 +5,7 @@ const {test} = require('node:test');
 const {JSDOM} = require('jsdom');
 
 test('archive groups render, search, restore without opening chats, and leave active view clean', () => {
-    const dom = new JSDOM('<body><span id="switchLabelActive"></span><span id="switchLabelArchived"></span><input id="archiveSearch"><div id="sessionList"><div class="group-wrapper" id="activeGroup"></div></div></body>', {runScripts: 'outside-only'});
+    const dom = new JSDOM('<body><span id="switchLabelActive"></span><span id="switchLabelArchived"></span><div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="group-wrapper" id="activeGroup"><span class="group-name">Active</span><span class="group-chevron"></span><div class="group-body"></div></div></div></body>', {runScripts: 'outside-only'});
     const win = dom.window;
     const events = new Map();
     const emitted = [];
@@ -37,9 +37,10 @@ test('archive groups render, search, restore without opening chats, and leave ac
     doc.getElementById('archiveSearch').value = 'Large';
     win.filterArchived();
     assert.equal(group.querySelector('[data-session="chat:a"]').style.display, '');
-    events.get('acp_archived_search_results')({sessions: []});
+    events.get('acp_conversation_search_results')({scope: 'archived', query: 'Child', request_id: -1, sessions: []});
     assert.equal(group.style.display, '');
     win.switchToActive();
+    win.clearConversationSearch();
     assert.equal(doc.querySelectorAll('.archived-group, .archived-item').length, 0);
     assert.equal(doc.getElementById('activeGroup').style.display, '');
     dom.window.close();

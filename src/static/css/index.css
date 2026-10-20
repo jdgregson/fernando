@@ -373,6 +373,18 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     box-sizing: border-box;
 }
 
+.conversation-search-field { position: relative; }
+.conversation-search .archive-search { padding-right: 34px; }
+.conversation-search-field button { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); width: 28px; height: 26px; padding: 0; border: 0; background: transparent; color: #e8efff; cursor: pointer; }
+.conversation-search-field button:not([hidden]) { display: grid; place-items: center; }
+.conversation-search.searching { background: #18364e; border-bottom: 2px solid #70baf3; padding-bottom: 7px; }
+.conversation-search.searching input { border-color: #70baf3; }
+#conversationSearchStatus { color: #c6e6ff; font-size: 11px; margin: 6px 15px 0; }
+#sessionList .search-result { flex-wrap: wrap; }
+.conversation-search-preview { flex-basis: 100%; font-size: 11px; line-height: 1.45; color: #c0ccdb; white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 5px; overflow-wrap: anywhere; }
+#sessionList mark { background: #f1ce75; color: #172337; border-radius: 2px; }
+::highlight(conversation-search) { background: #f1ce75; color: #172337; }
+
 .archive-switch {
     display: flex;
     position: relative;
