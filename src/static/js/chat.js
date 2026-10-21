@@ -55,6 +55,35 @@ let showArchived = false;
 const expandedArchivedGroups = new Set();
 let conversationSearchRequest = 0;
 let conversationSearchMatches = new Map();
+let conversationSearchProgress = {};
+let conversationSearchCount = 0;
+function parseConversationQuery(query) {
+    const tokens = query.match(/"[^"]*"|“[^”]*”|\S+/gu) || [];
+    const groups = tokens.filter(token => token.startsWith('group:')).map(token => token.slice(6));
+    return {text: tokens.filter(token => !token.startsWith('group:')).join(' '), group: groups[0] || null};
+}
+function searchConversationGroup(groupId) {
+    const input = document.getElementById('archiveSearch');
+    input.value = 'group:' + groupId + ' ' + parseConversationQuery(input.value).text;
+    filterArchived();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+}
+function updateConversationSearchStatus() {
+    const query = document.getElementById('archiveSearch').value.trim();
+    const parsed = parseConversationQuery(query);
+    const exact = /^"[^"]+"$|^“[^”]+”$/u.test(parsed.text);
+    let text = conversationSearchCount + (exact ? ' exact matches in ' : ' matches in ') + (showArchived ? 'archived' : 'active');
+    if (parsed.group) text += ' · group:' + parsed.group;
+    const progress = conversationSearchProgress;
+    if (progress.state === 'searching' || progress.state === 'semantic' || progress.state === 'complete') {
+        text += ' · ' + (progress.completed ?? 0) + '/' + (progress.total ?? '?') + ' searched';
+        if (progress.state === 'semantic') text += ' · semantic search running';
+    }
+    if (progress.error) text += ' · ' + progress.error;
+    if (progress.warning) text += ' · ' + progress.warning;
+    document.getElementById('conversationSearchStatus').textContent = text + ' · Esc to clear';
+}
 function clearConversationSearch() {
     document.getElementById('archiveSearch').value = '';
     filterArchived();
@@ -110,23 +139,28 @@ function filterArchived() {
     const q = document.getElementById('archiveSearch').value.trim();
     clearTimeout(filterArchived._timer);
     const requestId = ++conversationSearchRequest;
+    emitWithCsrf('acp_cancel_conversation_search', {request_id: requestId});
     conversationSearchMatches = new Map();
+    conversationSearchProgress = q ? {state: 'searching'} : {};
+    const wasSearching = document.getElementById('conversationSearch').classList.contains('searching');
     document.getElementById('conversationSearch').classList.toggle('searching', !!q);
     document.getElementById('clearConversationSearch').hidden = !q;
     document.getElementById('conversationSearchStatus').hidden = !q;
+    if (wasSearching !== !!q && !showArchived && typeof _cachedData !== 'undefined' && _cachedData) updateSessionList(_cachedSessions, _cachedChatSessions, _cachedData);
     filterArchivedEntries(q);
     if (!q) {
         return;
     }
     filterArchived._timer = setTimeout(() => {
-        document.getElementById('conversationSearchStatus').textContent = 'Searching ' + (showArchived ? 'archived' : 'active') + ' conversations…';
-        emitWithCsrf('acp_search_conversations', { query: q, scope: showArchived ? 'archived' : 'active', request_id: requestId });
+        const preferred = typeof paneController !== 'undefined' ? paneController.get(1)?.contentKey?.replace(/^chat:/, '') : null;
+        emitWithCsrf('acp_search_conversations', { query: q, scope: showArchived ? 'archived' : 'active', request_id: requestId, preferred });
     }, 300);
 }
 
 function filterArchivedEntries(query) {
-    const quoted = query.match(/^"([^"]+)"$|^“([^”]+)”$/u);
-    const q = (quoted ? quoted[1] || quoted[2] : query).toLowerCase();
+    const parsed = parseConversationQuery(query);
+    const quoted = parsed.text.match(/^"([^"]+)"$|^“([^”]+)”$/u);
+    const q = (quoted ? quoted[1] || quoted[2] : parsed.text).toLowerCase();
     let count = 0;
     const ranges = [];
     document.querySelectorAll(showArchived ? '.archived-item' : '#sessionList .session-item:not(.archived-item)').forEach(item => {
@@ -135,9 +169,11 @@ function filterArchivedEntries(query) {
         const name = item.querySelector('.session-name');
         if (!name) return;
         const hit = conversationSearchMatches.get(item.dataset.session);
-        const matched = !q || groupMatch || name.textContent.toLowerCase().includes(q) || hit;
+        const groupId = group?.dataset.groupId || '__ungrouped__';
+        const inGroup = !parsed.group || parsed.group === groupId;
+        const matched = inGroup && (!q || groupMatch || name.textContent.toLowerCase().includes(q) || hit);
         item.style.display = matched ? '' : 'none';
-        if (matched) count++;
+        if (matched && item.dataset.session?.startsWith('chat:')) count++;
         if (q) {
             const walker = document.createTreeWalker(name, NodeFilter.SHOW_TEXT);
             let node;
@@ -155,33 +191,37 @@ function filterArchivedEntries(query) {
                 }
             }
         }
-        item.querySelector('.conversation-search-preview')?.remove();
+        const existingPreview = item.querySelector('.conversation-search-preview');
+        if (existingPreview && (!q || !matched || existingPreview.dataset.snippet !== hit?.snippet)) existingPreview.remove();
         item.classList.toggle('search-result', !!q && !!matched);
-        if (q && matched && hit?.snippet) {
+        if (q && matched && hit?.snippet && !item.querySelector('.conversation-search-preview')) {
             const preview = document.createElement('div');
             preview.className = 'conversation-search-preview';
             preview.title = hit.match;
-            highlightSearchText(preview, hit.snippet, query);
+            preview.dataset.snippet = hit.snippet;
+            highlightSearchText(preview, hit.snippet, parsed.text);
             item.append(preview);
         }
     });
     document.querySelectorAll(showArchived ? '.archived-group' : '#sessionList .group-wrapper:not(.archived-group)').forEach(group => {
         const nameMatch = !quoted && group.querySelector('.group-name').textContent.toLowerCase().includes(q);
         const childMatch = Array.from(group.querySelectorAll('.session-item')).some(item => item.style.display !== 'none');
-        group.style.display = !q || nameMatch || childMatch ? '' : 'none';
-        if (q && !group.hasAttribute('data-search-expanded')) group.dataset.searchExpanded = String(group.querySelector('.group-body').classList.contains('expanded'));
-        if (q && childMatch) {
+        const inGroup = !parsed.group || parsed.group === (group.dataset.groupId || '__ungrouped__');
+        group.style.display = inGroup && (!q || nameMatch || childMatch) ? '' : 'none';
+        if (query && !group.hasAttribute('data-search-expanded')) group.dataset.searchExpanded = String(group.querySelector('.group-body').classList.contains('expanded'));
+        if (query && inGroup && childMatch) {
             group.querySelector('.group-body').classList.add('expanded');
             group.querySelector('.group-chevron').classList.add('expanded');
         }
-        if (!q && group.hasAttribute('data-search-expanded')) {
+        if (!query && group.hasAttribute('data-search-expanded')) {
             const expanded = group.dataset.searchExpanded === 'true';
             group.querySelector('.group-body').classList.toggle('expanded', expanded);
             group.querySelector('.group-chevron').classList.toggle('expanded', expanded);
             delete group.dataset.searchExpanded;
         }
     });
-    document.getElementById('conversationSearchStatus').textContent = count + (quoted ? ' exact matches in ' : ' matches in ') + (showArchived ? 'archived' : 'active') + ' · Esc to clear';
+    conversationSearchCount = count;
+    updateConversationSearchStatus();
     if (window.CSS?.highlights) CSS.highlights.set('conversation-search', new Highlight(...ranges));
 }
 
@@ -190,8 +230,14 @@ socket.on('acp_conversation_search_results', (data) => {
     const q = document.getElementById('archiveSearch').value.trim();
     if (!q || data.query !== q) return;
     const sessions = data.sessions || [];
-    conversationSearchMatches = new Map(sessions.map(s => ['chat:' + s.id, s]));
-    filterArchivedEntries(q);
+    sessions.forEach(s => conversationSearchMatches.set('chat:' + s.id, s));
+    conversationSearchProgress = {...conversationSearchProgress, ...data};
+    if (sessions.length) filterArchivedEntries(q);
+    else updateConversationSearchStatus();
+});
+
+socket.on('connected', () => {
+    if (document.getElementById('archiveSearch').value.trim()) filterArchived();
 });
 
 socket.on('acp_archived_list', (data) => {
@@ -229,6 +275,16 @@ socket.on('acp_archived_list', (data) => {
             if (expanded) expandedArchivedGroups.add(group.id);
             else expandedArchivedGroups.delete(group.id);
         };
+        header.addEventListener('contextmenu', event => {
+            event.preventDefault();
+            showGroupContextMenu(group.id, event.clientX, event.clientY, 0, true);
+        });
+        let searchHoldTimer;
+        header.addEventListener('touchstart', event => {
+            const {clientX, clientY} = event.touches[0];
+            searchHoldTimer = setTimeout(() => showGroupContextMenu(group.id, clientX, clientY, 0, true), 500);
+        }, {passive: true});
+        for (const event of ['touchend', 'touchmove', 'touchcancel']) header.addEventListener(event, () => clearTimeout(searchHoldTimer));
         header.append(chevron, name, restore);
         wrapper.append(header, body);
         list.appendChild(wrapper);
@@ -278,7 +334,7 @@ socket.on('acp_archived_list', (data) => {
         const groupBody = groupedMembers.has(item.dataset.session) && groupBodies.get((data.session_groups || {})[item.dataset.session]);
         (groupBody || list).appendChild(item);
     });
-    filterArchived();
+    filterArchivedEntries(document.getElementById('archiveSearch').value.trim());
 });
 
 socket.on('acp_restored', (data) => {

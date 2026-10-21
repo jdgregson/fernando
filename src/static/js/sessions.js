@@ -1199,11 +1199,20 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
     trackContextMenu(menu);
 }
 
-function showGroupContextMenu(groupId, x, y, sessionCount) {
+function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
     dismissContextMenus();
 
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
+
+    const searchBtn = document.createElement('div');
+    searchBtn.className = 'context-menu-item';
+    searchBtn.textContent = 'Search group';
+    searchBtn.onclick = () => {
+        menu.remove();
+        searchConversationGroup(groupId);
+    };
+    menu.appendChild(searchBtn);
 
     const newSessionBtn = document.createElement('div');
     newSessionBtn.className = 'context-menu-item';
@@ -1212,9 +1221,9 @@ function showGroupContextMenu(groupId, x, y, sessionCount) {
         menu.remove();
         openNewSessionModal(groupId);
     };
-    menu.appendChild(newSessionBtn);
+    if (!archived) menu.appendChild(newSessionBtn);
 
-    if (groupId === '__ungrouped__') {
+    if (groupId === '__ungrouped__' || archived) {
         document.body.appendChild(menu);
         const menuRect = menu.getBoundingClientRect();
         menu.style.left = Math.max(0, Math.min(x, window.innerWidth - menuRect.width - 10)) + 'px';
@@ -1408,7 +1417,8 @@ function updateSessionList(sessions, chatSessions, data) {
     const inventory = paneController.inventory({ ...data, sessions, chat_sessions: chatSessions });
     const groupsKey = JSON.stringify(_cachedGroups) + '|' + JSON.stringify(_cachedSessionGroups);
     const collapsedKey = JSON.stringify([...getCollapsedParents()].sort());
-    const newKey = JSON.stringify(inventory.map(({ adapter, ...session }) => JSON.stringify(adapter.sidebarKey ? adapter.sidebarKey(session) : session)).sort()) + '|' + groupsKey + '|' + collapsedKey;
+    const searchingConversations = !!document.getElementById('archiveSearch').value.trim();
+    const newKey = JSON.stringify(inventory.map(({ adapter, ...session }) => JSON.stringify(adapter.sidebarKey ? adapter.sidebarKey(session) : session)).sort()) + '|' + groupsKey + '|' + collapsedKey + '|' + searchingConversations;
     if (sessionListInitialized && lastSessionsKey === newKey) return;
     sessionListInitialized = true;
     lastSessionsKey = newKey;
@@ -1418,7 +1428,7 @@ function updateSessionList(sessions, chatSessions, data) {
     
     const allItems = Object.create(null);
     for (const session of inventory) {
-        if (session.hidden) continue;
+        if (session.hidden && !searchingConversations) continue;
         const element = paneController.sidebarItem(session);
         if (session.pinned) fragment.appendChild(element);
         else allItems[session.key] = { element, groupId: _cachedSessionGroups[session.key] || null };

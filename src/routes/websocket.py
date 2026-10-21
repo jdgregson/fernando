@@ -9,7 +9,7 @@ from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
 from src.services.chat_history import replay_events
-from src.services.rag import search as rag_search
+from src.services import conversation_search
 from src.services.automation import (
     automation_manager, create_rule, update_rule, delete_rule, list_rules,
     get_history as get_automation_history, load_meta_policy, save_meta_policy,
@@ -251,6 +251,7 @@ def register_handlers(socketio):
     @socketio.on("disconnect")
     def handle_disconnect():
         sid = request.sid
+        conversation_search.cancel(sid)
         logger.info(f"Client disconnected: sid={sid}")
         csrf_tokens.pop(sid, None)
         # Detach all viewer connections for this socket
@@ -1312,30 +1313,34 @@ def register_handlers(socketio):
     def acp_search_conversations(data):
         if not validate_csrf(data):
             return
-        from difflib import SequenceMatcher
-        from src.services.rag import exact_search_phrase
-        import re
-        query = (data.get("query") or "").strip()[:500]
+        query = data.get('query')
+        request_id = data.get('request_id')
+        if not isinstance(query, str) or len(query) > 500 or type(request_id) is not int or request_id < 0:
+            return
+        query = query.strip()
         scope = data.get('scope')
         if scope not in ('active', 'archived'):
             return
+        sid = request.sid
+        envelope = {'query': query, 'scope': scope, 'request_id': request_id}
+        try:
+            text, group_id = conversation_search.parse_query(query)
+        except ValueError as error:
+            conversation_search.cancel(sid, request_id)
+            emit('acp_conversation_search_results', {**envelope, 'state': 'error', 'error': str(error)})
+            return
+        from src.services import groups
         sessions = acp_manager.list_archived() if scope == 'archived' else acp_manager.list_sessions()
-        hits = rag_search(query, limit=20, session_ids=[s['id'] for s in sessions], distinct_sessions=True) if query else []
-        best = {}
-        for hit in hits:
-            best.setdefault(hit['session_id'], hit)
-        tokens = re.findall(r'\w+', query.casefold())
-        phrase = exact_search_phrase(query)
-        results = []
-        for session in sessions:
-            words = re.findall(r'\w+', session['name'].casefold())
-            title_match = bool(tokens) and all(any(token in word or (len(token) >= 4 and SequenceMatcher(None, token, word).ratio() >= .78) for word in words) for token in tokens)
-            if phrase is not None:
-                title_match = phrase in session['name'].casefold()
-            hit = best.get(session['id'])
-            if title_match or hit:
-                results.append({**session, 'snippet': hit['snippet'] if hit else '', 'match': 'Title' if title_match else 'Exact phrase' if phrase is not None else 'Related content'})
-        emit('acp_conversation_search_results', {'query': query, 'scope': scope, 'request_id': data.get('request_id'), 'sessions': results})
+        sessions = conversation_search.scoped_sessions(sessions, groups.get_session_groups(), group_id)
+        conversation_search.start(sid, text, sessions, lambda result: socketio.emit('acp_conversation_search_results', {**envelope, **result}, to=sid), preferred=data.get('preferred'), request_id=request_id)
+
+    @socketio.on('acp_cancel_conversation_search')
+    def acp_cancel_conversation_search(data):
+        if not validate_csrf(data):
+            return
+        request_id = data.get('request_id')
+        if type(request_id) is int and request_id >= 0:
+            conversation_search.cancel(request.sid, request_id)
 
     @socketio.on("acp_restore")
     def acp_restore(data):
