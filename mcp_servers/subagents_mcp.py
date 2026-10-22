@@ -194,7 +194,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "group_id": {
                         "type": "string",
-                        "description": "Optional group ID to place the subagent in. If not provided, subagent will be ungrouped.",
+                        "description": "Optional target group ID (not a group name). If omitted or empty, inherits the calling agent's group when its parent session is identified. Pass another existing group ID to explicitly target a different group. If the caller cannot be identified or has no group, the subagent will be ungrouped.",
                     },
                 },
                 "required": ["task_id", "task"],

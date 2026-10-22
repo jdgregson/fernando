@@ -1212,7 +1212,6 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
         menu.remove();
         searchConversationGroup(groupId);
     };
-    menu.appendChild(searchBtn);
 
     const newSessionBtn = document.createElement('div');
     newSessionBtn.className = 'context-menu-item';
@@ -1224,6 +1223,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
     if (!archived) menu.appendChild(newSessionBtn);
 
     if (groupId === '__ungrouped__' || archived) {
+        menu.appendChild(searchBtn);
         document.body.appendChild(menu);
         const menuRect = menu.getBoundingClientRect();
         menu.style.left = Math.max(0, Math.min(x, window.innerWidth - menuRect.width - 10)) + 'px';
@@ -1240,6 +1240,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
     arrow.textContent = '▸';
     templatesBtn.appendChild(arrow);
     menu.appendChild(templatesBtn);
+    menu.appendChild(searchBtn);
     
     const renameBtn = document.createElement('div');
     renameBtn.className = 'context-menu-item';

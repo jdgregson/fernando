@@ -46,7 +46,10 @@ def _merge(left, right):
 
 
 def opencode_base():
-    config_dir = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config")) / "opencode"
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
+    if config_home.is_relative_to(RUNTIME):
+        config_home = HOME / ".config"
+    config_dir = config_home / "opencode"
     result = {}
     for directory in (config_dir, ROOT, ROOT / ".opencode"):
         for name in ("config.json", "opencode.json", "opencode.jsonc"):
