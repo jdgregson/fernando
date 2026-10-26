@@ -10,6 +10,7 @@ import os
 import subprocess
 from mcp.server import Server
 from mcp.types import Tool, TextContent
+from browser_cdp import browser
 
 
 CDP_PORT = 9222
@@ -72,6 +73,73 @@ def exec_in_kasm(cmd, env=None, shell=False, stdin_data=None):
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+        Tool(
+            name="browser_capture",
+            description="Start, inspect, or stop persistent browser-wide CDP network capture. Captures pages, out-of-process frames and workers, including future targets, while this MCP server runs. Start BEFORE navigation/actions; past requests cannot be recovered. In-memory event buffer: 4000 events/16 MiB; Chrome bodies: 32 MiB per target, 8 MiB per resource. Status lists stable target IDs and attachment failures. Stop clears captured events. Traffic may contain credentials; retrieve only what the task needs.",
+            inputSchema={"type": "object", "properties": {
+                "action": {"type": "string", "enum": ["start", "status", "stop"]},
+            }, "required": ["action"]},
+        ),
+        Tool(
+            name="browser_network",
+            description="List captured browser requests with IDs, URLs, methods, status, completion/errors and target IDs. Filter by URL substring, HTTP method/status, target and event cursor. Follow cursor while has_more is true. Requires browser_capture start. Headers, cookies, timing, redirects and WebSocket frames are available through browser_request/browser_events.",
+            inputSchema={"type": "object", "properties": {
+                "url": {"type": "string"}, "method": {"type": "string"},
+                "status": {"type": "integer"}, "target_id": {"type": "string"},
+                "after": {"type": "integer", "minimum": 0, "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+            }},
+        ),
+        Tool(
+            name="browser_request",
+            description="Inspect a captured request: details includes request/response headers, initiator, timing, redirects, extra-info cookies and raw events. request_body/response_body retrieve Chrome's buffered body with explicit character pagination and base64 flag. Bodies can expire or be unavailable; errors are reported, never treated as empty. Binary base64 chunks must be reassembled before decoding. Uploaded files may be omitted by CDP request-body retrieval.",
+            inputSchema={"type": "object", "properties": {
+                "request_id": {"type": "string"},
+                "part": {"type": "string", "enum": ["details", "request_body", "response_body"], "default": "details"},
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100000, "default": 16000},
+            }, "required": ["request_id"]},
+        ),
+        Tool(
+            name="browser_cdp",
+            description="Send any Chrome DevTools Protocol command over the persistent connection. Provide target_id for a target session; omit for the browser session. Supports domains such as DOM, Runtime, Page, Network, Debugger and Storage. Enable domains explicitly to receive their events via browser_events. Commands can modify the browser, execute code or send requests: use only within the user's task. Requires browser_capture start.",
+            inputSchema={"type": "object", "properties": {
+                "method": {"type": "string"}, "params": {"type": "object"},
+                "target_id": {"type": "string"},
+                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60, "default": 15},
+            }, "required": ["method"]},
+        ),
+        Tool(
+            name="browser_events",
+            description="Read retained raw CDP events with cursor pagination. Filter by method prefix (e.g. Network.webSocket or Runtime.console) and target ID. Includes timestamps and reports dropped events. General browser information access; non-Network domains must first be enabled with browser_cdp.",
+            inputSchema={"type": "object", "properties": {
+                "after": {"type": "integer", "minimum": 0, "default": 0},
+                "method": {"type": "string", "default": ""}, "target_id": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+            }},
+        ),
+        Tool(
+            name="browser_wait",
+            description="Wait up to a bounded timeout for exactly one condition: a truthy JavaScript expression in target_id (e.g. document.querySelector('#results')?.innerText.includes('Ready')), OR a captured completed/failed request matching URL substring and optional status/target. Set after to the cursor before triggering the action to avoid old matches. Capture must already be started. Network failures are returned explicitly; timeouts raise an error.",
+            inputSchema={"type": "object", "properties": {
+                "target_id": {"type": "string"}, "expression": {"type": "string"},
+                "url": {"type": "string"}, "status": {"type": "integer"},
+                "after": {"type": "integer", "minimum": 0, "default": 0},
+                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60, "default": 15},
+            }},
+        ),
+        Tool(
+            name="browser_replay",
+            description="Resend a captured request in its browser session. This performs the action again, including POST side effects; use only as authorized by the task. mode=xhr uses native Network.replayXHR without edits. mode=fetch allows URL/method/header/body edits, uses the original frame and current browser cookies, respects CORS, and stops at redirects. URL edits must retain the original origin to avoid forwarding credentials elsewhere. Browser-controlled headers are regenerated. Fetch replay is not byte-identical; binary/multipart bodies require an explicit replacement. Inspect new traffic using after_cursor.",
+            inputSchema={"type": "object", "properties": {
+                "request_id": {"type": "string"},
+                "mode": {"type": "string", "enum": ["fetch", "xhr"], "default": "fetch"},
+                "url": {"type": "string"}, "method": {"type": "string"},
+                "headers": {"type": "object", "additionalProperties": {"type": "string"}},
+                "body": {"type": "string"},
+                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60, "default": 15},
+            }, "required": ["request_id"]},
+        ),
         Tool(
             name="type_text",
             description="Type text on the Kasm desktop",
@@ -395,7 +463,48 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     _e = {"DISPLAY": ":1"}
 
-    if name == "type_text":
+    if name == "browser_capture":
+        action = arguments["action"]
+        if action == "start":
+            result = await browser.start()
+        elif action == "stop":
+            result = await browser.stop()
+        else:
+            result = browser.status()
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "browser_network":
+        return [TextContent(type="text", text=json.dumps(browser.list_requests(**arguments), indent=2))]
+
+    elif name == "browser_request":
+        part = arguments.get("part", "details")
+        if part == "details":
+            result = browser.request(arguments["request_id"])
+        else:
+            result = await browser.body(arguments["request_id"],
+                                        "response" if part == "response_body" else "request",
+                                        arguments.get("offset", 0), arguments.get("limit", 16000))
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "browser_cdp":
+        target = arguments.get("target_id")
+        result = await browser.command(arguments["method"], arguments.get("params"),
+                                       browser.session(target) if target else None,
+                                       arguments.get("timeout", 15))
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "browser_events":
+        return [TextContent(type="text", text=json.dumps(browser.get_events(**arguments), indent=2))]
+
+    elif name == "browser_wait":
+        result = await browser.wait(**arguments)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "browser_replay":
+        result = await browser.replay(**arguments)
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "type_text":
         result = exec_in_kasm(["xdotool", "type", "--", arguments["text"]], env=_e)
         return [TextContent(type="text", text=f"Typed: {arguments['text']}\n{result}")]
 
@@ -648,8 +757,11 @@ print(json.dumps(entries))
 async def main():
     from mcp.server.stdio import stdio_server
 
-    async with stdio_server() as (read_stream, write_stream):
-        await app.run(read_stream, write_stream, app.create_initialization_options())
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await app.run(read_stream, write_stream, app.create_initialization_options())
+    finally:
+        await browser.stop()
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ socket.on('automation_rules', (data) => {
         if (r.fire_once) badges.push('<span class="sa-badge scheduled">once</span>');
         const details = [];
         if (trigger.from) details.push('from: ' + escapeHtml(trigger.from));
+        if (trigger.type === 'inbound' && r.action !== 'drop') details.push('provider: ' + (r.backend === 'opencode' ? 'OpenCode' : 'Kiro'));
         if (trigger.subject_contains) details.push('subj: ' + escapeHtml(trigger.subject_contains));
         if (trigger.body_contains) details.push('body: ' + escapeHtml(trigger.body_contains));
         if (trigger.cron) details.push('cron: ' + escapeHtml(trigger.cron));
@@ -50,6 +51,7 @@ socket.on('automation_rules', (data) => {
             </div>
             <div class="sa-meta">${details.join(' · ') || 'any'}</div>
             ${r.purpose ? `<div class="sa-meta">purpose: ${escapeHtml(r.purpose)}</div>` : ''}
+            ${trigger.type === 'inbound' && r.created_by === 'owner' ? `<label class="auto-check"><input type="checkbox" ${r.allow_chat_targeting ? 'checked' : ''} onchange="setRuleChatTargeting('${escapeHtml(r.id)}', this.checked)">Allow subject chat targeting</label><div class="sa-meta">Matching senders can route [chat:1234abcd] to any existing chat whose ID they know. Busy chats queue messages.</div>` : ''}
             ${r.task ? `<div class="sa-task">${escapeHtml(r.task.substring(0, 200))}</div>` : ''}
             ${r.expires_at ? `<div class="sa-meta">expires: ${new Date(r.expires_at).toLocaleString()}</div>` : ''}
             <div class="sa-actions">
@@ -62,6 +64,10 @@ socket.on('automation_rules', (data) => {
 
 function toggleAutomationRule(id, enabled) {
     emitWithCsrf('automation_toggle_rule', { rule_id: id, enabled });
+}
+
+function setRuleChatTargeting(id, enabled) {
+    emitWithCsrf('automation_update_rule', {rule_id: id, updates: {allow_chat_targeting: enabled}});
 }
 socket.on('automation_rule_updated', () => { loadAutomationRules(); });
 
@@ -98,7 +104,7 @@ function updateTriggerFields() {
             <div style="margin-bottom:14px">
                 <label class="sa-form-label">Action</label>
                 <select id="autoAction" class="sa-input">
-                    <option value="dispatch">Dispatch (full message)</option>
+                    <option value="dispatch">Dispatch (notify agent to read email)</option>
                     <option value="summary">Summary (metadata only)</option>
                     <option value="drop">Drop</option>
                 </select>
@@ -106,6 +112,20 @@ function updateTriggerFields() {
             <div class="auto-check">
                 <input type="checkbox" id="autoFireOnce">
                 <label for="autoFireOnce">Fire once</label>
+            </div>
+            <div class="auto-check" style="margin-top:14px">
+                <input type="checkbox" id="autoChatTargeting">
+                <label for="autoChatTargeting">Allow subject chat targeting</label>
+            </div>
+            <div class="sa-meta">
+                Matching senders can route subjects containing [chat:1234abcd] to any existing chat whose ID they know. Busy chats queue messages. The rule must match; the token does not bypass rules.
+            </div>
+            <div style="margin-top:14px">
+                <label class="sa-form-label" for="autoBackend">Agent provider</label>
+                <select id="autoBackend" class="sa-input">
+                    <option value="kiro">Kiro</option>
+                    <option value="opencode">OpenCode</option>
+                </select>
             </div>`;
     } else if (type === 'schedule') {
         c.innerHTML = `
@@ -172,6 +192,8 @@ function createAutomationRule() {
         rule.trigger.channel = 'email';
         rule.action = document.getElementById('autoAction').value;
         rule.fire_once = document.getElementById('autoFireOnce').checked;
+        rule.backend = document.getElementById('autoBackend').value;
+        rule.allow_chat_targeting = document.getElementById('autoChatTargeting').checked;
     } else if (type === 'schedule') {
         rule.task = document.getElementById('autoTask').value.trim();
         if (!rule.task) { showAlert('Task is required'); return; }
@@ -270,6 +292,9 @@ socket.on('automation_history', (data) => {
                 ${h.message_subject ? ' — ' + escapeHtml(h.message_subject) : ''}
             </div>
             ${h.task_id ? `<div class="sa-meta">subagent: ${escapeHtml(h.task_id)}</div>` : ''}
+            ${h.session_id ? `<div class="sa-meta">chat: ${escapeHtml(h.session_id)}</div>` : ''}
+            ${h.routing ? `<div class="sa-meta">routing: ${escapeHtml(h.routing)}</div>` : ''}
+            ${h.error ? `<div class="sa-meta">error: ${escapeHtml(h.error)}</div>` : ''}
         </div>`;
     }).join('');
 });

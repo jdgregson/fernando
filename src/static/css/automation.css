@@ -1,6 +1,7 @@
 #automationPanel { color: #d4d4d4; font-size: 13px; color-scheme: dark; }
 #automationPanel .modal-content { max-width: 900px; height: 80vh; display: flex; flex-direction: column; background: #0d2848; border-color: #283d5b; box-shadow: 0 24px 80px #0006; }
 #automationPanel .modal-header { color: #e5edf5; font-weight: 600; letter-spacing: -0.3px; }
+#automationPanel .auto-add-rule { margin-bottom: 16px; }
 #automationPanel .sa-panel-tabs { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #283d5b transparent; }
 #automationPanel .auto-tab { flex-shrink: 0; padding: 12px 14px; background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: #9aaec3; font-size: 13px; font-weight: 500; font-family: inherit; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
 #automationPanel .auto-tab:hover { color: #e5edf5; background: #ffffff05; }

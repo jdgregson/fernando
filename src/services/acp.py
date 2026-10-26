@@ -577,12 +577,14 @@ class ACPSession:
                     self.delete_queued_agent_message(queued['id'])
             return messages
 
-    def send_agent_message(self, from_session, text, child_message_id=None):
+    def send_agent_message(self, from_session, text, child_message_id=None, inbound_message_id=None):
         with self._lock:
             evt = {"type": "agent_message_queued", "id": uuid.uuid4().hex,
                    "session_id": self.id, "from": from_session, "text": text, "ts": time.time()}
             if child_message_id is not None:
                 evt['child_message_id'] = child_message_id
+            if inbound_message_id is not None:
+                evt['inbound_message_id'] = inbound_message_id
             self._agent_message_queue.append(evt)
             self._publish_agent_queue_event(evt)
             return self._drain_agent_messages() == evt['id']
@@ -870,17 +872,18 @@ class ACPSession:
             logger.warning(f"[{self.id}] RAG index error: {e}")
 
     def _load_history(self):
-        self.history = load_history_file(self.id)
-        self._flushed = len(self.history)
-        queued = {}
-        for evt in self.history:
-            if evt.get('type') in ('agent_message_queued', 'user_message_queued') and evt['session_id'] == self.id:
-                queued[evt['id']] = evt
-            elif evt.get('type') in ('agent_message', 'agent_message_removed'):
-                queued.pop(evt.get('id'), None)
-            elif evt.get('type') == 'user_prompt':
-                queued.pop(evt.get('queue_id'), None)
-        self._agent_message_queue = list(queued.values())
+        with self._lock:
+            self.history = load_history_file(self.id)
+            self._flushed = len(self.history)
+            queued = {}
+            for evt in self.history:
+                if evt.get('type') in ('agent_message_queued', 'user_message_queued') and evt['session_id'] == self.id:
+                    queued[evt['id']] = evt
+                elif evt.get('type') in ('agent_message', 'agent_message_removed'):
+                    queued.pop(evt.get('id'), None)
+                elif evt.get('type') == 'user_prompt':
+                    queued.pop(evt.get('queue_id'), None)
+            self._agent_message_queue = list(queued.values())
 
     def _patch_our_incomplete_mutate(self):
         """If history has a mutate/reboot tool_call without a completed tool_call_update, append one."""
@@ -1242,6 +1245,7 @@ class ACPManager:
                 session.on_event(session_id, {"type": "session_ready"})
             if initial_prompt:
                 session.send_prompt(self._initial_prompt_context(session_id) + '\n' + initial_prompt, initial_only=True)
+            session._drain_agent_messages()
         except Exception as e:
             logger.error(f"ACP session start failed: {e}")
             if session.on_event:
@@ -1254,7 +1258,7 @@ class ACPManager:
         from src.services.pty_service import pty_service
         from src.routes.websocket import _open_jupyter
 
-        parts = []
+        parts = [f'chat_id: {session_id}']
         with self._lock:
             for sessions, panes in reversed(list(self._pane_contexts.values())):
                 if session_id in sessions:

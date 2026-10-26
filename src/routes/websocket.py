@@ -1385,7 +1385,8 @@ def register_handlers(socketio):
         logger.info(f"Automation dispatch: action={action} rule={rule.get('id') if rule else 'default'} from={message.get('from')} subject={message.get('subject','')[:60]}")
         if action in ("dispatch", "summary"):
             result = _execute_rule(rule, inbound_message=message)
-            record_history(rule, message, action, result)
+            record_history(rule, message, "routing_failed" if result.get("error") else action, result)
+            return result
 
     automation_manager.start(on_dispatch=_automation_dispatch)
 

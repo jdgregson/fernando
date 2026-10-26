@@ -1172,7 +1172,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             result = {"status": "created", "id": data.get("id"), "name": data.get("displayName")}
 
     elif name == "microsoft_contact_delete":
-        data = graph_request("DELETE", f"/me/contacts/{arguments['contact_id']}")
+        data = graph_request("DELETE", f"/me/contacts/{arguments['microsoft_contact_id']}")
         if "error" in data:
             result = data
         else:

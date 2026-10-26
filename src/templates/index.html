@@ -401,11 +401,12 @@
             <button class="auto-tab active" onclick="switchAutoTab('rules',this)">Rules</button>
             <button class="auto-tab" onclick="switchAutoTab('subagents',this)">Subagents</button>
             <button class="auto-tab" onclick="switchAutoTab('history',this)">History</button>
-            <button class="auto-tab" onclick="switchAutoTab('create',this)">+ New</button>
+            <button class="auto-tab" id="autoCreateTab" onclick="switchAutoTab('create',this)">New rule</button>
             <button class="auto-tab" onclick="switchAutoTab('policy',this)">Policy</button>
         </div>
         <div class="modal-body">
             <div class="auto-tab-content active" id="autoTabRules">
+                <button class="sa-btn sa-btn-primary auto-add-rule" onclick="switchAutoTab('create',document.getElementById('autoCreateTab'))">Add rule</button>
                 <div id="automationRulesList"></div>
             </div>
             <div class="auto-tab-content" id="autoTabSubagents">
