@@ -58,7 +58,7 @@
                 </div>
                 <input type="file" id="fileInput" multiple style="display:none" onchange="handleFiles(this.files)">
             </div>
-            <button type="button" id="queueSendBtn" style="display:none" aria-label="Queue message" title="Queue message" onclick="sendMessage()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+            <button type="button" id="queueSendBtn" disabled aria-hidden="true" aria-label="Queue message" title="Queue message" onclick="sendMessage()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
             <button type="button" id="sendBtn" tabindex="-1" class="disabled" onclick="sendMessage()">Send</button>
         </div>
     </form>
@@ -458,7 +458,11 @@
     function updateQueueSendButton() {
         const working = document.getElementById('status').classList.contains('working');
         const hasText = document.getElementById('chat-message').value.trim().length > 0;
-        document.getElementById('queueSendBtn').style.display = working && hasText ? 'flex' : 'none';
+        const button = document.getElementById('queueSendBtn');
+        const visible = working && hasText;
+        button.classList.toggle('visible', visible);
+        button.disabled = !visible;
+        button.setAttribute('aria-hidden', String(!visible));
     }
 
     function setStatus(state, text) {

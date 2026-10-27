@@ -1,7 +1,7 @@
 FROM kasmweb/ubuntu-noble-desktop:1.18.0-rolling-daily
 
 USER root
-RUN apt-get update && apt-get install -y scrot socat python3-websocket && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y scrot socat python3-websocket python3-gi gir1.2-atspi-2.0 ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Replace Google Chrome with Chrome for Testing (supports CDP on default profile)
 RUN CfT_URL=$(curl -s https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
