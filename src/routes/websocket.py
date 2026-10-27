@@ -1,6 +1,7 @@
 from flask import request
 from flask_socketio import emit
 import os
+import re
 import ssl
 import subprocess
 import time
@@ -705,6 +706,12 @@ def register_handlers(socketio):
 
     def acp_on_event(session_id, event):
         """Broadcast ACP events to subscribed websocket clients."""
+        session = acp_manager.get_session(session_id)
+        if session:
+            with session._lock:
+                index = next((index for index in range(len(session.history) - 1, -1, -1) if session.history[index] is event), None)
+            if index is not None:
+                event = {**event, 'history_start': index, 'history_end': index}
         seq = acp_event_seq.get(session_id, 0)
         acp_event_seq[session_id] = seq + 1
         sids = acp_subscribers.get(session_id, set())
@@ -907,7 +914,7 @@ def register_handlers(socketio):
                 text_buf = ""
                 text_buf_ts = None
                 text_buf_model = None
-                for evt in replay_events(acp_sid, history, offset):
+                for evt in replay_events(acp_sid, history, offset, indexed=True):
                     su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                     content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                     if su == "agent_message_chunk" and content.get("type") == "text":
@@ -915,6 +922,9 @@ def register_handlers(socketio):
                             text_buf_ts = evt["ts"]
                         if not text_buf_model and evt.get("model"):
                             text_buf_model = evt["model"]
+                        if not text_buf:
+                            text_start = evt['history_start']
+                        text_end = evt['history_end']
                         text_buf += content["text"]
                     else:
                         if text_buf:
@@ -923,6 +933,7 @@ def register_handlers(socketio):
                                 entry["ts"] = text_buf_ts
                             if text_buf_model:
                                 entry["model"] = text_buf_model
+                            entry.update(history_start=text_start, history_end=text_end)
                             collapsed.append(entry)
                             text_buf = ""
                             text_buf_ts = None
@@ -934,6 +945,7 @@ def register_handlers(socketio):
                         entry["ts"] = text_buf_ts
                     if text_buf_model:
                         entry["model"] = text_buf_model
+                    entry.update(history_start=text_start, history_end=text_end)
                     collapsed.append(entry)
                 # Send history as a single batch to avoid "replay" effect
                 next_seq = acp_event_seq.get(acp_sid, 0)
@@ -991,7 +1003,7 @@ def register_handlers(socketio):
                     text_buf = ""
                     text_buf_ts = None
                     text_buf_model = None
-                    for evt in replay_events(acp_sid, history):
+                    for evt in replay_events(acp_sid, history, indexed=True):
                         su = ((evt.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
                         content = ((evt.get("params") or {}).get("update") or {}).get("content") or {}
                         if su == "agent_message_chunk" and content.get("type") == "text":
@@ -999,6 +1011,9 @@ def register_handlers(socketio):
                                 text_buf_ts = evt["ts"]
                             if not text_buf_model and evt.get("model"):
                                 text_buf_model = evt["model"]
+                            if not text_buf:
+                                text_start = evt['history_start']
+                            text_end = evt['history_end']
                             text_buf += content["text"]
                         else:
                             if text_buf:
@@ -1007,6 +1022,7 @@ def register_handlers(socketio):
                                     entry["ts"] = text_buf_ts
                                 if text_buf_model:
                                     entry["model"] = text_buf_model
+                                entry.update(history_start=text_start, history_end=text_end)
                                 collapsed.append(entry)
                                 text_buf = ""
                                 text_buf_ts = None
@@ -1018,6 +1034,7 @@ def register_handlers(socketio):
                             entry["ts"] = text_buf_ts
                         if text_buf_model:
                             entry["model"] = text_buf_model
+                        entry.update(history_start=text_start, history_end=text_end)
                         collapsed.append(entry)
                     # Get group info for archived session
                     from src.services import groups
@@ -1324,7 +1341,7 @@ def register_handlers(socketio):
         sid = request.sid
         envelope = {'query': query, 'scope': scope, 'request_id': request_id}
         try:
-            text, group_id = conversation_search.parse_query(query)
+            text, group_id, excluded = conversation_search.parse_query(query)
         except ValueError as error:
             conversation_search.cancel(sid, request_id)
             emit('acp_conversation_search_results', {**envelope, 'state': 'error', 'error': str(error)})
@@ -1332,7 +1349,12 @@ def register_handlers(socketio):
         from src.services import groups
         sessions = acp_manager.list_archived() if scope == 'archived' else acp_manager.list_sessions()
         sessions = conversation_search.scoped_sessions(sessions, groups.get_session_groups(), group_id)
-        conversation_search.start(sid, text, sessions, lambda result: socketio.emit('acp_conversation_search_results', {**envelope, **result}, to=sid), preferred=data.get('preferred'), request_id=request_id)
+        target = data.get('session_id')
+        if target is not None:
+            if not isinstance(target, str) or not re.fullmatch(r'[a-f0-9]{8}', target):
+                return
+            sessions = [session for session in sessions if session['id'] == target]
+        conversation_search.start(sid, text, sessions, lambda result: socketio.emit('acp_conversation_search_results', {**envelope, **result}, to=sid), preferred=data.get('preferred'), request_id=request_id, excluded=excluded, all_matches=target is not None)
 
     @socketio.on('acp_cancel_conversation_search')
     def acp_cancel_conversation_search(data):

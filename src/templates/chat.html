@@ -16,6 +16,7 @@
     <script src="/static/js/file-drag.js"></script>
     <script src="/static/js/modal.js"></script>
     <script src="/static/js/chat-pins.js"></script>
+    <script src="/static/js/chat-search-navigation.js"></script>
 </head>
 <body>
     <div class="chat-header" id="chatHeader">
@@ -2430,6 +2431,14 @@
     });
 
     let _suppressScroll = false;
+    const searchNavigation = new ChatSearchNavigation({
+        messages: _messagesEl,
+        pauseFollowing: () => { _userScrolledUp = true; },
+        failed: message => showAlert(message),
+        search: data => socket.emit('acp_search_conversations', {...data, session_id: sessionId, csrf_token: csrfToken}),
+        cancel: data => socket.emit('acp_cancel_conversation_search', {...data, csrf_token: csrfToken}),
+    });
+    socket.on('acp_conversation_search_results', data => searchNavigation.receive(data));
     const messagePins = new ChatPins({
         messages: _messagesEl,
         navigation: document.getElementById('pinNavigation'),
@@ -3066,6 +3075,7 @@
             currentAssistantMsg = null;
             currentTurnTs = null;
             currentTurnIndex = 0;  // Reset turn index for fresh history load
+            searchNavigation.reset();
             toolCalls = {};
             _sessionMetadata = {};  // Reset token usage etc
             sessionTotalCost = 0;
@@ -3158,6 +3168,7 @@
 
         // Ask server for any pending auth request now that we've finished rendering
         socket.emit('acp_check_pending_auth', {csrf_token: csrfToken, session_id: sessionId});
+        requestAnimationFrame(() => searchNavigation.loaded());
 
         }); // end requestAnimationFrame
     });
@@ -3410,6 +3421,26 @@
     }
 
     function processEvent(data) {
+        const event = data.event;
+        const start = event.history_start;
+        const end = event.history_end ?? start;
+        renderEvent(data);
+        const update = event.params?.update;
+        const kind = update?.sessionUpdate;
+        let element = null;
+        if (['user_prompt', 'continuation', 'agent_message'].includes(event.type) || kind === 'user_message_chunk') {
+            element = _messagesEl.lastElementChild;
+        } else if (kind === 'agent_message_chunk') {
+            element = currentContentDiv;
+        } else if (kind === 'agent_thought_chunk') {
+            element = currentThoughtBody;
+        } else if (kind === 'tool_call' || kind === 'tool_call_update') {
+            element = toolCalls[update.toolCallId]?.div;
+        }
+        searchNavigation.register(event, element, start, end);
+    }
+
+    function renderEvent(data) {
         const evt = data.event;
 
         if (evt.type === 'fork_boundary') {
@@ -3421,8 +3452,8 @@
         }
 
         // Track history offset for reconnect — only for live (sequenced) events
-        if (data.seq !== undefined && evt.type !== 'session_ready' && evt.type !== 'session_error' && evt.type !== 'session_ended' && evt.type !== 'sync_seq') {
-            historyOffset++;
+        if (data.seq !== undefined && Number.isSafeInteger(evt.history_end)) {
+            historyOffset = Math.max(historyOffset, evt.history_end + 1);
         }
 
         // Handle user prompt from our history

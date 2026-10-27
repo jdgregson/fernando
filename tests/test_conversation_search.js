@@ -3,6 +3,89 @@ const fs = require('node:fs');
 const {test} = require('node:test');
 const {JSDOM} = require('jsdom');
 
+test('quoted highlighting preserves punctuation and never marks individual words', () => {
+    const dom = new JSDOM('<div id="preview"></div>', {runScripts: 'outside-only'});
+    const win = dom.window;
+    win.socket = {on() {}};
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    const preview = win.document.getElementById('preview');
+    for (const query of ['"my-test-1"', '“my-test-1”']) {
+        win.highlightSearchText(preview, 'my test 1 my-test-2 MY-TEST-1 my-test-1', query);
+        assert.deepEqual([...preview.querySelectorAll('mark')].map(mark => mark.textContent), ['MY-TEST-1', 'my-test-1']);
+        win.highlightSearchText(preview, 'my test 1 my-test-2', query);
+        assert.equal(preview.querySelector('mark'), null);
+    }
+    win.highlightSearchText(preview, 'my test 1', 'my-test-1');
+    assert.deepEqual([...preview.querySelectorAll('mark')].map(mark => mark.textContent), ['my', 'test', '1']);
+    dom.window.close();
+});
+
+test('exclusions preserve exact mode, group changes, and literal quoted operators', () => {
+    const dom = new JSDOM('<div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="session-item" data-session="chat:a"><span class="session-name">my-test-1</span></div></div>', {runScripts: 'outside-only'});
+    const win = dom.window;
+    win.socket = {on() {}};
+    win.emitWithCsrf = () => {};
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    const input = win.document.getElementById('archiveSearch');
+    input.value = '"my-test-1" -text -tools -agent -user';
+    win.filterArchived();
+    assert.match(win.document.getElementById('conversationSearchStatus').textContent, /1 exact matches.*-text -tools/);
+    win.searchConversationGroup('a5055f9f');
+    assert.equal(input.value, 'group:a5055f9f "my-test-1" -text -tools -agent -user');
+    assert.equal(win.parseConversationQuery('"-agent" -user').text, '"-agent"');
+    assert.equal(win.parseConversationQuery('"-text" -tools').text, '"-text"');
+    win.clearConversationSearch();
+    dom.window.close();
+});
+
+test('search help modal documents operators, opens and restores focus', () => {
+    const template = fs.readFileSync(require('node:path').join(__dirname, '../src/templates/index.html'), 'utf8');
+    const dom = new JSDOM(template, {runScripts: 'outside-only'});
+    const win = dom.window;
+    win.socket = {on() {}};
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/modal.js'), 'utf8'));
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    win.openConversationSearchHelp();
+    const modal = win.document.getElementById('conversationSearchHelpModal');
+    assert.equal(modal.classList.contains('open'), true);
+    assert.equal(win.document.activeElement.id, 'conversationSearchHelpClose');
+    for (const operator of ['-text', '-tools', '-agent', '-user', 'group:<id>', '"exact phrase"']) assert.ok(modal.textContent.includes(operator));
+    win.closeConversationSearchHelp();
+    assert.equal(modal.classList.contains('open'), false);
+    assert.equal(win.document.activeElement.id, 'conversationSearchHelp');
+    dom.window.close();
+});
+
+test('content result clicks navigate new and existing chat frames to the exact event', () => {
+    const dom = new JSDOM('<div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="session-item" data-session="chat:aaaaaaaa"><span class="session-name">Other</span></div></div><div id="browser"></div>', {url: 'https://fernando.test/', runScripts: 'outside-only'});
+    const win = dom.window;
+    const events = new Map();
+    const emitted = [];
+    win.socket = {on: (name, handler) => events.set(name, handler)};
+    win.emitWithCsrf = (name, data) => emitted.push({name, data});
+    win.FERNANDO_API_KEY = 'test-key';
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    const browser = win.document.getElementById('browser');
+    win.paneController = {open: key => win.mountChat({key, browser})};
+    const input = win.document.getElementById('archiveSearch');
+    input.value = '"my-test-1" -user';
+    win.filterArchived();
+    const response = {query: input.value, scope: 'active', request_id: emitted.at(-1).data.request_id, sessions: [{id: 'aaaaaaaa', snippet: 'my-test-1', match: 'Tool content', event_index: 42, source: 'tool:rawOutput', match_text: 'my-test-1'}]};
+    events.get('acp_conversation_search_results')(response);
+    win.document.querySelector('.conversation-search-preview').click();
+    const frame = browser.querySelector('iframe');
+    let params = new URLSearchParams(new URL(frame.src).hash.slice(1));
+    assert.equal(params.get('search-event'), '42');
+    assert.equal(params.get('search-source'), 'tool:rawOutput');
+    const previousRequest = params.get('search-request');
+    win.document.querySelector('.conversation-search-preview').click();
+    assert.equal(browser.querySelector('iframe'), frame);
+    params = new URLSearchParams(new URL(frame.src).hash.slice(1));
+    assert.notEqual(params.get('search-request'), previousRequest);
+    win.clearConversationSearch();
+    dom.window.close();
+});
+
 test('active search scopes requests, rejects stale results, safely highlights snippets and clears', async () => {
     const dom = new JSDOM('<div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="session-item" data-session="chat:a"><span class="session-name">Camping</span></div><div class="session-item" data-session="chat:b"><span class="session-name">Other</span></div></div>', {runScripts: 'outside-only'});
     const win = dom.window;

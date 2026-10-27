@@ -135,15 +135,20 @@ def exact_search_phrase(query):
     return (match.group(1) or match.group(2)).casefold() if match else None
 
 
-def search(query, limit=5, session_ids=None, distinct_sessions=False):
+def search(query, limit=5, session_ids=None, distinct_sessions=False, roles=None):
     """Search conversations. Returns list of {session_id, session_name, turn_index, snippet, score}."""
     if session_ids is not None and not session_ids:
+        return []
+    if roles is not None and not roles:
         return []
     collection = _get_collection()
     if collection.count() == 0:
         return []
     limit = max(1, min(int(limit), 100))
     scope = {'where': {'session_id': {'$in': list(session_ids)}}} if session_ids is not None else {}
+    if roles is not None:
+        role_filter = {'role': {'$in': list(roles)}}
+        scope = {'where': {'$and': [scope['where'], role_filter]} if scope else role_filter}
     phrase = exact_search_phrase(query)
     if phrase is not None:
         hits = []
@@ -176,6 +181,7 @@ def search(query, limit=5, session_ids=None, distinct_sessions=False):
             "session_id": meta["session_id"],
             "session_name": meta.get("session_name", ""),
             "turn_index": meta.get("turn_index", 0),
+            "role": meta.get("role"),
             "snippet": results["documents"][0][i][:500],
             "score": results["distances"][0][i] if results.get("distances") else None,
         })

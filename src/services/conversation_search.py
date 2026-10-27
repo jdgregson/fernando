@@ -29,7 +29,8 @@ def parse_query(query):
     groups = [token[6:] for token in tokens if token.startswith('group:')]
     if len(groups) > 1 or (groups and not re.fullmatch(r'[a-f0-9]{8}|__ungrouped__', groups[0])):
         raise ValueError('Use one group:<id> filter')
-    return ' '.join(token for token in tokens if not token.startswith('group:')).strip(), groups[0] if groups else None
+    excluded = [kind for kind in ('text', 'tools', 'agent', 'user') if '-' + kind in tokens]
+    return ' '.join(token for token in tokens if not token.startswith('group:') and token not in ('-text', '-tools', '-agent', '-user')).strip(), groups[0] if groups else None, excluded
 
 
 def scoped_sessions(sessions, memberships, group_id):
@@ -52,7 +53,7 @@ def cancel(client, request_id=None):
             state.set()
 
 
-def start(client, query, sessions, send, preferred=None, request_id=0):
+def start(client, query, sessions, send, preferred=None, request_id=0, excluded=(), all_matches=False):
     with _lock:
         version = (request_id, 1)
         if version <= _versions.get(client, (-1, -1)):
@@ -63,12 +64,12 @@ def start(client, query, sessions, send, preferred=None, request_id=0):
             previous.set()
         cancelled = threading.Event()
         _searches[client] = cancelled
-    thread = threading.Thread(target=_run, args=(client, cancelled, query, sessions, send, preferred), daemon=True)
+    thread = threading.Thread(target=_run, args=(client, cancelled, query, sessions, send, preferred, excluded, all_matches), daemon=True)
     thread.start()
     return thread
 
 
-def _run(client, cancelled, query, sessions, send, preferred):
+def _run(client, cancelled, query, sessions, send, preferred, excluded, all_matches):
     send_lock = threading.Lock()
     seen = {}
     completed = 0
@@ -76,6 +77,9 @@ def _run(client, cancelled, query, sessions, send, preferred):
     semantic_done = threading.Event()
     phrase = exact_search_phrase(query)
     terms = [phrase] if phrase is not None else list(dict.fromkeys(query.casefold().split()))
+    roles = [role for actor, role in (('agent', 'assistant'), ('user', 'user')) if actor not in excluded]
+    search_text = 'text' not in excluded and bool(roles)
+    search_tools = 'tools' not in excluded and 'agent' not in excluded
 
     def notify(payload):
         with send_lock:
@@ -84,8 +88,8 @@ def _run(client, cancelled, query, sessions, send, preferred):
 
     def match(session, result):
         with send_lock:
-            rank = 1 if result['match'] == 'Related content' else 2
-            if not cancelled.is_set() and rank > seen.get(session['id'], 0):
+            rank = {'Title': 1, 'Related content': 2}.get(result['match'], 3)
+            if not cancelled.is_set() and (all_matches or rank > seen.get(session['id'], 0)):
                 seen[session['id']] = rank
                 send({'sessions': [{**session, **result}]})
 
@@ -99,9 +103,9 @@ def _run(client, cancelled, query, sessions, send, preferred):
             if not acquired or cancelled.is_set():
                 return
             by_id = {s['id']: s for s in sessions}
-            for hit in rag_search(query, limit=20, session_ids=list(by_id), distinct_sessions=True):
+            for hit in rag_search(query, limit=100 if all_matches else 20, session_ids=list(by_id), distinct_sessions=not all_matches, roles=roles):
                 if hit['session_id'] in by_id:
-                    match(by_id[hit['session_id']], {'snippet': hit['snippet'], 'match': 'Related content'})
+                    match(by_id[hit['session_id']], {'snippet': hit['snippet'], 'match': 'Related content', 'turn_index': hit['turn_index'], 'role': hit['role']})
         except Exception:
             logger.exception('Semantic conversation search failed')
             notify({'warning': 'Semantic search failed; history scan continues'})
@@ -138,16 +142,17 @@ def _run(client, cancelled, query, sessions, send, preferred):
                 title_match = all(any(term in word or (len(term) >= 4 and SequenceMatcher(None, term, word).ratio() >= .78) for word in words) for term in terms)
             if title_match:
                 match(session, {'snippet': '', 'match': 'Title'})
-                completed += 1
-            else:
+            if query and (search_text or search_tools):
                 pending.append(session)
-        if phrase is None and query and sessions:
+            else:
+                completed += 1
+        if phrase is None and query and sessions and search_text:
             threading.Thread(target=semantic, daemon=True).start()
         else:
             semantic_done.set()
 
         def dispatch(process, session):
-            process.stdin.write((json.dumps({'root': str(chat_history.HISTORY_DIR), 'id': session['id'], 'terms': terms}) + '\n').encode())
+            process.stdin.write((json.dumps({'root': str(chat_history.HISTORY_DIR), 'id': session['id'], 'terms': terms, 'excluded': excluded, 'all_matches': all_matches}) + '\n').encode())
             process.stdin.flush()
             selector.register(process.stdout, selectors.EVENT_READ, (process, session))
 
@@ -175,6 +180,9 @@ def _run(client, cancelled, query, sessions, send, preferred):
                 while b'\n' in buffers[process]:
                     line, buffers[process] = buffers[process].split(b'\n', 1)
                     reply = json.loads(line)
+                    if 'match' in reply:
+                        match(session, reply['match'])
+                        continue
                     if 'progress' in reply:
                         notify({'state': 'searching', 'completed': completed, 'total': total, 'events': reply['progress']})
                         continue

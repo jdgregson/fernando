@@ -34,15 +34,42 @@ function openChatPane(chatId) {
     return paneController.open('chat:' + chatId);
 }
 
+function openConversationSearchResult(chatId) {
+    openChatPane(chatId);
+    if (window.innerWidth <= 500) document.getElementById('sidebar').classList.remove('open');
+}
+
 function mountChat({ key, browser }) {
     const chatId = key.slice(5);
+    const hit = conversationSearchMatches.get(key);
+    const destination = new URL('/chat/' + chatId, window.location.origin);
+    destination.searchParams.set('api_key', window.FERNANDO_API_KEY);
+    if (document.getElementById('archiveSearch').value.trim() && hit) {
+        const location = new URLSearchParams();
+        if (Number.isSafeInteger(hit.event_index)) {
+            location.set('search-event', hit.event_index);
+            location.set('search-source', hit.source || '');
+            location.set('search-text', hit.match_text || '');
+        } else if (Number.isSafeInteger(hit.turn_index) && ['user', 'assistant'].includes(hit.role)) {
+            location.set('search-turn', hit.turn_index);
+            location.set('search-role', hit.role);
+        }
+        if (location.size) {
+            location.set('search-query', document.getElementById('archiveSearch').value.trim());
+            location.set('search-scope', showArchived ? 'archived' : 'active');
+            location.set('search-request', ++conversationSearchNavigation);
+            destination.hash = location.toString();
+        }
+    }
     const existing = browser.querySelector('iframe');
     if (!existing || !existing.src.includes('/chat/' + chatId)) {
         browser.innerHTML = '';
         const iframe = document.createElement('iframe');
-        iframe.src = '/chat/' + chatId + '?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
+        iframe.src = destination.href;
         iframe.style.cssText = 'width:100%;height:100%;border:none';
         browser.appendChild(iframe);
+    } else if (destination.hash) {
+        existing.src = destination.href;
     }
 }
 
@@ -54,17 +81,20 @@ function closeChatSession(chatId) {
 let showArchived = false;
 const expandedArchivedGroups = new Set();
 let conversationSearchRequest = 0;
+let conversationSearchNavigation = 0;
 let conversationSearchMatches = new Map();
 let conversationSearchProgress = {};
 let conversationSearchCount = 0;
 function parseConversationQuery(query) {
     const tokens = query.match(/"[^"]*"|“[^”]*”|\S+/gu) || [];
     const groups = tokens.filter(token => token.startsWith('group:')).map(token => token.slice(6));
-    return {text: tokens.filter(token => !token.startsWith('group:')).join(' '), group: groups[0] || null};
+    const exclusions = ['-text', '-tools', '-agent', '-user'];
+    return {text: tokens.filter(token => !token.startsWith('group:') && !exclusions.includes(token)).join(' '), group: groups[0] || null, excluded: exclusions.filter(token => tokens.includes(token))};
 }
 function searchConversationGroup(groupId) {
     const input = document.getElementById('archiveSearch');
-    input.value = 'group:' + groupId + ' ' + parseConversationQuery(input.value).text;
+    const parsed = parseConversationQuery(input.value);
+    input.value = ['group:' + groupId, parsed.text, ...parsed.excluded].filter(Boolean).join(' ');
     filterArchived();
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
@@ -75,6 +105,7 @@ function updateConversationSearchStatus() {
     const exact = /^"[^"]+"$|^“[^”]+”$/u.test(parsed.text);
     let text = conversationSearchCount + (exact ? ' exact matches in ' : ' matches in ') + (showArchived ? 'archived' : 'active');
     if (parsed.group) text += ' · group:' + parsed.group;
+    if (parsed.excluded.length) text += ' · ' + parsed.excluded.join(' ');
     const progress = conversationSearchProgress;
     if (progress.state === 'searching' || progress.state === 'semantic' || progress.state === 'complete') {
         text += ' · ' + (progress.completed ?? 0) + '/' + (progress.total ?? '?') + ' searched';
@@ -89,9 +120,23 @@ function clearConversationSearch() {
     filterArchived();
     document.getElementById('archiveSearch').focus();
 }
+function openConversationSearchHelp() {
+    const modal = document.getElementById('conversationSearchHelpModal');
+    if (!modal.dataset.bound) {
+        bindModalBackdrop(modal, closeConversationSearchHelp);
+        modal.dataset.bound = 'true';
+    }
+    modal.classList.add('open');
+    document.getElementById('conversationSearchHelpClose').focus();
+}
+function closeConversationSearchHelp() {
+    document.getElementById('conversationSearchHelpModal').classList.remove('open');
+    document.getElementById('conversationSearchHelp').focus();
+}
 function highlightSearchText(element, text, query) {
     element.replaceChildren();
-    const tokens = query.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
+    const quoted = query.match(/^"([^"]+)"$|^“([^”]+)”$/u);
+    const tokens = quoted ? [(quoted[1] || quoted[2]).toLocaleLowerCase()] : query.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
     const lower = text.toLocaleLowerCase();
     let start = 0;
     while (start < text.length) {
@@ -178,7 +223,7 @@ function filterArchivedEntries(query) {
             const walker = document.createTreeWalker(name, NodeFilter.SHOW_TEXT);
             let node;
             while ((node = walker.nextNode())) {
-                const tokens = q.match(/[\p{L}\p{N}_]+/gu) || [];
+                const tokens = quoted ? [q] : q.match(/[\p{L}\p{N}_]+/gu) || [];
                 for (const token of tokens) {
                     let offset = node.textContent.toLowerCase().indexOf(token);
                     while (offset >= 0) {
@@ -197,7 +242,18 @@ function filterArchivedEntries(query) {
         if (q && matched && hit?.snippet && !item.querySelector('.conversation-search-preview')) {
             const preview = document.createElement('div');
             preview.className = 'conversation-search-preview';
-            preview.title = hit.match;
+            preview.title = hit.match + ' — open matching entry';
+            preview.tabIndex = 0;
+            preview.setAttribute('role', 'button');
+            preview.setAttribute('aria-label', 'Open matching ' + hit.match.toLowerCase());
+            preview.onclick = event => { event.stopPropagation(); openConversationSearchResult(item.dataset.session.slice(5)); };
+            preview.onkeydown = event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openConversationSearchResult(item.dataset.session.slice(5));
+                }
+            };
             preview.dataset.snippet = hit.snippet;
             highlightSearchText(preview, hit.snippet, parsed.text);
             item.append(preview);

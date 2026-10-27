@@ -379,6 +379,11 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .conversation-search-field button:not([hidden]) { display: grid; place-items: center; }
 .conversation-search.searching { background: #18364e; border-bottom: 2px solid #70baf3; padding-bottom: 7px; }
 .conversation-search.searching input { border-color: #70baf3; }
+.conversation-search #conversationSearchHelp { display: none; }
+.conversation-search.searching #conversationSearchHelp { display: grid; place-items: center; float: right; width: 28px; height: 28px; margin-right: 12px; padding: 0; border: 0; background: transparent; color: #c0ccdb; cursor: pointer; }
+.search-operator-list dt { margin-top: 14px; }
+.search-operator-list dd { margin: 5px 0 0; line-height: 1.5; }
+#conversationSearchHelpModal .modal-content { max-height: 85dvh; overflow-y: auto; }
 #conversationSearchStatus { color: #c6e6ff; font-size: 11px; margin: 6px 15px 0; }
 #sessionList .search-result { flex-wrap: wrap; }
 .conversation-search-preview { flex-basis: 100%; font-size: 11px; line-height: 1.45; color: #c0ccdb; white-space: normal; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-top: 5px; overflow-wrap: anywhere; }

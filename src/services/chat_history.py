@@ -73,13 +73,13 @@ def inherited_count(session_id):
         return ref['event_count'] if ref else 0
 
 
-def replay_events(session_id, events, offset=0):
+def replay_events(session_id, events, offset=0, indexed=False):
     ref = reference(session_id)
     boundary = ref['event_count'] - offset if ref else None
     for index, event in enumerate(events):
         if index == boundary:
             yield {'type': 'fork_boundary'}
-        yield event
+        yield {**event, 'history_start': offset + index, 'history_end': offset + index} if indexed else event
     if boundary == len(events):
         yield {'type': 'fork_boundary'}
 

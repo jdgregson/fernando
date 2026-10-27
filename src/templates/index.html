@@ -71,6 +71,7 @@
             <div class="sidebar-fade"></div>
             <div id="conversationSearch" class="conversation-search">
                 <div class="conversation-search-field"><input type="text" id="archiveSearch" class="archive-search" maxlength="500" placeholder="Search active conversations…" aria-label="Search conversations" oninput="filterArchived()" onkeydown="if(event.key === 'Escape') clearConversationSearch()"><button id="clearConversationSearch" onclick="clearConversationSearch()" aria-label="Clear conversation search" title="Clear search (Escape)" hidden><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><path d="m2 2 8 8M10 2l-8 8"/></svg></button></div>
+                <button id="conversationSearchHelp" type="button" onclick="openConversationSearchHelp()" aria-label="Search operators" title="Search operators"><svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M10 9v6M10 5v2"/></svg></button>
                 <div id="conversationSearchStatus" role="status" hidden></div>
             </div>
             <div class="archive-switch" id="archivedToggleBtn">
@@ -94,6 +95,27 @@
                     <div class="terminal" id="terminal2"></div>
                     <div class="browser-pane hidden" id="browser2"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="conversationSearchHelpModal" role="dialog" aria-modal="true" aria-labelledby="conversationSearchHelpTitle" onkeydown="if(event.key === 'Escape') { event.stopPropagation(); closeConversationSearchHelp(); } if(event.key === 'Tab') { event.preventDefault(); document.getElementById('conversationSearchHelpClose').focus(); }">
+        <div class="modal-content">
+            <div class="modal-header" id="conversationSearchHelpTitle">Search operators</div>
+            <div class="modal-body">
+                <dl class="search-operator-list">
+                    <dt><code>words</code></dt><dd>Search titles and conversation content, including related semantic matches. Searches are case-insensitive.</dd>
+                    <dt><code>"exact phrase"</code></dt><dd>Match the complete phrase, including spaces and punctuation. No fuzzy or semantic matches. Curly quotes also work: <code>“exact phrase”</code>.</dd>
+                    <dt><code>-text</code></dt><dd>Exclude message text, including user messages, assistant output, and reasoning, from content matching.</dd>
+                    <dt><code>-tools</code></dt><dd>Exclude tool content, including tool names, inputs, and outputs, from content matching.</dd>
+                    <dt><code>-agent</code></dt><dd>Exclude assistant messages, reasoning, and tool activity. Semantic matches are limited to user messages.</dd>
+                    <dt><code>-user</code></dt><dd>Exclude user messages. Semantic matches are limited to assistant messages.</dd>
+                    <dt><code>group:&lt;id&gt;</code></dt><dd>Search only that group. Use a group's Search action to insert its ID, or <code>group:__ungrouped__</code> for conversations without a group.</dd>
+                </dl>
+                <p>Combine operators outside the quotes: <code>"my-test-1" -text group:a5055f9f</code>. Quoted operator names are literal search text.</p>
+                <p>Click a content result to open its matching message or tool call. Use Previous and Next in the chat to move through matches for the same search and filters. The counter shows your position and whether matching is still in progress. Matching tool panels and reasoning are expanded automatically. Title-only matches open the conversation normally.</p>
+                <p>Exclusions skip content sources or actors, not entire conversations. Titles remain searchable; using <code>-text -tools</code> or <code>-agent -user</code> searches only titles and, for unquoted queries, group names. Searches use the selected Active or Archived list.</p>
+                <button class="modal-close" id="conversationSearchHelpClose" onclick="closeConversationSearchHelp()">Close</button>
             </div>
         </div>
     </div>

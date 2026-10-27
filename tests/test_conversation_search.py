@@ -3,6 +3,17 @@ from unittest.mock import Mock, patch
 
 
 class ConversationSearchTests(unittest.TestCase):
+    def test_semantic_actor_filter_is_applied_before_retrieval(self):
+        from src.services import rag
+        collection = Mock()
+        collection.count.return_value = 2
+        collection.query.return_value = {'ids': [[]], 'metadatas': [[]], 'documents': [[]]}
+        with patch.object(rag, '_get_collection', return_value=collection):
+            self.assertEqual(rag.search('needle', session_ids=['aaaaaaaa'], roles=['user']), [])
+        self.assertEqual(collection.query.call_args.kwargs['where'], {
+            '$and': [{'session_id': {'$in': ['aaaaaaaa']}}, {'role': {'$in': ['user']}}]
+        })
+
     def test_quoted_search_is_exact_case_insensitive_and_scoped(self):
         from src.services import rag
         identifier = 'a5055f9f-1234-5678-abcd-0123456789ab'

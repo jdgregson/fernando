@@ -906,3 +906,10 @@ pre code.language-diff .diff-ctx { display: block; padding: 0 10px; min-width: f
     outline: 1px solid #5a9fd4;
     outline-offset: -1px;
 }
+.search-target { outline: 2px solid #70baf3; outline-offset: 4px; }
+.chat-search-navigation { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #18364e; color: #dcecff; font-size: 12px; flex-shrink: 0; }
+.chat-search-navigation[hidden] { display: none; }
+.chat-search-navigation span { flex: 1; }
+.chat-search-navigation button { padding: 6px 8px; background: #244968; color: inherit; border: 1px solid #517896; border-radius: 4px; cursor: pointer; }
+.chat-search-navigation button:disabled { opacity: .4; cursor: default; }
+::highlight(chat-search-match) { background: #f1ce75; color: #172337; }

@@ -154,7 +154,7 @@ const paneController = {
 
     select(key, event, item, rename) {
         const adapter = this.adapter(key);
-        if (adapter.selectInactiveOnly && item.classList.contains('active')) {
+        if (adapter.selectInactiveOnly && item.classList.contains('active') && !item.classList.contains('search-result')) {
             if (event.detail === 2 && rename) rename();
             return;
         }

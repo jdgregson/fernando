@@ -64,7 +64,7 @@ def strings(value):
 def fields(event):
     kind = event.get('type')
     if kind in ('user_prompt', 'continuation', 'agent_message', 'error'):
-        yield 'message', str(event.get('text', '')), False
+        yield 'user_message' if kind in ('user_prompt', 'continuation') else 'agent_message', str(event.get('text', '')), False
     update = event.get('params', {}).get('update') or {}
     kind = update.get('sessionUpdate')
     if kind in ('agent_message_chunk', 'user_message_chunk', 'agent_thought_chunk'):
@@ -75,12 +75,12 @@ def fields(event):
         for key in ('title', 'rawInput', 'rawOutput', 'content', 'locations'):
             value = update.get(key)
             if value is not None:
-                yield 'tool', '\n'.join(strings(value)), False
+                yield 'tool:' + key, '\n'.join(strings(value)), False
                 if isinstance(value, (dict, list)):
-                    yield 'tool', orjson.dumps(value, option=orjson.OPT_INDENT_2).decode(), False
+                    yield 'tool:' + key, orjson.dumps(value, option=orjson.OPT_INDENT_2).decode(), False
 
 
-def scan(root, session_id, terms, report=None):
+def scan(root, session_id, terms, report=None, excluded=()):
     tail = ''
     previous = None
     overlap = max(map(len, terms)) - 1
@@ -95,6 +95,10 @@ def scan(root, session_id, terms, report=None):
                 previous, tail, found = None, '', set()
             continue
         for key, text, streaming in parts:
+            actor = 'user' if key in ('user_message', 'user_message_chunk') else 'agent'
+            if actor in excluded or ('tools' if key.startswith('tool:') else 'text') in excluded:
+                previous, tail, found = None, '', set()
+                continue
             if not streaming or previous != key:
                 tail, found = '', set()
             combined = tail + text
@@ -105,10 +109,60 @@ def scan(root, session_id, terms, report=None):
                     found.add(term)
                     last_snippet = combined[max(0, position - 120):position + max(380, len(term))]
             if len(found) == len(terms):
-                return {'snippet': last_snippet, 'event_index': index, 'match': 'Tool content' if key == 'tool' else 'Message content'}
+                return {'snippet': last_snippet, 'event_index': index, 'source': key, 'match_text': terms[0], 'match': 'Tool content' if key.startswith('tool:') else 'Message content'}
             tail = combined[-overlap:] if streaming and overlap else ''
             previous = key if streaming else None
     return None
+
+
+def scan_matches(root, session_id, terms, excluded=()):
+    text_parts = []
+    segments = []
+    length = 0
+    previous = None
+    seen_tools = set()
+
+    def matches(text, source, positions, tool_id=None):
+        folded = text.casefold()
+        if not all(term in folded for term in terms):
+            return
+        offset = 0
+        occurrence = 0
+        while (position := folded.find(terms[0], offset)) >= 0:
+            end = position + len(terms[0])
+            event_index = next(index for boundary, index in positions if boundary >= end)
+            identity = (tool_id, 'tool:output' if source in ('tool:rawOutput', 'tool:content') else source, occurrence)
+            if tool_id is None or identity not in seen_tools:
+                if tool_id is not None:
+                    seen_tools.add(identity)
+                yield {'snippet': text[max(0, position - 120):end + 260], 'event_index': event_index, 'source': source, 'match_text': terms[0], 'match_occurrence': occurrence, 'match': 'Tool content' if source.startswith('tool:') else 'Message content'}
+            occurrence += 1
+            offset = end
+
+    for index, event in enumerate(events(root, session_id)):
+        parts = list(fields(event))
+        if not parts and not event.get('result', {}).get('stopReason'):
+            continue
+        if not parts:
+            parts = [(None, '', False)]
+        for key, text, streaming in parts:
+            if text_parts and (not streaming or key != previous):
+                yield from matches(''.join(text_parts), previous, segments)
+                text_parts, segments, length = [], [], 0
+            actor = 'user' if key in ('user_message', 'user_message_chunk') else 'agent'
+            if key is None or actor in excluded or ('tools' if key.startswith('tool:') else 'text') in excluded:
+                previous = None
+                continue
+            if streaming:
+                text_parts.append(text)
+                length += len(text.casefold())
+                segments.append((length, index))
+            else:
+                tool_id = event.get('params', {}).get('update', {}).get('toolCallId') if key.startswith('tool:') else None
+                yield from matches(text, key, [(len(text.casefold()), index)], tool_id)
+            previous = key if streaming else None
+    if text_parts:
+        yield from matches(''.join(text_parts), previous, segments)
 
 
 def main():
@@ -116,7 +170,12 @@ def main():
         job = json.loads(line)
         def progress(count):
             print(json.dumps({'progress': count, 'id': job['id']}), flush=True)
-        result = scan(job['root'], job['id'], job['terms'], progress)
+        if job.get('all_matches'):
+            for result in scan_matches(job['root'], job['id'], job['terms'], job['excluded']):
+                print(json.dumps({'id': job['id'], 'match': result}), flush=True)
+            result = None
+        else:
+            result = scan(job['root'], job['id'], job['terms'], progress, job['excluded'])
         print(json.dumps({'id': job['id'], 'result': result}), flush=True)
 
 
