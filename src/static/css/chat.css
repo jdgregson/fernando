@@ -22,6 +22,19 @@ body { display: flex; flex-direction: column; }
 }
 .chat-header .status { width: 8px; height: 8px; min-width: 8px; min-height: 8px; border-radius: 50%; background: #888; flex-shrink: 0; }
 .chat-header .status.ready { background: #4ec9b0; }
+.recording-preview { padding: 10px; }
+.recording-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.recording-tabs button { min-height: 44px; padding: 8px 14px; border: 1px solid #444; border-radius: 5px; background: #242424; color: #ccc; cursor: pointer; }
+.recording-tabs button[aria-selected="true"] { background: #234b70; border-color: #6ca6db; color: #fff; }
+.recording-stage { position: relative; isolation: isolate; overflow: hidden; display: flex; justify-content: center; border-radius: 4px; background: #111; }
+.recording-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: blur(24px) brightness(0.55); transform: scale(1.15); pointer-events: none; }
+.recording-preview video { position: relative; display: block; width: auto; height: auto; max-width: 100%; max-height: 65vh; border-radius: 0; background: transparent; }
+.recording-download { display: inline-block; margin-top: 8px; color: #8ab4f8; }
+.recording-note { color: #aeb2b8; font-size: 12px; margin: 8px 0; }
+.recording-frames { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 10px; }
+.recording-frames figure { margin: 0; min-width: 0; }
+.recording-frames img { display: block; width: 100%; border-radius: 4px; }
+.recording-frames figcaption { padding-top: 4px; color: #aeb2b8; font-size: 12px; }
 .chat-header .status.working { background: #dcdcaa; animation: pulse 1s infinite; }
 .chat-header .status.error { background: #f44747; }
 .chat-header #statusText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #aeb2b8; }

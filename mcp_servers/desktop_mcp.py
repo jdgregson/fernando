@@ -54,9 +54,19 @@ def get_chrome_tabs():
 
 app = Server("kasm-desktop")
 
+IMAGE_DELIVERY = os.environ.get("FERNANDO_DESKTOP_IMAGE_DELIVERY", "inline")
+if IMAGE_DELIVERY not in {"inline", "native-read"}:
+    raise ValueError("Invalid FERNANDO_DESKTOP_IMAGE_DELIVERY")
+
+
+def image_content(path):
+    if IMAGE_DELIVERY == "native-read":
+        return TextContent(type="text", text=f"Screenshot saved to: {path}\nYou have NOT viewed this image yet. Read this file now using your native image-reading tool (fs_read with mode Image and image_paths containing this path) before describing the screen or choosing your next action. This also displays the image to the user.")
+    return ImageContent(type="image", mimeType="image/png", data=base64.b64encode(path.read_bytes()).decode("ascii"))
+
 OBSERVED_ACTIONS = {"type_text", "press_key", "click_mouse", "open_application", "scroll", "move_mouse", "drag_mouse", "double_click", "right_click", "focus_window", "set_screen_size"}
 
-GAMEPLAY_ACTION_SCHEMA = {
+RECORDING_ACTION_SCHEMA = {
     "type": "array", "maxItems": 200,
     "description": "Ordered actions. Keys/buttons remain held across waits and moves; all held inputs are released on completion or cancellation. Use separate key_down actions for chords. Move duration interpolates at up to 60Hz; relative moves support pointer-locked games.",
     "items": {"type": "object", "required": ["kind"], "properties": {
@@ -71,8 +81,8 @@ GAMEPLAY_ACTION_SCHEMA = {
 }
 
 
-async def gameplay_operation(operation, **arguments):
-    script = Path(__file__).with_name("desktop_gameplay.py").read_text()
+async def recording_operation(operation, **arguments):
+    script = Path(__file__).with_name("desktop_recording.py").read_text()
     process = await asyncio.create_subprocess_exec(
         "docker", "exec", "-i", "--user", "1000:1000", "-e", "DISPLAY=:1",
         "fernando-desktop", "timeout", "--signal=TERM", "--kill-after=5", "80",
@@ -85,7 +95,7 @@ async def gameplay_operation(operation, **arguments):
         output, errors, code = await asyncio.wait_for(asyncio.gather(
             process.stdout.read(), process.stderr.read(), process.wait()), timeout=90)
         if code:
-            raise RuntimeError(f"Desktop gameplay operation failed: {errors.decode()}")
+            raise RuntimeError(f"Desktop recording operation failed: {errors.decode()}")
         return json.loads(output)
     finally:
         process.stdin.close()
@@ -97,13 +107,17 @@ async def gameplay_operation(operation, **arguments):
                 await process.wait()
 
 
-async def gameplay_frames(recording_id, timestamps):
-    result = await gameplay_operation("frames", recording_id=recording_id, timestamps=timestamps)
-    content = []
+async def recording_frames(recording_id, timestamps):
+    result = await recording_operation("frames", recording_id=recording_id, timestamps=timestamps)
+    directory = Path(__file__).resolve().parent.parent / "data" / "desktop"
+    manifest = {"recording_id": recording_id, "path": str(directory / f"gameplay_{recording_id}.mp4"),
+                "duration": result["duration"], "delivery": IMAGE_DELIVERY,
+                "frames": [{"path": str(directory / frame["file"]), "seconds": frame["requested_seconds"]} for frame in result["frames"]]}
+    content = [TextContent(type="text", text="FERNANDO_RECORDING: " + json.dumps(manifest))]
     for frame in result["frames"]:
         path = Path(__file__).resolve().parent.parent / "data" / "desktop" / frame["file"]
         content.append(TextContent(type="text", text=f"Frame requested at {frame['requested_seconds']:.3f}s; saved to {path}"))
-        content.append(ImageContent(type="image", mimeType="image/png", data=base64.b64encode(path.read_bytes()).decode("ascii")))
+        content.append(image_content(path))
     return content
 
 
@@ -128,7 +142,7 @@ def screenshot_content():
     metadata.update({"path": str(path), "width": width, "height": height,
                      "coordinate_system": "Desktop pixels, origin at top left; pointer coordinates are the cursor hotspot."})
     return [TextContent(type="text", text=json.dumps(metadata, indent=2)),
-            ImageContent(type="image", mimeType="image/png", data=base64.b64encode(image).decode("ascii"))]
+            image_content(path)]
 
 
 def exec_in_kasm(cmd, env=None, shell=False, stdin_data=None):
@@ -553,17 +567,23 @@ async def list_tools() -> list[Tool]:
     tools.extend([
         Tool(name="input_sequence", description="Perform bounded timed desktop keyboard/mouse actions, including simultaneous held inputs and smooth absolute or relative pointer movement. Releases inputs on completion/cancellation. Optional screenshot is visible to both agent and user. Input posting does not prove the intended game effect.",
              inputSchema={"type": "object", "required": ["actions"], "properties": {
-                 "actions": GAMEPLAY_ACTION_SCHEMA, "observe": {"type": "boolean", "default": True}}}),
-        Tool(name="record_gameplay", description="Record 1–60 seconds of desktop video with cursor (no audio), optionally running timed keyboard/mouse actions during capture. Returns a saved MP4 path, recording ID, input timing and four sampled images visible in chat. Agent inspects frames rather than consuming video directly. Capture overhead can affect game performance.",
+                 "actions": RECORDING_ACTION_SCHEMA, "observe": {"type": "boolean", "default": True}}}),
+        Tool(name="record_desktop", description="Record 1–60 seconds of desktop video with cursor (no audio), optionally running timed keyboard/mouse actions during capture. Chat displays a playable MP4 with a Model frames tab. Returns a saved MP4 path, recording ID, input timing and four timestamped sampled images. Agent inspects frames rather than consuming video directly. Use for application interactions, UI transitions, animations, and games. Capture overhead can affect application performance.",
              inputSchema={"type": "object", "required": ["duration"], "properties": {
                  "duration": {"type": "number", "minimum": 1, "maximum": 60},
                  "fps": {"type": "integer", "minimum": 5, "maximum": 60, "default": 30},
-                 "actions": GAMEPLAY_ACTION_SCHEMA}}),
-        Tool(name="recording_frames", description="Inspect 1–12 timestamped frames from a recording made by record_gameplay. Returns actual images displayed in chat; longest edge capped at 1280 pixels. Use closely spaced timestamps to inspect motion. Timestamps must precede recording duration.",
+                 "actions": RECORDING_ACTION_SCHEMA}}),
+        Tool(name="recording_frames", description="Inspect 1–12 timestamped frames from a recording made by record_desktop. Chat displays the video with a Model frames tab containing these samples; longest image edge capped at 1280 pixels. Use closely spaced timestamps to inspect motion and transitions. Timestamps must precede recording duration.",
              inputSchema={"type": "object", "required": ["recording_id", "timestamps"], "properties": {
                  "recording_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
                  "timestamps": {"type": "array", "minItems": 1, "maxItems": 12, "items": {"type": "number", "minimum": 0, "maximum": 60}}}}),
     ])
+    if IMAGE_DELIVERY == "native-read":
+        for tool in tools:
+            if tool.name in OBSERVED_ACTIONS | {"screenshot", "input_sequence", "record_desktop", "recording_frames"}:
+                tool.description += " Screenshots are returned as saved paths, NOT visual input. You MUST read each saved image using fs_read mode Image before interpreting it or acting on it; that read also shows the user the image."
+                if "observe" in tool.inputSchema.get("properties", {}):
+                    tool.inputSchema["properties"]["observe"]["description"] = "Capture a post-action screenshot and return its path. Read it using fs_read mode Image to see it and display it to the user."
     return tools
 
 
@@ -579,23 +599,24 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
     _e = {"DISPLAY": ":1"}
 
     if name == "input_sequence":
-        result = await gameplay_operation("sequence", actions=arguments["actions"])
+        result = await recording_operation("sequence", actions=arguments["actions"])
         content = [TextContent(type="text", text=json.dumps(result, indent=2))]
         if arguments.get("observe", True):
             content.extend(screenshot_content())
         return content
 
-    elif name == "record_gameplay":
+    elif name == "record_desktop":
         recording_id = uuid.uuid4().hex
-        result = await gameplay_operation("record", recording_id=recording_id, **arguments)
+        result = await recording_operation("record", recording_id=recording_id, **arguments)
         path = Path(__file__).resolve().parent.parent / "data" / "desktop" / f"gameplay_{recording_id}.mp4"
         result["path"] = str(path)
         content = [TextContent(type="text", text=json.dumps(result, indent=2))]
-        content.extend(await gameplay_frames(recording_id, [result["duration"] * portion for portion in (0, 0.3, 0.6, 0.9)]))
+        last_frame = max(0, result["duration"] - 1 / result["fps"])
+        content.extend(await recording_frames(recording_id, [min(last_frame, result["duration"] * portion) for portion in (0, 0.3, 0.6, 0.9)]))
         return content
 
     elif name == "recording_frames":
-        return await gameplay_frames(arguments["recording_id"], arguments["timestamps"])
+        return await recording_frames(arguments["recording_id"], arguments["timestamps"])
 
     elif name == "browser_capture":
         action = arguments["action"]

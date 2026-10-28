@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/context-menu.css">
     <link rel="stylesheet" href="/static/css/image-viewer.css">
     <script src="/static/js/image-viewer.js" defer></script>
+    <script src="/static/js/recording-view.js"></script>
     <script src="/static/js/scroll-pill.js" defer></script>
     <script src="/static/js/pane-bridge.js" data-activate-on="mousedown"></script>
     <script src="/static/js/file-drag.js"></script>
@@ -1874,11 +1875,21 @@
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
 
     function renderToolImages(tc, content) {
-        const images = (content || [])
+        if (FernandoRecording.render(tc, content, fileUrl)) return;
+        const acpImages = (content || [])
             .filter(item => item.type === 'content' && item.content?.type === 'image')
-            .map(item => item.content)
+            .map(item => item.content);
+        const outputItems = tc.tcState.rawOutput?.items;
+        const mcpImages = (Array.isArray(outputItems) ? outputItems : [])
+            .flatMap(item => {
+                const result = item.Json || item.json || item;
+                const blocks = result.content || result.Content;
+                return Array.isArray(blocks) ? blocks : [];
+            })
+            .filter(item => item.type === 'image');
+        const images = [...acpImages, ...mcpImages]
             .filter(image => typeof image.data === 'string' && /^image\/(png|jpeg|gif|webp|svg\+xml|bmp)$/i.test(image.mimeType));
-        if (images.length) tc.imageSources = images.map(image => 'data:' + image.mimeType + ';base64,' + image.data);
+        if (images.length) tc.imageSources = [...new Set(images.map(image => 'data:' + image.mimeType + ';base64,' + image.data))];
         const sources = tc.imageSources || extractFilePaths(tc.rawInput)
             .filter(path => typeof path === 'string' && IMAGE_EXTS.test(path))
             .map(fileUrl);

@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 
-spec = importlib.util.spec_from_file_location("desktop_gameplay", Path(__file__).resolve().parents[1] / "mcp_servers" / "desktop_gameplay.py")
+spec = importlib.util.spec_from_file_location("desktop_recording", Path(__file__).resolve().parents[1] / "mcp_servers" / "desktop_recording.py")
 gameplay = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(gameplay)
 

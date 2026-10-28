@@ -205,7 +205,7 @@ def frames(request):
 
 
 def interrupted(signum, frame):
-    raise InterruptedError(f"Desktop gameplay operation interrupted by signal {signum}")
+    raise InterruptedError(f"Desktop recording operation interrupted by signal {signum}")
 
 
 if __name__ == "__main__":
@@ -225,6 +225,6 @@ if __name__ == "__main__":
     elif operation == "frames":
         result = frames(request)
     else:
-        raise ValueError("Unknown gameplay operation")
+        raise ValueError("Unknown recording operation")
     print(json.dumps(result), flush=True)
     os._exit(0)

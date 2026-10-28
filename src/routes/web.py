@@ -1262,7 +1262,8 @@ def serve_file(filepath):
         return "Not found", 404
     response = send_file(full_path, mimetype=mime)
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    response.headers["Content-Disposition"] = f"attachment; filename=\"{os.path.basename(full_path)}\""
+    disposition = "inline" if mime == "video/mp4" and request.args.get("inline") == "1" else "attachment"
+    response.headers["Content-Disposition"] = f"{disposition}; filename=\"{os.path.basename(full_path)}\""
     return response
 
 

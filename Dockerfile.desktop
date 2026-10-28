@@ -21,6 +21,13 @@ RUN printf '#!/usr/bin/env bash\nif ! pgrep -f "chrome/chrome" > /dev/null; then
     chmod 4755 /opt/google/chrome/chrome_sandbox && \
     ln -sf chrome_sandbox /opt/google/chrome/chrome-sandbox
 
+RUN ln -sfn /usr/bin/google-chrome /opt/google/chrome/google-chrome && \
+    ln -sfn /usr/bin/google-chrome /usr/bin/google-chrome-stable && \
+    update-alternatives --force --install /usr/bin/x-www-browser x-www-browser /usr/bin/google-chrome 250 && \
+    update-alternatives --set x-www-browser /usr/bin/google-chrome && \
+    update-alternatives --force --install /usr/bin/gnome-www-browser gnome-www-browser /usr/bin/google-chrome 250 && \
+    update-alternatives --set gnome-www-browser /usr/bin/google-chrome
+
 # Disable smartcard and pcscd services (they can spin at 100% CPU)
 ENV KASM_SVC_SMARTCARD=0
 
