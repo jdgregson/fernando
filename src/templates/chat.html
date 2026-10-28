@@ -494,7 +494,7 @@
             btn.onclick = stopGeneration;
             btn.style.background = '#a03030';
             btn.style.borderColor = '#511414';
-        } else if (state === 'connecting') {
+        } else if (state === 'connecting' || state === 'sleeping') {
             isReady = false;
             btn.classList.add('disabled');
             btn.textContent = 'Send';
@@ -3048,6 +3048,12 @@
         });
         scrollToBottom(true);
     }
+
+    socket.on('acp_session_slept', (data) => {
+        if (data.session_id !== sessionId) return;
+        finishTurn();
+        setStatus('sleeping', 'Sleeping');
+    });
 
     socket.on('acp_history_size', (data) => {
         if (data.session_id !== sessionId) return;

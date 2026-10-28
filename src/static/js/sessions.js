@@ -70,7 +70,7 @@ function syncActiveChatPanes() {
 function onSocketConnected() {
     // Re-register active panes on every connect/reconnect to prevent idle reaper killing them
     syncActiveChatPanes();
-    applyProviderSettings();
+    emitWithCsrf('get_sessions');
     if (window._urlParamsProcessed) { handleForeground(); return; }
     if (!paneController.restore() && paneController.get(1).terminalSession) {
         handleForeground();
@@ -1106,12 +1106,25 @@ function trackContextMenu(menu, templatesBtn = null, groupId = null) {
     };
 }
 
+function appendPageTitleAction(menu, label) {
+    const button = document.createElement('div');
+    button.className = 'context-menu-item';
+    button.textContent = 'Set page title';
+    button.onclick = () => {
+        paneController.setPageTitle(label.textContent);
+        menu.remove();
+    };
+    menu.appendChild(button);
+}
+
 function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, onClone, onCollapse) {
     dismissContextMenus();
     
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
     
+    const sidebarItem = [...document.querySelectorAll('.session-item')].find(item => item.dataset.session === sessionKey);
+
     if (sessionKey.startsWith('chat:')) {
         const chatId = sessionKey.slice(5);
         const idRow = document.createElement('div');
@@ -1140,6 +1153,7 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
         idRow.appendChild(idText);
         idRow.appendChild(copyBtn);
         menu.appendChild(idRow);
+        appendPageTitleAction(menu, sidebarItem.querySelector('.session-name'));
     }
 
     if (onRename) {
@@ -1166,6 +1180,10 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
         menu.appendChild(collapseBtn);
     }
     
+    if (!sessionKey.startsWith('chat:')) {
+        appendPageTitleAction(menu, sidebarItem.querySelector('.session-name'));
+    }
+
     if (onSleep) {
         const chat = _cachedChatSessions.find(c => 'chat:' + c.id === sessionKey);
         const sleeping = chat && !chat.loaded;
@@ -1205,6 +1223,8 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
     const menu = document.createElement('div');
     menu.className = 'group-context-menu';
 
+    const sidebarGroup = [...document.querySelectorAll('.group-wrapper')].find(item => item.dataset.groupId === groupId);
+
     const searchBtn = document.createElement('div');
     searchBtn.className = 'context-menu-item';
     searchBtn.textContent = 'Search group';
@@ -1224,6 +1244,7 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
 
     if (groupId === '__ungrouped__' || archived) {
         menu.appendChild(searchBtn);
+        appendPageTitleAction(menu, sidebarGroup.querySelector('.group-name'));
         document.body.appendChild(menu);
         const menuRect = menu.getBoundingClientRect();
         menu.style.left = Math.max(0, Math.min(x, window.innerWidth - menuRect.width - 10)) + 'px';
@@ -1252,6 +1273,8 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
     };
     menu.appendChild(renameBtn);
     
+    appendPageTitleAction(menu, sidebarGroup.querySelector('.group-name'));
+
     const wakeAllBtn = document.createElement('div');
     wakeAllBtn.className = 'context-menu-item';
     wakeAllBtn.textContent = 'Wake All Chats';
@@ -1526,6 +1549,7 @@ socket.on('group_move_failed', data => {
 socket.on('acp_session_slept', () => emitWithCsrf('get_sessions'));
 
 socket.on('sessions_list', data => { 
+    applyProviderSettings(data.provider_settings);
     updateSessionList(data.sessions, data.chat_sessions || [], data); 
     // Push group colors to any loaded chat iframes
     broadcastGroupColors();
@@ -1585,6 +1609,7 @@ function getBrowserPaneSession(pane) {
 }
 
 function syncUrlParams() {
+    paneController.updateTitle();
     if (!window._urlParamsProcessed) return;
     const params = new URLSearchParams(window.location.search);
     // Clear session-related params, preserve others (like collapsed)

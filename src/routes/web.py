@@ -42,6 +42,7 @@ from src.microsoft_scopes import SCOPES, REDIRECT_URI
 
 @bp.route("/")
 def index():
+    from src.services.settings import get_provider_settings
     sessions = pty_service.list_sessions()
     # Read API key
     try:
@@ -49,7 +50,7 @@ def index():
             api_key = f.read().strip()
     except:
         api_key = ""
-    return render_template("index.html", sessions=sessions, api_key=api_key)
+    return render_template("index.html", sessions=sessions, api_key=api_key, provider_settings=get_provider_settings())
 
 
 @bp.route("/api/mutating", methods=["POST"])

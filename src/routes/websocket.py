@@ -82,6 +82,7 @@ def register_handlers(socketio):
         chat_sessions = acp_manager.list_sessions()
         from src.services.file_browser import list_sessions as file_sessions
         from src.services.notebooks import list_notebooks
+        from src.services.settings import get_provider_settings
         from src.services import groups
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
         group_data = groups.get_all()
@@ -93,6 +94,7 @@ def register_handlers(socketio):
             "file_sessions": file_sessions(),
             "groups": group_data["groups"],
             "session_groups": group_data["session_groups"],
+            "provider_settings": get_provider_settings(),
         })
 
     @socketio.on("kasm_ws")
@@ -729,6 +731,7 @@ def register_handlers(socketio):
         chat_sessions = acp_manager.list_sessions()
         from src.services.file_browser import list_sessions as file_sessions
         from src.services.notebooks import list_notebooks
+        from src.services.settings import get_provider_settings
         from src.services import groups
         running_notebooks = [nb["name"] for nb in list_notebooks() if nb["running"]]
         group_data = groups.get_all()
@@ -740,6 +743,7 @@ def register_handlers(socketio):
             "file_sessions": file_sessions(),
             "groups": group_data["groups"],
             "session_groups": group_data["session_groups"],
+            "provider_settings": get_provider_settings(),
         })
 
     def broadcast_status_change(session_id, status):

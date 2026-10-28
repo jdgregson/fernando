@@ -14,9 +14,9 @@ function createFileSession() {
     fileSessionRequest({group_id: groupId}).then(session => paneController.open('files:' + session.id)).catch(error => showAlert(error.message));
 }
 
-function fileSessionPresentation(session) {
+function fileSessionPresentation(session, pane = activeTerminal) {
     const key = 'files:' + session.id;
-    const active = paneController.get(activeTerminal);
+    const active = paneController.get(pane);
     const path = active.surface === 'browser' && active.contentKey === key && active.location
         ? active.location : sessionStorage.getItem('file-location:last:' + key) || session.home;
     const display = path === session.home ? '~' : path?.startsWith(session.home + '/') ? '~' + path.slice(session.home.length) : path;
@@ -29,7 +29,7 @@ paneController.register('files', {
     selectInactiveOnly: true,
     matches: key => key.startsWith('files:'),
     urlFragment: '/files/',
-    sessions: data => (data.file_sessions || []).map(fileSessionPresentation),
+    sessions: (data, pane = activeTerminal) => (data.file_sessions || []).map(session => fileSessionPresentation(session, pane)),
     prepare(key) {
         const separator = key.indexOf('?');
         const identity = separator < 0 ? key : key.slice(0, separator);

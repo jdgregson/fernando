@@ -50,3 +50,12 @@ def get_all():
     merged = dict(DEFAULTS)
     merged.update(_load())
     return merged
+
+
+def get_provider_settings():
+    settings = get_all()
+    return {
+        "providers_opencode": settings.get("providers_opencode") is True,
+        "default_model": settings["default_model"],
+        "opencode_model": settings.get("opencode_model", ""),
+    }

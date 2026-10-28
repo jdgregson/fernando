@@ -145,8 +145,8 @@ const paneController = {
             input.addEventListener('click', event => event.stopPropagation());
         } : null;
         item.addEventListener('click', event => this.select(key, event, item, rename));
+        this.bindContextMenu(item, (event, x, y) => showSessionContextMenu(key, x, y, rename, close, view.sleep, view.clone, view.collapse));
         if (!session.pinned) {
-            this.bindContextMenu(item, (event, x, y) => showSessionContextMenu(key, x, y, rename, close, view.sleep, view.clone, view.collapse));
             makeSessionDraggable(item, key);
         }
         return item;
@@ -242,6 +242,7 @@ const paneController = {
         elements.browser.classList.add('hidden');
         if (emptyBrowser) elements.browser.innerHTML = '';
         if (fit) setTimeout(doFit, 100);
+        this.updateTitle();
     },
 
     finishOpen(type, context) {
@@ -292,6 +293,26 @@ const paneController = {
         const key = this.sessionKey(id);
         const adapter = this.adapter(key);
         return adapter?.serialize ? adapter.serialize(key, this.get(id)) : key;
+    },
+
+    updateTitle() {
+        const override = sessionStorage.getItem('fernando_page_title');
+        if (override !== null) {
+            document.title = override;
+            return;
+        }
+        const pane = isSplit ? 1 : activeTerminal;
+        const key = this.sessionKey(pane);
+        const groupId = key && _cachedSessionGroups[key];
+        const group = groupId && _cachedGroups.find(group => group.id === groupId);
+        const adapter = this.adapter(key);
+        const session = adapter?.sessions({ ..._cachedData, sessions: _cachedSessions, chat_sessions: _cachedChatSessions }, pane).find(session => session.key === key);
+        document.title = group?.name || session?.name || 'Fernando';
+    },
+
+    setPageTitle(title) {
+        sessionStorage.setItem('fernando_page_title', title);
+        this.updateTitle();
     },
 
     isEmbedded(id, type) {
@@ -408,6 +429,7 @@ const paneController = {
     },
 
     broadcastState() {
+        this.updateTitle();
         for (const pane of this.panes.keys()) {
             const key = this.get(pane).contentKey;
             const groupId = key && _cachedSessionGroups[key];

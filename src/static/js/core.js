@@ -377,7 +377,7 @@ function saveOpenCodeModel(value) {
         body: JSON.stringify({key: 'opencode_model', value})
     }).then(response => {
         if (!response.ok) throw new Error('Failed to save OpenCode model');
-        applyProviderSettings();
+        emitWithCsrf('get_sessions');
     });
 }
 
@@ -386,25 +386,18 @@ function saveProviderSetting(provider, enabled) {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
         body: JSON.stringify({key: 'providers_' + provider, value: enabled})
-    }).then(() => {
-        applyProviderSettings();
-    }).catch(() => {});
+    }).then(response => {
+        if (!response.ok) throw new Error('Failed to save provider setting');
+        emitWithCsrf('get_sessions');
+    }).catch(error => showAlert(error.message));
 }
 
-function applyProviderSettings() {
-    fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
-        .then(r => r.json())
-        .then(data => {
-            const kiroChatTile = document.getElementById('kiroChatTile');
-            if (kiroChatTile) {
-                kiroChatTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.default_model})`;
-            }
-            const openCodeTile = document.getElementById('openCodeTile');
-            if (openCodeTile) {
-                openCodeTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.opencode_model})`;
-                openCodeTile.style.display = data.providers_opencode === true ? '' : 'none';
-            }
-        }).catch(() => {});
+function applyProviderSettings(data) {
+    const kiroChatTile = document.getElementById('kiroChatTile');
+    kiroChatTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.default_model})`;
+    const openCodeTile = document.getElementById('openCodeTile');
+    openCodeTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.opencode_model})`;
+    openCodeTile.style.display = data.providers_opencode === true ? '' : 'none';
 }
 
 function saveDefaultModel(value) {
@@ -414,7 +407,7 @@ function saveDefaultModel(value) {
         body: JSON.stringify({key: 'default_model', value})
     }).then(response => {
         if (!response.ok) throw new Error('Failed to save Kiro model');
-        applyProviderSettings();
+        emitWithCsrf('get_sessions');
     });
 }
 
