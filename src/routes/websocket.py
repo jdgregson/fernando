@@ -969,13 +969,14 @@ def register_handlers(socketio):
                     "model": session.model,
                     "backend": session.backend,
                 })
-                if session.ready:
+                if session._reloading:
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading", "waking": True}})
+                elif session.ready:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 elif not session.is_loaded and (session.acp_session_id or session._start_on_open):
                     # Session was unloaded due to idle timeout — reload it
                     logger.info(f"acp_subscribe: session {acp_sid} unloaded, triggering reload")
                     acp_manager.reload_session(acp_sid)
-                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading"}})
                 elif session.proc is None or session.proc.poll() is not None:
                     if len(session.history) > 0:
                         # Process died after loading — it's actually crashed

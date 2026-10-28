@@ -1,0 +1,29 @@
+.code-copy-container { position: relative; min-width: 0; }
+.markdown-table-copy { position: relative; width: fit-content; max-width: 100%; }
+.tc-copy-btn { display: inline-flex; flex-shrink: 0; align-items: center; width: 11px; height: 11px; padding: 0; margin: 0; border: 0; background: none; cursor: pointer; transition: opacity 0.15s; }
+.tc-copy-btn svg { width: 11px; height: 11px; fill: none; stroke: #4ec9b0; stroke-width: 2; }
+.tc-copy-btn.copied svg { stroke: #bb9af7; }
+.code-copy-button {
+    position: absolute;
+    z-index: 1;
+    right: 10px;
+    bottom: 13px;
+    visibility: hidden;
+    opacity: 0;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+.code-copy-container.code-copy-visible:hover > .code-copy-button,
+.markdown-table-copy.code-copy-visible:hover > .code-copy-button,
+.code-copy-button:focus-visible,
+.health-section-title > .code-copy-button {
+    visibility: visible;
+    opacity: 0.7;
+}
+.health-section-title { display: flex; align-items: center; gap: 6px; }
+.health-section-title > .code-copy-button { position: relative; right: auto; bottom: auto; }
+@media (hover: none), (pointer: coarse) {
+    .code-copy-button { visibility: visible; opacity: 0.7; }
+    .code-copy-button::before { content: ''; position: absolute; inset: -12px; }
+}

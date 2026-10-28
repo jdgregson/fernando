@@ -1450,6 +1450,9 @@ class ACPManager:
             return False
         session._start_on_open = False
         session._reloading = True  # Set BEFORE spawning thread to prevent race
+        session.ready = False
+        if session.on_event:
+            session.on_event(session_id, {"type": "session_loading", "waking": True})
         logger.info(f"[reload] Reloading unloaded session {session_id}")
         threading.Thread(
             target=self._load_existing if session.acp_session_id else self._start_new,

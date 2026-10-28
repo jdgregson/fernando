@@ -6,6 +6,27 @@ from src.services import acp
 
 
 class RestartLifecycleTests(unittest.TestCase):
+    def test_waking_is_announced_before_starting_reload(self):
+        manager = acp.ACPManager.__new__(acp.ACPManager)
+        manager._lock = threading.Lock()
+        session = acp.ACPSession("aaaaaaaa", on_event=Mock())
+        session.acp_session_id = "same-native-conversation"
+        session.ready = True
+        manager.sessions = {session.id: session}
+
+        def verify_start():
+            self.assertFalse(session.ready)
+            self.assertTrue(session._reloading)
+            session.on_event.assert_called_once_with(
+                session.id, {"type": "session_loading", "waking": True}
+            )
+
+        with patch.object(acp.threading, "Thread") as thread:
+            thread.return_value.start.side_effect = verify_start
+            self.assertTrue(manager.reload_session(session.id))
+            self.assertFalse(manager.reload_session(session.id))
+            thread.return_value.start.assert_called_once()
+
     def test_late_old_process_eof_does_not_end_replacement_session(self):
         session = acp.ACPSession("aaaaaaaa", on_event=Mock())
         old, replacement = Mock(), Mock()

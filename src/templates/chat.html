@@ -6,6 +6,8 @@
     <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.3.3/dist/purify.min.js" integrity="sha384-pcBjnGbkyKeOXaoFkmJiuR9E08/6gkmus6/Strimnxtl3uk0Hx23v345pWyC/MMr" crossorigin="anonymous"></script>
     <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/copy-controls.css">
+    <script src="/static/js/copy-controls.js"></script>
     <link rel="stylesheet" href="/static/css/select.css">
     <link rel="stylesheet" href="/static/css/chat-pins.css">
     <link rel="stylesheet" href="/static/css/context-menu.css">
@@ -318,6 +320,11 @@
     renderer.link = ({ href, title, text }) =>
         `<a href="${href}" target="_blank" rel="noopener noreferrer"${title ? ` title="${title}"` : ''}>${text}</a>`;
     marked.setOptions({ breaks: true, gfm: true, renderer });
+    marked.use({tokenizer: {
+        del(src) {
+            if (src.startsWith('~~')) return marked.Tokenizer.prototype.del.call(this, src);
+        }
+    }});
     DOMPurify.addHook('uponSanitizeAttribute', (node, data) => {
         if (data.attrName === 'sandbox') data.attrValue = 'allow-scripts';
     });
@@ -466,6 +473,7 @@
     }
 
     function setStatus(state, text) {
+        if (_replayingHistory) return;
         document.getElementById('status').className = 'status ' + state;
         document.getElementById('statusText').textContent = text;
         const btn = document.getElementById('sendBtn');
@@ -1336,25 +1344,27 @@
     let _replayingHistory = false;
 
     // --- Message context menu for Fork ---
-    function showMsgContextMenu(x, y, turnIndex, msgType, label) {
+    function showMsgContextMenu(x, y, turnIndex, msgType, label, touch = false) {
         dismissMsgContextMenu();
         const menu = document.createElement('div');
         menu.className = 'msg-context-menu';
         if (msgType === 'user') {
-        const contextBtn = document.createElement('div');
+        const contextBtn = document.createElement('button');
+        contextBtn.type = 'button';
         contextBtn.className = 'msg-context-item';
         contextBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></svg><span>View context</span>';
         contextBtn.onclick = () => {
-            menu.remove();
+            dismissMsgContextMenu();
             showContinuationModal(formatMessageContext(label.closest('.msg').dataset.promptContext), 'Message Context');
         };
         menu.appendChild(contextBtn);
         
-        const forkBtn = document.createElement('div');
+        const forkBtn = document.createElement('button');
+        forkBtn.type = 'button';
         forkBtn.className = 'msg-context-item';
         forkBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 01-9 9"/><path d="M6 9a9 9 0 009 9"/></svg><span>Fork from here</span>';
         forkBtn.onclick = () => {
-            menu.remove();
+            dismissMsgContextMenu();
             forkAtTurn(turnIndex);
         };
         menu.appendChild(forkBtn);
@@ -1368,11 +1378,12 @@
         pinText.textContent = messagePins.pins.has(message.dataset.pinKey) ? 'Unpin message' : 'Pin message';
         pinBtn.appendChild(pinText);
         pinBtn.onclick = () => {
-            menu.remove();
+            dismissMsgContextMenu();
             messagePins.toggle(message);
         };
         menu.appendChild(pinBtn);
         
+        if (touch) menu.classList.add('msg-touch-actions');
         document.body.appendChild(menu);
         menu.style.left = x + 'px';
         menu.style.top = y + 'px';
@@ -1381,22 +1392,36 @@
         const rect = menu.getBoundingClientRect();
         if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 10) + 'px';
         if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 10) + 'px';
+        if (touch) {
+            const bounds = document.getElementById('messages').getBoundingClientRect();
+            menu.style.left = '8px';
+            const height = menu.getBoundingClientRect().height;
+            menu.style.top = (y > (bounds.top + bounds.bottom) / 2 ? bounds.top + 8 : bounds.bottom - height - 8) + 'px';
+        }
+
+        const listeners = new AbortController();
+        menu._dismiss = () => {
+            listeners.abort();
+            menu.remove();
+        };
         
         setTimeout(() => {
             function closeMenu(e) {
-                if (!menu.contains(e.target)) {
-                    menu.remove();
-                    document.removeEventListener('click', closeMenu);
-                    document.removeEventListener('touchstart', closeMenu);
-                }
+                if (menu.contains(e.target)) return;
+                const selection = window.getSelection();
+                if (touch && !selection.isCollapsed && message.contains(e.target)) return;
+                menu._dismiss();
             }
-            document.addEventListener('click', closeMenu);
-            document.addEventListener('touchstart', closeMenu);
+            document.addEventListener('click', closeMenu, {signal: listeners.signal});
+            document.addEventListener('touchstart', closeMenu, {passive: true, signal: listeners.signal});
+            document.addEventListener('keydown', e => {
+                if (e.key === 'Escape') menu._dismiss();
+            }, {signal: listeners.signal});
         }, 10);
     }
     
     function dismissMsgContextMenu() {
-        document.querySelectorAll('.msg-context-menu').forEach(m => m.remove());
+        document.querySelectorAll('.msg-context-menu').forEach(m => m._dismiss());
     }
     
     function forkAtTurn(turnIndex) {
@@ -1412,29 +1437,50 @@
         socket.emit('acp_fork_at_turn', payload);
     }
     
-    function addMsgContextMenu(message, label, turnIndex, msgType) {
+    function addMsgContextMenu(label, turnIndex, msgType) {
+        const message = label.closest('.msg');
+        let lastTouch = -Infinity;
         message.addEventListener('contextmenu', (e) => {
+            if (e.pointerType === 'touch' || performance.now() - lastTouch < 1500) return;
             e.preventDefault();
             showMsgContextMenu(e.clientX, e.clientY, turnIndex, msgType, label);
         });
-        
+
+        let press = null;
         let holdTimer = null;
-        message.addEventListener('touchstart', (e) => {
-            holdTimer = setTimeout(() => {
-                holdTimer = 'fired';
-                const touch = e.touches[0];
-                showMsgContextMenu(touch.clientX, touch.clientY, turnIndex, msgType, label);
-            }, 500);
-        });
         const cancelHold = () => {
-            if (holdTimer && holdTimer !== 'fired') {
-                clearTimeout(holdTimer);
-                holdTimer = null;
-            }
+            clearTimeout(holdTimer);
+            press = null;
         };
-        message.addEventListener('touchend', cancelHold);
-        message.addEventListener('touchmove', cancelHold);
-        message.addEventListener('touchcancel', cancelHold);
+        message.addEventListener('touchstart', e => {
+            lastTouch = performance.now();
+            cancelHold();
+            if (e.touches.length !== 1 || e.target.closest('button, a, input, textarea, select, summary')) return;
+            press = {time: lastTouch, x: e.touches[0].clientX, y: e.touches[0].clientY};
+            holdTimer = setTimeout(() => {
+                showMsgContextMenu(press.x, press.y, turnIndex, msgType, label, true);
+                press = null;
+            }, 500);
+        }, {passive: true});
+        message.addEventListener('touchend', () => {
+            lastTouch = performance.now();
+            cancelHold();
+        }, {passive: true});
+        message.addEventListener('touchmove', cancelHold, {passive: true});
+        message.addEventListener('touchcancel', cancelHold, {passive: true});
+        const actions = document.createElement('button');
+        actions.type = 'button';
+        actions.className = 'msg-actions-button';
+        actions.title = 'Message actions';
+        actions.setAttribute('aria-label', 'Message actions');
+        actions.setAttribute('aria-haspopup', 'true');
+        actions.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+        actions.onclick = e => {
+            e.stopPropagation();
+            const bounds = actions.getBoundingClientRect();
+            showMsgContextMenu(bounds.left, bounds.bottom, turnIndex, msgType, label);
+        };
+        label.appendChild(actions);
     }
 
     function ensureAssistantMsg(ts) {
@@ -1452,8 +1498,8 @@
             label.className = 'msg-label';
             label.textContent = 'Fernando';
             if (msgTs) _addTimestampSpan(label, msgTs, msgModel);
-            addMsgContextMenu(currentAssistantMsg, label, currentTurnIndex, 'assistant');
             currentAssistantMsg.appendChild(label);
+            addMsgContextMenu(label, currentTurnIndex, 'assistant');
             messagePins.register(currentAssistantMsg, 'assistant', currentTurnIndex);
             document.getElementById('messages').appendChild(currentAssistantMsg);
         }
@@ -1648,16 +1694,8 @@
     }
 
     function createCopyBtn(value) {
-        const btn = document.createElement('span');
+        const btn = CopyControls.button(() => typeof value === 'string' ? value : JSON.stringify(value, null, 2), 'Copy value');
         btn.className = 'tc-copy-btn';
-        btn.innerHTML = '<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
-        btn.title = 'Copy value';
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            navigator.clipboard.writeText(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
-            btn.classList.add('copied');
-            setTimeout(() => btn.classList.remove('copied'), 1000);
-        });
         return btn;
     }
 
@@ -2381,46 +2419,7 @@
     let _programmaticScroll = false;
     const _messagesEl = document.getElementById('messages');
 
-    _messagesEl.addEventListener('pointerover', (event) => {
-        if (event.pointerType !== 'mouse') return;
-        let pre = event.target.closest('.code-copy-container, .markdown-table-copy') || event.target.closest('pre');
-        if (!pre || pre.contains(event.relatedTarget)) return;
-        const code = pre.querySelector('code');
-        const tableMarkdown = pre.dataset.tableMarkdown;
-        if (tableMarkdown === undefined && !code) return;
-        if (pre.tagName === 'PRE') {
-            const wrapper = document.createElement('div');
-            wrapper.className = 'code-copy-container';
-            pre.before(wrapper);
-            wrapper.appendChild(pre);
-            pre = wrapper;
-        }
-        pre._copyHoverTimer = setTimeout(() => pre.classList.add('code-copy-visible'), 1000);
-        if (pre.querySelector('.code-copy-button')) return;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'code-copy-button';
-        const label = tableMarkdown === undefined ? 'Copy code' : 'Copy table Markdown';
-        button.setAttribute('aria-label', label);
-        button.title = label;
-        button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
-        button.onclick = async () => {
-            const text = tableMarkdown === undefined ? (code._fullText ?? code.textContent) : decodeURIComponent(tableMarkdown);
-            await navigator.clipboard.writeText(text.replace(/[\r\n]+$/, ''));
-            button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
-            setTimeout(() => {
-                button.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>';
-            }, 1500);
-        };
-        pre.appendChild(button);
-    });
-
-    _messagesEl.addEventListener('pointerout', (event) => {
-        const pre = event.target.closest('.code-copy-container, .markdown-table-copy');
-        if (!pre || pre.contains(event.relatedTarget)) return;
-        clearTimeout(pre._copyHoverTimer);
-        pre.classList.remove('code-copy-visible');
-    });
+    CopyControls.observe(_messagesEl);
 
     _messagesEl.addEventListener('scroll', () => {
         if (_programmaticScroll || _suppressScroll) return;
@@ -2749,8 +2748,8 @@
         label.textContent = 'You';
         if (ts) _addTimestampSpan(label, ts);
         // Add context menu for forking
-        addMsgContextMenu(el, label, currentTurnIndex, 'user');
         el.appendChild(label);
+        addMsgContextMenu(label, currentTurnIndex, 'user');
         messagePins.register(el, 'user', currentTurnIndex);
         if (collapsed) {
             const preview = document.createElement('span');
@@ -3516,7 +3515,7 @@
             return;
         }
         if (evt.type === 'session_loading') {
-            setStatus('connecting', 'Loading session...');
+            setStatus('connecting', evt.waking ? 'Waking...' : 'Loading session...');
             // Only set _waitingForLoad if we haven't already loaded history
             // (history batch clears this, but session_loading can come after)
             if (!window._historyLoadedOnce) {
@@ -3880,8 +3879,8 @@
             // Mobile: long-press 500ms to reveal, tap elsewhere to dismiss
             let pressTimer = null;
             msgs.addEventListener('touchstart', (e) => {
-                const msg = e.target.closest('.msg');
-                if (!msg) return;
+                const label = e.target.closest('.msg-label');
+                if (!label) return;
                 pressTimer = setTimeout(() => { pressTimer = null; showAll(); }, 500);
             });
             msgs.addEventListener('touchend', () => { if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; } });

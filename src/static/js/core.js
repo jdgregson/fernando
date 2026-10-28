@@ -719,7 +719,8 @@ function updateHealthModal(data) {
     const errorsEl = document.getElementById('healthErrors');
     if (errors.length) {
         errorsSection.style.display = '';
-        errorsEl.textContent = errors.map(e => e.replace(/\\n/g, '\n').replace(/\\r/g, '\r')).join('\n\n');
+        const errorText = errors.map(e => e.replace(/\\n/g, '\n').replace(/\\r/g, '\r')).join('\n\n');
+        if (errorsEl.textContent !== errorText) errorsEl.textContent = errorText;
     } else {
         errorsSection.style.display = 'none';
     }
@@ -728,11 +729,16 @@ function updateHealthModal(data) {
     const logs = data.logs || {};
     const logsEl = document.getElementById('healthLogs');
     const flaskLogs = logs.flask || [];
-    if (flaskLogs.length) {
-        logsEl.textContent = flaskLogs.join('\n');
+    const logText = flaskLogs.length ? flaskLogs.join('\n') : 'No recent logs';
+    if (logsEl.textContent !== logText) {
+        logsEl.textContent = logText;
         logsEl.scrollTop = logsEl.scrollHeight;
-    } else {
-        logsEl.textContent = 'No recent logs';
+    }
+    for (const element of [errorsEl, logsEl]) {
+        const title = element.previousElementSibling;
+        if (!title.querySelector('.code-copy-button')) {
+            title.appendChild(CopyControls.button(() => element.textContent, element === errorsEl ? 'Copy errors' : 'Copy logs'));
+        }
     }
 
     // Timestamp
