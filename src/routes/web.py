@@ -7,6 +7,7 @@ import threading
 import time
 import requests
 import msal
+from jinja2.utils import htmlsafe_json_dumps
 from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
@@ -592,6 +593,8 @@ def kasm_proxy(path):
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     if not docker_service.is_kasm_running():
         return "Kasm desktop is not running. Use the restart button in the sidebar.", 503
+    with open("/tmp/fernando-api-key") as stream:
+        authenticated_key = stream.read().strip()
 
     # Read VNC password
     try:
@@ -641,19 +644,18 @@ def kasm_proxy(path):
             or "text/css" in content_type
         ):
             content = content.decode("utf-8", errors="ignore")
-            api_key = request.args.get("api_key", "")
             # Fix absolute paths to go through /kasm/ proxy
             content = content.replace('="/', '="/kasm/')
             content = content.replace("='/", "='/kasm/")
             content = content.replace("url(/", "url(/kasm/")
             # Inject WebSocket interceptor and focus notification
-            if "text/html" in content_type and api_key:
+            if "text/html" in content_type:
                 # CSS overrides: link to external stylesheet
                 style = '<link rel="stylesheet" href="/static/css/kasm-overrides.css">'
                 inject = (
                     f'<script>'
                     f'(function(){{'
-                    f'const ak="api_key={api_key}";'
+                    f'const ak="api_key="+encodeURIComponent({htmlsafe_json_dumps(authenticated_key)});'
                     f'const _WS=window.WebSocket;'
                     f'window.WebSocket=function(u,p){{if(typeof u==="string"&&u.includes("websockify")){{u=u.replace("/kasm/websockify","/websockify");u+=(u.includes("?")?"&":"?")+ak}}return p!==undefined?new _WS(u,p):new _WS(u)}};'
                     f'window.WebSocket.prototype=_WS.prototype;'
@@ -671,7 +673,7 @@ def kasm_proxy(path):
         response = Response(content, resp.status_code, response_headers)
         # Set auth cookie on first authenticated request (API key in URL)
         if api_key_valid and request.args.get("api_key"):
-            response.set_cookie("kasm_auth", request.args["api_key"], httponly=True, samesite="Strict", path="/kasm/")
+            response.set_cookie("kasm_auth", authenticated_key, httponly=True, samesite="Strict", path="/kasm/")
         return response
     except Exception as e:
         return f"Kasm desktop error: {str(e)}", 503
@@ -751,7 +753,7 @@ def notes_proxy(notebook, path):
             # a pure JS in-memory implementation of the full IndexedDB API.
             # Only installs if native IndexedDB doesn't work. Data persists to
             # localStorage via fake-idb-persist.js so it survives iframe reloads.
-            idb_fix = """<script src="//""" + request.host + """/static/js/fake-idb-bundle.js"></script>
+            idb_fix = """<script src="/static/js/fake-idb-bundle.js"></script>
 <script>
 window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',a.join(' '))};
 (function(){
@@ -769,7 +771,7 @@ window.alert=function(){var a=[].slice.call(arguments);console.log('[SB alert]',
   if(typeof globalThis!=='undefined'){globalThis.indexedDB=f.fakeIndexedDB;globalThis.IDBKeyRange=f.IDBKeyRange}
 })();
 </script>
-<script src="//""" + request.host + """/static/js/fake-idb-persist.js"></script>"""
+<script src="/static/js/fake-idb-persist.js"></script>"""
             focus_script = '<script src="/static/js/pane-bridge.js" data-activate-on="click"></script>'
             # Clickable breadcrumbs for SilverBullet.
             #
@@ -1013,6 +1015,8 @@ def jupyter_proxy(path):
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
 
     from src.services.jupyter import is_running, get_port, start
+    with open("/tmp/fernando-api-key") as stream:
+        authenticated_key = stream.read().strip()
     if not is_running():
         ok, err = start()
         if not ok:
@@ -1064,7 +1068,7 @@ def jupyter_proxy(path):
             flask_resp = make_response("", resp.status_code)
             flask_resp.headers["Location"] = location
             if api_key_valid:
-                flask_resp.set_cookie("jupyter_auth", request.args.get("api_key", ""), httponly=True, samesite="Strict", path="/jupyter/")
+                flask_resp.set_cookie("jupyter_auth", authenticated_key, httponly=True, samesite="Strict", path="/jupyter/")
             return flask_resp
 
         excluded_headers = ["content-encoding", "content-length", "transfer-encoding", "connection"]
@@ -1094,11 +1098,11 @@ def jupyter_proxy(path):
             content = content.replace("'/files/", "'/jupyter/files/")
             # Rewrite wsUrl to use the direct WS proxy path with api_key
             # Also intercept XHR/fetch to rewrite absolute /api/ paths to /jupyter/api/
-            ak = request.args.get("api_key", "")
+            ak = str(htmlsafe_json_dumps(authenticated_key))
             intercept = (
                 "<script>"
                 # Store api_key in sessionStorage on initial load, read it back on subsequent pages
-                "if('" + ak + "')sessionStorage.setItem('_jAk','" + ak + "');"
+                "sessionStorage.setItem('_jAk'," + ak + ");"
                 "var _ak=sessionStorage.getItem('_jAk')||'';"
                 # Rewrite function for URLs
                 "function _jRw(u){"
@@ -1143,7 +1147,7 @@ def jupyter_proxy(path):
                 "},true);"
                 # Autosave every 10s, suppress "Notebook saved" toast, kill beforeunload dialog
                 "(function(){var nb=window.Jupyter&&Jupyter.notebook;"
-                "if(nb){"
+                "if(nb&&nb._fully_loaded){"
                 "nb._update_autosave_interval=function(){};"
                 "nb.events.off('notebook_saved.Notebook');"
                 "nb.set_autosave_interval(10000);"
@@ -1236,7 +1240,7 @@ def jupyter_proxy(path):
         for k, v in response_headers:
             flask_resp.headers[k] = v
         if api_key_valid:
-            flask_resp.set_cookie("jupyter_auth", request.args.get("api_key", ""), httponly=True, samesite="Strict", path="/jupyter/")
+            flask_resp.set_cookie("jupyter_auth", authenticated_key, httponly=True, samesite="Strict", path="/jupyter/")
         return flask_resp
 
     except Exception as e:

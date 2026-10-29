@@ -31,12 +31,37 @@ const paneController = {
         return [...this.sessionTypes.values()].sort((a, b) => (b.priority || 0) - (a.priority || 0)).find(adapter => adapter.matches(key)) || null;
     },
 
-    open(key, options = {}) {
+    async open(key, options = {}) {
         const adapter = this.adapter(key);
         if (!adapter) return false;
+        const pane = activeTerminal;
+        const state = this.get(pane);
+        const request = (state.openRequest || 0) + 1;
+        state.openRequest = request;
+        const iframe = this.elements(pane).browser.querySelector('iframe');
+        if (iframe && new URL(iframe.src, window.location.href).pathname.startsWith('/jupyter/')) {
+            const notebook = iframe.contentWindow.Jupyter?.notebook;
+            if (notebook?.dirty) {
+                const snapshot = JSON.stringify(notebook.toJSON());
+                try {
+                    if (!state.notebookSave) state.notebookSave = notebook.save_notebook();
+                    await state.notebookSave;
+                } catch (error) {
+                    showAlert('Notebook could not be saved. It has been kept open. ' + error.message);
+                    return false;
+                } finally {
+                    state.notebookSave = null;
+                }
+                if (JSON.stringify(notebook.toJSON()) !== snapshot) notebook.set_dirty(true);
+                if (notebook.dirty) {
+                    showAlert('The notebook still has unsaved changes. Please finish editing and switch again.');
+                    return false;
+                }
+            }
+        }
+        if (state.openRequest !== request || activeTerminal !== pane) return false;
         const prepared = adapter.prepare ? adapter.prepare(key, options) : { key };
         if (prepared === false) return true;
-        const pane = activeTerminal;
         const context = { ...prepared, pane, state: this.get(pane), elements: this.elements(pane), options };
         if (adapter.toggle && this.isEmbedded(pane, adapter.type)) {
             this.showTerminal(pane, adapter.toggle);
