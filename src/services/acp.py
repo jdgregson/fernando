@@ -1461,6 +1461,46 @@ class ACPManager:
         ).start()
         return True
 
+    def deliver_scheduled_prompt(self, session_id, message, *, initial=False):
+        session = self.get_session(session_id)
+        if not session:
+            return 'session_removed'
+        with session._lock:
+            if (session._is_prompting or session._turn_finishing
+                    or session._retry_pending or session._agent_message_queue):
+                return 'skipped_busy'
+            if session._reloading:
+                return 'waking'
+            if not session.is_loaded:
+                if not session.acp_session_id:
+                    return 'waking' if initial else 'missing_context'
+                self.reload_session(session_id)
+                return 'waking'
+            if not session.ready or not session._alive:
+                return 'waking'
+            if initial and any(event.get('type') in ('user_prompt', 'continuation') for event in session.history):
+                return 'already_started'
+            text = message if initial else '[SCHEDULED CHECK] ' + message
+            session.send_prompt(text, initial_only=initial)
+            return 'delivered'
+
+    def sleep_scheduled_session(self, session_id, now):
+        if session_id in self._active_pane_sessions:
+            return
+        session = self.get_session(session_id)
+        if not session:
+            return
+        with session._lock:
+            if (not session.is_loaded or not session.ready or session._reloading
+                    or session._is_prompting or session._turn_finishing
+                    or session._retry_pending or session._agent_message_queue
+                    or now - session._last_activity < 5):
+                return
+            session.unload()
+        self._save()
+        self._save_pid_map()
+        self._broadcast_sessions_list()
+
     def move_chat_to_group(self, session_id, group_id):
         """Reject active work; move idle chats and resume the same conversation."""
         from src.services import context_templates, groups
@@ -1556,6 +1596,8 @@ class ACPManager:
             session.on_event(session_id, {"type": "session_ready"})
 
     def destroy_session(self, session_id, delete_history=True):
+        from src.services.subagent_schedules import resume_scheduler
+        resume_scheduler.cancel(session_id, 'terminated')
         with self._lock:
             session = self.sessions.pop(session_id, None)
         if session:
@@ -1567,6 +1609,8 @@ class ACPManager:
 
     def archive_session(self, session_id):
         """Stop the process and move session from active to archived. History is preserved."""
+        from src.services.subagent_schedules import resume_scheduler
+        resume_scheduler.cancel(session_id, 'archived')
         with self._lock:
             session = self.sessions.pop(session_id, None)
         if not session:
@@ -1647,6 +1691,8 @@ class ACPManager:
 
     def delete_archived(self, session_id):
         """Permanently delete an archived session and its history."""
+        from src.services.subagent_schedules import resume_scheduler
+        resume_scheduler.cancel(session_id, 'deleted')
         with _archived_lock:
             archived = _load_archived_map()
             archived.pop(session_id, None)

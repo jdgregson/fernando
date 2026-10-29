@@ -239,6 +239,11 @@ def get_subagent_status(task_id):
         status["task"] = task_data.get("task", "")
         status["task_id"] = task_id
         status["schedule"] = task_data.get("schedule")
+        status['session_id'] = task_data.get('session_id')
+        status['schedule_mode'] = task_data.get('schedule_mode', 'spawn')
+        if status['schedule_mode'] == 'resume' and status['session_id']:
+            from src.services.subagent_schedules import read_schedule_snapshot
+            status['resume_schedule'] = read_schedule_snapshot(status['session_id'])
 
     result_file = f"{workspace}/results/final.json"
     if os.path.exists(result_file):
@@ -262,6 +267,11 @@ def list_subagents():
 
 
 def terminate_subagent(task_id):
+    status = get_subagent_status(task_id)
+    if status.get('session_id'):
+        from src.services.acp import acp_manager
+        acp_manager.destroy_session(status['session_id'], delete_history=False)
+        return {'task_id': task_id, 'session_id': status['session_id'], 'terminated': True}
     prefix = f"subagent-{task_id}"
     # Find actual session name (spawn.sh appends a timestamp)
     result = subprocess.run(
@@ -278,6 +288,9 @@ def terminate_subagent(task_id):
 
 
 def delete_subagent(task_id):
+    status = get_subagent_status(task_id)
+    if status.get('session_id'):
+        terminate_subagent(task_id)
     workspace = f"{SUBAGENT_DIR}/{task_id}"
     remove_cron_job(task_id)
     if os.path.exists(workspace):

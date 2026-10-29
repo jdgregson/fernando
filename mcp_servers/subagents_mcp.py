@@ -8,6 +8,7 @@ from _mcp_common import PROJECT_ROOT, read_api_key, find_my_session_id
 
 import asyncio
 import json
+import re
 import urllib.request
 
 from src.services.subagent_core import (
@@ -58,8 +59,28 @@ def create_subagent(
     model=None,
     group_id=None,
     parent_session_id=None,
+    schedule_mode="spawn",
+    schedule_timezone="America/Los_Angeles",
+    wake_message=None,
 ):
     """Spawn a subagent with full workspace/instructions, using ACP instead of tmux."""
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,160}', task_id):
+        return {'error': 'task_id must contain 1 to 160 letters, digits, underscores or hyphens'}
+    if at_schedule and cron_schedule:
+        return {'error': 'at_schedule and cron_schedule are mutually exclusive'}
+    if schedule_mode not in ('spawn', 'resume'):
+        return {'error': 'Unknown schedule_mode'}
+    if schedule_mode == 'resume':
+        if not cron_schedule or at_schedule or not parent_session_id:
+            return {'error': 'Resume mode requires cron_schedule and an identified parent session'}
+        from src.services.subagent_schedules import DEFAULT_MESSAGE, validate_schedule
+        if wake_message is None:
+            wake_message = DEFAULT_MESSAGE
+        try:
+            validate_schedule(cron_schedule, schedule_timezone, wake_message)
+        except ValueError as error:
+            return {'error': str(error)}
+        additional_context += '\nThis is a recurring resume subagent. Start the task now. Future scheduled checks resume this same conversation. End each check normally while monitoring is ongoing. When finished, use manage_subagent_schedule(action="cancel") to stop your own schedule, then message_parent with the result. Do not create cron entries or replacement agents.'
     # If no group specified but we have a parent, inherit the parent's group
     if not group_id and parent_session_id:
         try:
@@ -84,7 +105,8 @@ def create_subagent(
     instructions_file = write_instructions(
         workspace, task_id, task, context_file, additional_context
     )
-    script_path = write_spawn_script(workspace, session_name, instructions_file)
+    if schedule_mode == 'spawn':
+        script_path = write_spawn_script(workspace, session_name, instructions_file)
 
     if at_schedule:
         # Rewrite spawn.sh to use ACP API instead of tmux
@@ -97,7 +119,7 @@ def create_subagent(
             "scheduled_at": at_schedule,
         }
 
-    if cron_schedule:
+    if cron_schedule and schedule_mode == 'spawn':
         _write_acp_spawn_script(script_path, instructions_file, session_name, model, group_id, parent_session_id)
         schedule_cron(script_path, cron_schedule)
         return {
@@ -111,6 +133,9 @@ def create_subagent(
     prompt = f"Read the instructions from {instructions_file} and execute the task described there."
     api_key = read_api_key()
     payload = {"task": prompt, "name": session_name}
+    if schedule_mode == 'resume':
+        payload.update(schedule_mode='resume', cron_schedule=cron_schedule,
+                       schedule_timezone=schedule_timezone, wake_message=wake_message)
     if model:
         payload["model"] = model
     if group_id:
@@ -127,6 +152,16 @@ def create_subagent(
         result = json.loads(resp.read())
         result["task_id"] = task_id
         result["workspace"] = workspace
+        if result.get('session_id'):
+            with open(f'{workspace}/task.json') as stream:
+                task_data = json.load(stream)
+            task_data.update(session_id=result['session_id'], schedule_mode=schedule_mode)
+            with open(f'{workspace}/task.json', 'w') as stream:
+                json.dump(task_data, stream, indent=2)
+        if schedule_mode == 'resume':
+            result.update(schedule_mode='resume', cron_schedule=cron_schedule, timezone=schedule_timezone)
+            if not result.get('schedule'):
+                result['error'] = 'The running Fernando server did not register a resume schedule. Restart Fernando to activate this feature. The returned session exists but has no recurring schedule.'
         return result
     except Exception as e:
         return {"error": str(e), "task_id": task_id, "workspace": workspace}
@@ -159,7 +194,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="spawn_subagent",
-            description="Spawn a subagent in a new ACP chat session to work on a delegated task. The subagent will save proof of work and communicate progress via JSON files.",
+            description="Spawn a subagent now or on a schedule. For recurring monitoring, use cron_schedule with schedule_mode='resume': starts one child now and wakes that same conversation on each tick, skipping busy checks. Use schedule_mode='spawn' for a fresh agent per tick. Use this tool rather than writing cron entries directly. Resume schedules persist across restarts and can be inspected, updated or cancelled with manage_subagent_schedule.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -187,6 +222,18 @@ async def list_tools() -> list[Tool]:
                         "type": "string",
                         "description": "Run on cron schedule (e.g., '*/5 * * * *' for every 5 minutes, '0 * * * *' for hourly). Mutually exclusive with at_schedule.",
                     },
+                    "schedule_mode": {
+                        "type": "string", "enum": ["spawn", "resume"], "default": "spawn",
+                        "description": "spawn preserves existing scheduled fresh-agent behavior. resume requires cron_schedule, starts immediately, and reuses one child conversation.",
+                    },
+                    "schedule_timezone": {
+                        "type": "string", "default": "America/Los_Angeles",
+                        "description": "IANA timezone for resume schedules, including daylight-saving transitions.",
+                    },
+                    "wake_message": {
+                        "type": "string",
+                        "description": "Optional recurring check instructions for resume mode. The original task and history remain in the same session.",
+                    },
                     "model": {
                         "type": "string",
                         "description": f"Model ID for the subagent (default: {DEFAULT_MODEL})",
@@ -198,6 +245,21 @@ async def list_tools() -> list[Tool]:
                     },
                 },
                 "required": ["task_id", "task"],
+            },
+        ),
+        Tool(
+            name="manage_subagent_schedule",
+            description="Inspect, update, or cancel a recurring resume schedule. Omit session_id to manage your own schedule, or specify one of your children. Cancel when monitoring is complete; ending a turn does not cancel a schedule. Updates affect future checks and do not interrupt a running turn. Cancel does not terminate the conversation.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string", "enum": ["get", "update", "cancel"]},
+                    "session_id": {"type": "string"},
+                    "cron_schedule": {"type": "string"},
+                    "timezone": {"type": "string", "description": "IANA timezone for the updated schedule"},
+                    "wake_message": {"type": "string"},
+                },
+                "required": ["action"],
             },
         ),
         Tool(
@@ -325,7 +387,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             arguments.get("model"),
             arguments.get("group_id"),
             parent_session_id=my_session,  # Record who spawned this agent
+            schedule_mode=arguments.get('schedule_mode', 'spawn'),
+            schedule_timezone=arguments.get('schedule_timezone', 'America/Los_Angeles'),
+            wake_message=arguments.get('wake_message'),
         )
+    elif name == 'manage_subagent_schedule':
+        my_session = find_my_session_id()
+        if not my_session:
+            result = {'error': 'Could not determine your session ID'}
+        else:
+            payload = {key: arguments[key] for key in ('action', 'session_id', 'cron_schedule', 'timezone', 'wake_message') if key in arguments}
+            payload['actor_session_id'] = my_session
+            req = urllib.request.Request(
+                'http://localhost:5000/api/acp/subagent_schedule',
+                data=json.dumps(payload).encode(),
+                headers={'Content-Type': 'application/json', 'X-API-Key': read_api_key()},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    result = json.load(response)
+            except urllib.error.HTTPError as error:
+                result = json.loads(error.read())
     elif name == "get_subagent_status":
         result = get_subagent_status(arguments["task_id"])
     elif name == "list_subagents":
@@ -333,6 +415,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "terminate_subagent":
         # Try to terminate via ACP API using task_id as session_id
         session_id = arguments["task_id"]
+        if re.fullmatch(r'[A-Za-z0-9_-]{1,200}', session_id):
+            status = get_subagent_status(session_id)
+            session_id = status.get('session_id') or session_id
         api_key = read_api_key()
         req = urllib.request.Request(
             "http://localhost:5000/api/acp/terminate",

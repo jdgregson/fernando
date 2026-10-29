@@ -301,13 +301,13 @@ function switchSettingsTab(tab, btn) {
 
 
 function loadSettings() {
-    fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+    fetch('/api/settings', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
         .then(r => r.json())
         .then(data => {
             // Load Kiro models
             const kiroSel = document.getElementById('settingsKiroModel');
             const currentKiroModel = data.default_model || '';
-            fetch('/api/models?api_key=' + window.FERNANDO_API_KEY)
+            fetch('/api/models', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
                 .then(r => r.json())
                 .then(mdata => {
                     if (mdata.models && kiroSel) {
@@ -324,7 +324,7 @@ function loadSettings() {
             // Load OpenCode models
             const openCodeSel = document.getElementById('settingsOpenCodeModel');
             const currentOpenCodeModel = data.opencode_model || '';
-            fetch('/api/opencode_models?api_key=' + window.FERNANDO_API_KEY)
+            fetch('/api/opencode_models', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
                 .then(r => r.json())
                 .then(mdata => {
                     if (mdata.models && openCodeSel) {
@@ -461,7 +461,7 @@ function saveHealthThreshold(key, value) {
 }
 
 function loadAuthConfig() {
-    fetch('/api/authorization/config?api_key=' + window.FERNANDO_API_KEY)
+    fetch('/api/authorization/config', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
         .then(r => r.json())
         .then(config => {
             const container = document.getElementById('authConfigArea');
@@ -578,6 +578,7 @@ function saveAuthConfig() {
 // --- Health Monitoring ---
 let healthModalOpen = false;
 let healthPollInterval = null;
+CopyControls.observe(document.getElementById('healthModal'));
 
 function openHealthModal() {
     document.getElementById('healthModal').classList.add('open');
@@ -594,7 +595,7 @@ function closeHealthModal() {
 }
 
 function fetchHealth() {
-    fetch('/api/health?api_key=' + window.FERNANDO_API_KEY)
+    fetch('/api/health', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
         .then(r => {
             if (r.status === 401) {
                 if (!isMutating) window.location.reload();
@@ -627,6 +628,28 @@ function updateHealthIndicator(data) {
     } else {
         dot.title = 'System healthy';
     }
+}
+
+function renderHealthLogs(element, records) {
+    const fragment = document.createDocumentFragment();
+    records.forEach((record, index) => {
+        if (index) fragment.appendChild(document.createTextNode('\n'));
+        if (!record.level) {
+            fragment.appendChild(document.createTextNode(record.text));
+            return;
+        }
+        const line = document.createElement('span');
+        line.className = 'health-log-' + record.level.toLowerCase();
+        for (const field of ['timestamp', 'logger', 'level', 'message']) {
+            if (field !== 'timestamp') line.appendChild(document.createTextNode(' '));
+            const span = document.createElement('span');
+            span.className = 'health-log-' + field;
+            span.textContent = record[field];
+            line.appendChild(span);
+        }
+        fragment.appendChild(line);
+    });
+    element.replaceChildren(fragment);
 }
 
 function updateHealthModal(data) {
@@ -723,15 +746,17 @@ function updateHealthModal(data) {
     const logsEl = document.getElementById('healthLogs');
     const flaskLogs = logs.flask || [];
     const logText = flaskLogs.length ? flaskLogs.join('\n') : 'No recent logs';
-    if (logsEl.textContent !== logText) {
-        logsEl.textContent = logText;
-        logsEl.scrollTop = logsEl.scrollHeight;
-    }
-    for (const element of [errorsEl, logsEl]) {
-        const title = element.previousElementSibling;
-        if (!title.querySelector('.code-copy-button')) {
-            title.appendChild(CopyControls.button(() => element.textContent, element === errorsEl ? 'Copy errors' : 'Copy logs'));
+    const logViewport = logsEl.parentElement;
+    const selection = window.getSelection();
+    const selectingLogs = selection && !selection.isCollapsed && selection.containsNode(logsEl, true);
+    const followingLogs = logViewport.scrollHeight - logViewport.clientHeight - logViewport.scrollTop <= 2;
+    if (logsEl.textContent !== logText && followingLogs && !selectingLogs) {
+        if (flaskLogs.length) {
+            renderHealthLogs(logsEl, data.log_records.flask);
+        } else {
+            logsEl.textContent = logText;
         }
+        logViewport.scrollTop = logViewport.scrollHeight;
     }
 
     // Timestamp
@@ -752,7 +777,7 @@ function getHealthClass(pct, metric) {
 }
 
 // Load health thresholds on page load so getHealthClass works immediately
-fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+fetch('/api/settings', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
     .then(r => r.json())
     .then(data => {
         window.healthThresholds = {

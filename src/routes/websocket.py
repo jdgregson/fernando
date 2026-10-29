@@ -755,6 +755,8 @@ def register_handlers(socketio):
     acp_manager.set_on_sessions_change(broadcast_sessions_list)
     acp_manager.set_on_status_change(broadcast_status_change)
     acp_manager.restore_sessions(lambda sid: acp_on_event)
+    from src.services.subagent_schedules import resume_scheduler
+    resume_scheduler.start(acp_manager)
 
     @socketio.on("acp_create")
     def acp_create(data):

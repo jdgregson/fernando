@@ -14,3 +14,4 @@ semgrep==1.157.0
 notebook==7.5.5
 nbclassic==1.3.3
 psutil==7.2.2
+croniter==6.2.4

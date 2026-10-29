@@ -9,7 +9,7 @@ function createChatSession() {
 function createOpenCodeChatSession() {
     const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
     closeNewSessionModal();
-    fetch('/api/settings?api_key=' + window.FERNANDO_API_KEY)
+    fetch('/api/settings', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
         .then(r => r.json())
         .then(data => {
             const model = data.opencode_model || 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1';

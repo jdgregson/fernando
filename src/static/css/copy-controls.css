@@ -16,13 +16,10 @@
 }
 .code-copy-container.code-copy-visible:hover > .code-copy-button,
 .markdown-table-copy.code-copy-visible:hover > .code-copy-button,
-.code-copy-button:focus-visible,
-.health-section-title > .code-copy-button {
+.code-copy-button:focus-visible {
     visibility: visible;
     opacity: 0.7;
 }
-.health-section-title { display: flex; align-items: center; gap: 6px; }
-.health-section-title > .code-copy-button { position: relative; right: auto; bottom: auto; }
 @media (hover: none), (pointer: coarse) {
     .code-copy-button { visibility: visible; opacity: 0.7; }
     .code-copy-button::before { content: ''; position: absolute; inset: -12px; }

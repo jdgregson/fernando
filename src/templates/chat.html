@@ -706,7 +706,7 @@
         }
         if (_quotaFetchPending) return;
         _quotaFetchPending = true;
-        fetch('/api/openai_quota?api_key=' + encodeURIComponent(apiKey))
+        fetch('/api/openai_quota', {headers: {'X-API-Key': apiKey}})
             .then(r => r.ok ? r.json() : null)
             .then(data => {
                 _quotaFetchPending = false;
@@ -3975,7 +3975,7 @@
             list.innerHTML = '<div style="color:#666;font-size:12px;padding:10px">Loading servers...</div>';
         }
         try {
-            const res = await fetch('/api/mcp/servers?api_key=' + encodeURIComponent(apiKey));
+            const res = await fetch('/api/mcp/servers', {headers: {'X-API-Key': apiKey}});
             const data = await res.json();
             const fresh = data.servers || [];
             if (fresh.length > 0) {
@@ -4044,7 +4044,7 @@
                 _mcpToolsByServer[server] = JSON.parse(cached);
                 renderServerTools(server, container);
                 // Refresh in background
-                fetch('/api/mcp/tools?server=' + encodeURIComponent(server) + '&api_key=' + encodeURIComponent(apiKey))
+                fetch('/api/mcp/tools?server=' + encodeURIComponent(server), {headers: {'X-API-Key': apiKey}})
                     .then(r => r.json()).then(data => {
                         _mcpToolsByServer[server] = data.tools || [];
                         localStorage.setItem('mcp_tools_' + server, JSON.stringify(_mcpToolsByServer[server]));
@@ -4054,7 +4054,7 @@
         } catch(e) {}
         container.innerHTML = '<div style="color:#666;font-size:11px;padding:6px 10px">Loading...</div>';
         try {
-            const res = await fetch('/api/mcp/tools?server=' + encodeURIComponent(server) + '&api_key=' + encodeURIComponent(apiKey));
+            const res = await fetch('/api/mcp/tools?server=' + encodeURIComponent(server), {headers: {'X-API-Key': apiKey}});
             const data = await res.json();
             _mcpToolsByServer[server] = data.tools || [];
             localStorage.setItem('mcp_tools_' + server, JSON.stringify(_mcpToolsByServer[server]));

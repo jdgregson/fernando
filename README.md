@@ -75,6 +75,26 @@ sudo systemctl restart fernando  # Restart
 - **Kiro-Unchained**: Kiro CLI with all tools enabled (`-a` flag)
 - **ACP Chat**: Graphical chat UI for conversational interaction
 
+## Recurring subagents
+
+Use `spawn_subagent` with `cron_schedule` and `schedule_mode: "resume"` for a monitor that retains its conversation:
+
+```json
+{
+  "task_id": "monitor-build",
+  "task": "Monitor the build until it completes, then report the result to me and cancel your schedule.",
+  "cron_schedule": "*/5 * * * *",
+  "schedule_mode": "resume",
+  "schedule_timezone": "America/Los_Angeles"
+}
+```
+
+Resume mode starts one child immediately and sends subsequent checks to that same session. It preserves the workspace, parent relationship, and native conversation. Busy ticks are skipped, idle children sleep between checks unless open in a pane, and schedules survive application restarts without replaying missed checks. Resume schedules are stored in `data/subagent_schedules.json`; they do not install user-crontab entries. Expressions use five cron fields and an IANA timezone. `wake_message` optionally supplies the recurring prompt.
+
+The child can call `manage_subagent_schedule` with `action: "get"`, `"update"`, or `"cancel"`, omitting `session_id` to target itself. The parent supplies the child's session ID. Updates accept `cron_schedule`, `timezone`, and `wake_message`. Cancelling stops future checks but preserves the conversation; ending a turn alone does not stop monitoring. Terminating, archiving, or deleting the child cancels its schedule. Schedule status includes the next run, last result, and any wake-up error, and is also included in task status for resume-mode tasks.
+
+The existing `schedule_mode: "spawn"` remains the default: `at_schedule` launches once later, and `cron_schedule` launches a fresh child on each tick. Resume mode requires an identified parent and `cron_schedule`; it cannot be combined with `at_schedule`.
+
 ## Architecture
 
 Fernando is a Flask + Flask-SocketIO backend with an xterm.js frontend, behind an nginx reverse proxy. A Kasm Workspaces Docker container provides the integrated Linux desktop (VNC on port 6901). Three MCP servers (`mcp_servers/`) extend Kiro CLI with subagent management, desktop automation, and Microsoft 365 integration. A SilverBullet instance provides the integrated notes system, proxied through Flask with iOS PWA compatibility shims. All state-changing actions go through authenticated WebSocket connections; Flask HTTP POST routes require API key authentication.

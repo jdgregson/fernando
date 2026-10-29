@@ -181,6 +181,20 @@ def api_spawn_subagent():
     backend = data.get("backend", "kiro")
     group_id = data.get("group_id")
     parent_session_id = data.get("parent_session_id")  # Optional: who spawned this agent
+    schedule_mode = data.get('schedule_mode', 'spawn')
+    if schedule_mode not in ('spawn', 'resume'):
+        return {'error': 'Unknown schedule_mode'}, 400
+    if schedule_mode == 'resume':
+        from src.services.subagent_schedules import DEFAULT_MESSAGE, DEFAULT_TIMEZONE, validate_schedule
+        if not parent_session_id or not acp_manager.get_session(parent_session_id):
+            return {'error': 'Scheduled resume requires an active parent session'}, 400
+        expression = data.get('cron_schedule')
+        timezone = data.get('schedule_timezone', DEFAULT_TIMEZONE)
+        wake_message = data.get('wake_message', DEFAULT_MESSAGE)
+        try:
+            validate_schedule(expression, timezone, wake_message)
+        except ValueError as error:
+            return {'error': str(error)}, 400
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
     on_event = acp_manager.default_on_event
@@ -204,9 +218,41 @@ def api_spawn_subagent():
                 session.send_prompt(task)
                 return
             time.sleep(1)
-    threading.Thread(target=_send_when_ready, daemon=True).start()
+    result = {'session_id': session_id}
+    if schedule_mode == 'resume':
+        from src.services.subagent_schedules import resume_scheduler
+        result['schedule'] = resume_scheduler.create(session_id, parent_session_id, expression, timezone, wake_message, task)
+    else:
+        threading.Thread(target=_send_when_ready, daemon=True).start()
 
-    return json.dumps({"session_id": session_id}), 200, {"Content-Type": "application/json"}
+    return json.dumps(result), 200, {"Content-Type": "application/json"}
+
+
+@bp.route('/api/acp/subagent_schedule', methods=['POST'])
+def api_subagent_schedule():
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    from src.services.acp import get_parent, is_child_of
+    from src.services.subagent_schedules import resume_scheduler
+    data = request.get_json(force=True)
+    actor = data.get('actor_session_id')
+    session_id = data.get('session_id') or actor
+    if not isinstance(actor, str) or not isinstance(session_id, str):
+        return {'error': 'Missing actor_session_id or session_id'}, 400
+    if not ((actor == session_id and get_parent(actor)) or is_child_of(session_id, actor)):
+        return {'error': 'Only the child itself or its parent can manage this schedule'}, 403
+    action = data.get('action', 'get')
+    if action == 'get':
+        return {'schedule': resume_scheduler.get(session_id)}
+    if action == 'cancel':
+        return {'schedule': resume_scheduler.cancel(session_id)}
+    if action == 'update':
+        changes = {key: data[key] for key in ('cron_schedule', 'timezone', 'wake_message') if key in data}
+        try:
+            return {'schedule': resume_scheduler.update(session_id, **changes)}
+        except ValueError as error:
+            return {'error': str(error)}, 400
+    return {'error': 'Unknown schedule action'}, 400
 
 
 @bp.route("/api/send_continuation", methods=["POST"])
@@ -1784,29 +1830,19 @@ def api_health():
         ("/tmp/fernando-mutate.log", "mutate"),
     ]
     health["logs"] = {}
+    from scripts.color_logs import parse_line, recent_errors, tail_lines
+    health["log_records"] = {}
     for log_path, log_name in log_files:
         try:
-            with open(log_path, "rb") as f:
-                f.seek(0, 2)
-                size = f.tell()
-                read_size = min(size, 20000)
-                f.seek(size - read_size)
-                chunk = f.read().decode(errors="replace")
-            lines = chunk.splitlines()[-100:]
+            lines = tail_lines(log_path, 1000)
             health["logs"][log_name] = lines
+            health["log_records"][log_name] = [parse_line(line) for line in lines]
         except OSError:
             pass
 
-    # Recent errors - grep ERROR lines from flask log (single-line format)
     health["errors"] = []
     try:
-        with open("/tmp/fernando-flask.log", "rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            read_size = min(size, 100000)
-            f.seek(size - read_size)
-            chunk = f.read().decode(errors="replace")
-        health["errors"] = [l for l in chunk.splitlines() if " ERROR " in l][-10:]
+        health["errors"] = recent_errors("/tmp/fernando-flask.log")
     except OSError:
         pass
 

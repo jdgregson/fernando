@@ -453,7 +453,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     margin-bottom: 15px;
 }
 
-.modal-body button {
+.modal-body button:not(.tc-copy-btn) {
     width: auto;
     display: inline-block;
     padding: 8px 16px;
@@ -465,7 +465,7 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.modal-body button:hover {
+.modal-body button:not(.tc-copy-btn):hover {
     background: #143151;
 }
 
@@ -1723,13 +1723,18 @@ button.notebook-delete-btn {
 
 /* Health modal */
 #healthModal .modal-content {
-    max-width: 600px;
+    width: 90vw;
+    max-width: 90vw;
 }
 .health-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
     margin-bottom: 16px;
+}
+@media (min-width: 1000px) {
+    .health-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    #healthModal .health-logs { max-height: 340px; }
 }
 @media (max-width: 500px) {
     .health-grid { grid-template-columns: 1fr; }
@@ -1823,6 +1828,7 @@ button.notebook-delete-btn {
     padding: 10px 12px;
 }
 .health-logs {
+    margin: 0;
     font-size: 11px;
     font-family: 'SF Mono', Menlo, Consolas, monospace;
     color: #888;
@@ -1835,7 +1841,15 @@ button.notebook-delete-btn {
     white-space: pre-wrap;
     word-break: break-all;
 }
+.health-log-timestamp, .health-log-debug { color: #888; }
+.health-log-logger { color: #56b6c2; }
+.health-log-info { color: #d4d4d4; }
+.health-log-info > .health-log-level { color: #98c379; }
+.health-log-warning { color: #e5c07b; }
+.health-log-error, .health-log-critical { color: #ff6b6b; }
+.health-log-critical { font-weight: bold; }
 .health-errors {
+    margin: 0;
     font-size: 11px;
     font-family: 'SF Mono', Menlo, Consolas, monospace;
     color: #ff6b6b;
