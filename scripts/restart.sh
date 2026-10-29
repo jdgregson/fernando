@@ -1,5 +1,4 @@
 #!/bin/bash
 # Restart the Fernando service.
 
-sudo systemctl restart fernando
-
+exec bash "$(dirname "$0")/mutate.sh" "$@"

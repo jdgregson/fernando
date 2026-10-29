@@ -308,7 +308,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="message_child",
-            description="Send a message to one of your subagents. The message is delivered as a continuation, interrupting the child's current work. Fails if the target session is not your child.",
+            description="Send a message to one of your subagents. Idle children receive it immediately; busy children queue it and can consume all pending parent messages with read_parent_messages. Fails if the target session is not your child.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -327,6 +327,11 @@ async def list_tools() -> list[Tool]:
         Tool(
             name="read_child_messages",
             description="Read all unread messages from your subagents. Returns a list of messages with sender session IDs, timestamps, and content. Messages are marked as read after retrieval.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        Tool(
+            name="read_parent_messages",
+            description="Read and consume all pending messages from your parent agent, in order. Call while working and when receiving a parent message to pick up additional queued instructions. Consumed messages are removed from the queue; user messages and other senders are untouched.",
             inputSchema={"type": "object", "properties": {}},
         ),
         Tool(
@@ -501,13 +506,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         result = err_result
                 except Exception as e:
                     result = {"error": str(e)}
-    elif name == "read_child_messages":
+    elif name in ("read_child_messages", "read_parent_messages"):
         my_session = find_my_session_id()
         if not my_session:
             result = {"error": "Could not determine your session ID"}
         else:
+            route = "child_messages" if name == "read_child_messages" else "parent_messages"
             req = urllib.request.Request(
-                "http://localhost:5000/api/acp/child_messages/read",
+                f"http://localhost:5000/api/acp/{route}/read",
                 data=json.dumps({"session_id": my_session}).encode(),
                 headers={"Content-Type": "application/json", "X-API-Key": read_api_key()},
             )

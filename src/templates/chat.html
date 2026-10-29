@@ -2918,7 +2918,7 @@
                 input.focus();
             });
         };
-        el.replaceChildren(preview, edit, remove);
+        el.replaceChildren(...(isUser ? [preview, edit, remove] : [preview, remove]));
         if (!existing) document.getElementById('queuedMessages').appendChild(el);
     }
 

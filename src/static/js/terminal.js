@@ -7,26 +7,33 @@ const termInstances = {};
 // pane -> session_name (for routing output from server)
 const _paneSession = { 1: null, 2: null };
 
-// Measure container to get correct initial cols/rows using wterm's font styles.
 function measureTermSize(container) {
-    container.classList.add('wterm');
     const style = getComputedStyle(container);
+    const row = document.createElement('div');
+    row.className = 'term-row';
+    row.style.cssText = 'position:absolute;visibility:hidden;';
     const probe = document.createElement('span');
-    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font-family:' +
-        style.getPropertyValue('--term-font-family') + ';font-size:' +
-        style.getPropertyValue('--term-font-size') + ';line-height:' +
-        style.getPropertyValue('--term-line-height') + ';';
+    probe.style.cssText = 'white-space:pre;width:auto;';
     probe.textContent = 'W';
-    container.appendChild(probe);
+    row.appendChild(probe);
+    container.appendChild(row);
     const rect = probe.getBoundingClientRect();
-    probe.remove();
-    container.classList.remove('wterm');
-    if (!rect.width || !rect.height) return null;
+    const rowHeight = row.getBoundingClientRect().height;
+    row.remove();
+    if (!rect.width || !rowHeight) return null;
     const pad = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
     const padV = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
     const w = container.clientWidth - pad;
-    const h = container.clientHeight - padV;
-    return { cols: Math.max(1, Math.floor(w / rect.width)), rows: Math.max(1, Math.floor(h / rect.height)) };
+    const h = container.clientHeight - padV - (container.querySelector('.ios-spacer')?.getBoundingClientRect().height || 0);
+    return { cols: Math.max(1, Math.floor(w / rect.width)), rows: Math.max(1, Math.floor(h / rowHeight)) };
+}
+
+function fitTerminal(entry) {
+    if (!entry.ready || entry.element.style.visibility === 'hidden') return;
+    const size = measureTermSize(entry.element);
+    if (size && (size.cols !== entry.wterm.cols || size.rows !== entry.wterm.rows)) {
+        entry.wterm.resize(size.cols, size.rows);
+    }
 }
 
 // Get or create a WTerm for a session, placed in the given pane.
@@ -48,12 +55,19 @@ function getOrCreateTerm(sessionName, pane) {
     el.className = 'terminal';
     container.appendChild(el);
 
-    const size = measureTermSize(container);
-    const wterm = new WTerm(el, Object.assign({
-        autoResize: true,
+    const wterm = new WTerm(el, {
+        autoResize: false,
         cursorBlink: true,
         onResize: (cols, rows) => { emitWithCsrf('resize', { terminal: entry.pane, rows, cols }); },
-    }, size || {}));
+        onInputScroll: () => {
+            if (!entry?.positionInputLine) return false;
+            entry.followInput = entry.positionInputLine();
+            return entry.followInput;
+        },
+        onRender: () => {
+            if (entry?.followInput) entry.positionInputLine();
+        },
+    });
     wterm.onData = data => { emitWithCsrf('input', { terminal: entry.pane, data }); };
 
     entry = { wterm, element: el, pane, ready: false, pending: [], firstAttach: true };
@@ -61,23 +75,14 @@ function getOrCreateTerm(sessionName, pane) {
 
     wterm.init().then(() => {
         entry.ready = true;
+        fitTerminal(entry);
+        entry.resizeObserver = new ResizeObserver(() => fitTerminal(entry));
+        entry.resizeObserver.observe(el);
         if (entry.pending.length) {
             entry.pending.forEach(d => wterm.write(d));
             entry.pending = [];
         }
         requestAnimationFrame(() => wterm.scrollToBottom());
-        // iOS WebKit paint bug: inject spacer after first paint
-        if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) {
-            setTimeout(() => {
-                const grid = el.querySelector('.term-grid');
-                if (grid) {
-                    const spacer = document.createElement('div');
-                    spacer.className = 'ios-spacer';
-                    spacer.style.height = '10px';
-                    el.insertBefore(spacer, grid);
-                }
-            }, 100);
-        }
         setupFocusScroll(entry);
     }).catch(err => console.error('wterm init failed for', sessionName, err));
 
@@ -87,19 +92,19 @@ function getOrCreateTerm(sessionName, pane) {
 // Show a session's terminal in a pane, hide all others in that pane.
 function showTermInPane(sessionName, pane) {
     const container = document.getElementById('terminal' + pane);
-    // Hide all terminals in this pane — disconnect ResizeObserver first to prevent
-    // 0-width resize that corrupts scrollback, then move offscreen
     for (const [name, inst] of Object.entries(termInstances)) {
         if (inst.pane === pane && name !== sessionName) {
-            if (inst.wterm.resizeObserver) inst.wterm.resizeObserver.disconnect();
+            inst.resizeObserver?.disconnect();
+            inst.wterm.setRenderingPaused(true);
             inst.element.style.cssText = 'position:fixed;left:-9999px;visibility:hidden;';
         }
     }
     const entry = getOrCreateTerm(sessionName, pane);
     entry.element.style.cssText = '';
-    // Reconnect ResizeObserver
-    if (entry.wterm.resizeObserver) entry.wterm.resizeObserver.observe(entry.wterm.element);
+    entry.resizeObserver?.observe(entry.element);
+    entry.wterm.setRenderingPaused(false);
     if (entry.ready) {
+        fitTerminal(entry);
         requestAnimationFrame(() => entry.wterm.scrollToBottom());
     }
     // iOS paint bug: re-toggle spacer to force relayout after showing
@@ -117,6 +122,9 @@ function showTermInPane(sessionName, pane) {
 function destroyTerm(sessionName) {
     const entry = termInstances[sessionName];
     if (!entry) return;
+    entry.resizeObserver?.disconnect();
+    entry.focusController?.abort();
+    clearTimeout(entry.focusTimer);
     entry.wterm.destroy();
     entry.element.remove();
     delete termInstances[sessionName];
@@ -141,6 +149,7 @@ WTerm.prototype.scrollToBottom = function() {
 
 function doFit() {
     if (document.hidden) return;
+    for (const entry of Object.values(termInstances)) fitTerminal(entry);
     if (paneController.get(1).surface === 'terminal') {
         const t = getTermForPane(1);
         if (t) emitWithCsrf('resize', { terminal: 1, rows: t.rows, cols: t.cols });
@@ -241,18 +250,85 @@ function setupMobileFocusScroll() {}
 function setupFocusScroll(entry) {
     const textarea = entry.element.querySelector('textarea');
     if (!textarea) return;
+    const controller = new AbortController();
+    entry.focusController = controller;
+    const signal = controller.signal;
+    const fitVisibleViewport = () => {
+        const viewport = window.visualViewport;
+        const active = document.activeElement === textarea && !(typeof isSplit !== 'undefined' && isSplit);
+        const keyboard = active && viewport && viewport.scale === 1 && viewport.height < window.innerHeight - 100;
+        const parent = entry.element.parentElement.getBoundingClientRect();
+        const rowHeight = parseFloat(getComputedStyle(entry.element).getPropertyValue('--term-row-height'));
+        const inset = keyboard ? Math.max(0, Math.min(parent.height - rowHeight, parent.bottom - viewport.offsetTop - viewport.height)) : 0;
+        entry.element.style.setProperty('--terminal-keyboard-inset', inset + 'px');
+        fitTerminal(entry);
+    };
+    const positionInputLine = (center = false) => {
+        if (document.activeElement !== textarea || (typeof isSplit !== 'undefined' && isSplit)) return false;
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return false;
+        const viewport = window.visualViewport;
+        if (!viewport || viewport.scale !== 1 || viewport.height >= window.innerHeight - 100) return false;
+        const cursor = entry.element.querySelector('.term-cursor');
+        if (!cursor) return false;
+        const rect = entry.element.getBoundingClientRect();
+        const top = Math.max(rect.top, viewport.offsetTop);
+        const bottom = Math.min(rect.bottom, viewport.offsetTop + viewport.height);
+        if (bottom <= top) return false;
+        const cursorRect = cursor.getBoundingClientRect();
+        const grid = entry.element.querySelector('.term-grid');
+        const rowHeight = parseFloat(getComputedStyle(entry.element).getPropertyValue('--term-row-height'));
+        const atLastRow = grid.getBoundingClientRect().bottom - cursorRect.top <= rowHeight + 1;
+        if (center && !atLastRow) {
+            entry.element.scrollTop += cursorRect.top - (top + (bottom - top - rowHeight) / 2);
+        } else if (cursorRect.top < top) {
+            entry.element.scrollTop += cursorRect.top - top;
+        } else if (cursorRect.top + rowHeight > bottom) {
+            entry.element.scrollTop += cursorRect.top + rowHeight - bottom;
+        }
+        return true;
+    };
+    entry.positionInputLine = positionInputLine;
+    const position = () => {
+        if (document.activeElement !== textarea) return;
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return;
+        if (typeof isSplit !== 'undefined' && isSplit) {
+            const container = document.getElementById('terminal' + entry.pane + '-container');
+            const rect = container.getBoundingClientRect();
+            window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
+            return;
+        }
+        entry.followInput = positionInputLine(true);
+    };
+    const schedule = () => {
+        clearTimeout(entry.focusTimer);
+        entry.focusTimer = setTimeout(() => requestAnimationFrame(position), 300);
+    };
     textarea.addEventListener('focus', () => {
         if (typeof setActiveTerminal === 'function') setActiveTerminal(entry.pane, false);
-        setTimeout(() => {
-            if (typeof isSplit !== 'undefined' && isSplit) {
-                const container = document.getElementById('terminal' + entry.pane + '-container');
-                const rect = container.getBoundingClientRect();
-                window.scrollBy({ top: rect.top - 2, behavior: 'smooth' });
-            } else {
-                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-            }
-        }, 300);
-    });
+        fitVisibleViewport();
+        schedule();
+    }, { signal });
+    textarea.addEventListener('blur', () => {
+        entry.followInput = false;
+        clearTimeout(entry.focusTimer);
+        fitVisibleViewport();
+    }, { signal });
+    for (const type of ['touchstart', 'wheel', 'pointerdown']) {
+        entry.element.addEventListener(type, () => { entry.followInput = false; }, { signal, passive: true });
+    }
+    window.visualViewport?.addEventListener('resize', () => {
+        fitVisibleViewport();
+        if (window.visualViewport.height >= window.innerHeight - 100) {
+            entry.followInput = false;
+        } else schedule();
+    }, { signal });
+    window.visualViewport?.addEventListener('scroll', fitVisibleViewport, { signal });
+    if (document.activeElement === textarea) {
+        fitVisibleViewport();
+        schedule();
+    }
 }
 
 // --- Resize ---

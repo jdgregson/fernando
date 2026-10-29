@@ -45,6 +45,7 @@
         <div class="top-bar-left">
             <button class="sidebar-toggle" onclick="toggleSidebar()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
             <span class="top-bar-title">Fernando</span>
+            <span id="workingAgentCount" title="Number of agents running: unavailable" aria-label="Number of agents running: unavailable" style="font-size:10px; line-height:1; font-variant-numeric:tabular-nums; cursor: pointer; margin-left: 10px; margin-top: 2px; color: #3c77c2;">?</span>
             <span id="healthDot" title="System healthy" onclick="openHealthModal()" class="health-indicator">●</span>
             <span id="gitDirtyDot" title="Uncommitted changes" style="display:none; color:rgb(135 132 3); font-size:10px; vertical-align:middle; cursor:pointer;">●</span>
         </div>
@@ -357,6 +358,14 @@
                             <input type="number" id="healthLoadCritical" class="settings-input" min="0" max="10" step="0.1" onchange="saveHealthThreshold('health_load_critical', this.value)">
                         </div>
                     </div>
+                    <div class="health-threshold-group">
+                        <div class="health-threshold-title">Miscellaneous</div>
+                        <div class="settings-row">
+                            <label class="settings-label" for="healthDefenderEnabled">Enable Microsoft Defender integration</label>
+                            <input type="checkbox" id="healthDefenderEnabled" onchange="saveDefenderIntegration(this)">
+                        </div>
+                        <div id="healthDefenderTargets" hidden></div>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -374,6 +383,7 @@
                     <span id="healthStatusText">System healthy</span>
                 </div>
                 <div id="healthReasons" class="health-reasons" style="display:none;margin-bottom:12px;"></div>
+                <div id="healthOverview" class="health-overview">
                 <div class="health-grid">
                     <div class="health-card">
                         <div class="health-card-title">Memory</div>
@@ -399,6 +409,13 @@
                         <div class="health-card-detail" id="healthLoadDetail">-- / -- / -- (1/5/15 min)</div>
                         <div class="health-bar-container"><div class="health-bar" id="healthLoadBar" style="width:0%"></div></div>
                     </div>
+                </div>
+                <section id="healthDefender" class="health-card health-defender" hidden>
+                    <div class="health-card-title">Microsoft Defender for Endpoint</div>
+                    <div class="health-defender-health"><span>Health</span><strong id="healthDefenderStatus"></strong></div>
+                    <ul id="healthDefenderIssues" class="health-defender-issues"></ul>
+                    <div class="health-defender-tables" id="healthDefenderDetails"></div>
+                </section>
                 </div>
                 <div class="health-section">
                     <div class="health-section-title">Processes</div>

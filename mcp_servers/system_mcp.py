@@ -316,10 +316,15 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="mutate",
-            description="Restart Fernando to apply code changes. Returns immediately, then the restart triggers in the background within seconds. MCP server changes require the user to manually restart the Kiro CLI session. IMPORTANT: This call will kill the active conversation within seconds. Do NOT write any response after calling this tool. Put ALL follow-up information in the continuation message. NOTE: The tool response may say 'Tool use was cancelled by the user' — this is a false report caused by the process being killed during restart. Do NOT tell the user the mutate was cancelled. Assume it succeeded.",
+            description="Restart Fernando to apply code changes. Blocks with an explanation if more than one agent is working unless force=true. A blocked result does not restart anything. On success, restart triggers in the background within seconds. MCP server changes require manually restarting standalone Kiro CLI sessions. After a successful request, do not write another response; put follow-up information in continuation. A cancellation response during the restart may be caused by the process terminating rather than user cancellation.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "force": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Override the restart block when more than one agent is working.",
+                    },
                     "continuation": {
                         "type": "string",
                         "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
@@ -329,10 +334,15 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="reboot",
-            description="Reboot the host machine using 'sudo reboot'. This will terminate all sessions.",
+            description="Reboot the host machine using 'sudo reboot'. Blocks with an explanation if more than one agent is working unless force=true. A blocked result does not reboot anything. A successful request terminates all sessions.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "force": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Override the reboot block when more than one agent is working.",
+                    },
                     "continuation": {
                         "type": "string",
                         "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
@@ -597,29 +607,31 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     _consume_authorization(steps[i]["command"], session_id)
             result = {"pipeline_id": pipeline_id, "cancelled": cancelled, "steps": results}
     elif name == "mutate":
-        save_continuation(arguments.get("continuation"))
-        try:
-            api_key = read_api_key()
-            subprocess.run(["curl", "-s", "-X", "POST", "-H", f"X-API-Key: {api_key}", "http://localhost:5000/api/mutating"], timeout=2)
-        except Exception:
-            pass
-        subprocess.Popen(
-            [os.path.join(PROJECT_ROOT, "scripts", "mutate.sh")],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+        if type(arguments.get("force", False)) is not bool:
+            return [TextContent(type="text", text="force must be a boolean")]
+        command = ["bash", os.path.join(PROJECT_ROOT, "scripts", "mutate.sh")]
+        if arguments.get("force", False):
+            command.append("--force")
+        restart = subprocess.run(
+            command, capture_output=True, text=True, timeout=15,
         )
+        if restart.returncode != 0:
+            return [TextContent(type="text", text=json.dumps({"status": "blocked", "message": restart.stderr.strip() or restart.stdout.strip()}))]
+        save_continuation(arguments.get("continuation"))
         result = {
             "status": "restart_initiated",
             "message": "Fernando restart initiated. This process will be terminated as part of the restart. The conversation will resume via the continuation message.",
         }
     elif name == "reboot":
+        if type(arguments.get("force", False)) is not bool:
+            return [TextContent(type="text", text="force must be a boolean")]
+        command = ["python3", os.path.join(PROJECT_ROOT, "scripts", "restart_guard.py")]
+        if arguments.get("force", False):
+            command.append("--force")
+        guard = subprocess.run(command, capture_output=True, text=True, timeout=15)
+        if guard.returncode != 0:
+            return [TextContent(type="text", text=json.dumps({"status": "blocked", "message": guard.stderr.strip() or guard.stdout.strip()}))]
         save_continuation(arguments.get("continuation"))
-        try:
-            api_key = read_api_key()
-            subprocess.run(["curl", "-s", "-X", "POST", "-H", f"X-API-Key: {api_key}", "http://localhost:5000/api/mutating"], timeout=2)
-        except Exception:
-            pass
         subprocess.Popen(
             ["nohup", "bash", "-c", "sleep 5 && sudo reboot"],
             stdout=subprocess.DEVNULL,

@@ -54,13 +54,26 @@ def index():
     return render_template("index.html", sessions=sessions, api_key=api_key, provider_settings=get_provider_settings())
 
 
+@bp.route("/api/agents/working")
+def api_working_agents():
+    if not _check_api_key():
+        return {"error": "Unauthorized"}, 401
+    return {"working_count": acp_manager.working_agent_count()}, 200, {"Cache-Control": "no-store"}
+
+
 @bp.route("/api/mutating", methods=["POST"])
 def api_mutating_notify():
     if not _check_api_key():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict) or type(payload.get("force", False)) is not bool:
+        return {"error": "force must be a boolean"}, 400
+    working_count = acp_manager.working_agent_count()
+    if working_count > 1 and not payload.get("force", False):
+        return {"error": f"Restart blocked: {working_count} agents are currently working. Wait until at most one agent is working, or explicitly use force=true (scripts: --force).", "working_count": working_count}, 409
     from src import socketio
     socketio.emit("mutating", {})
-    return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
+    return {"ok": True, "working_count": working_count}, 200
 
 
 @bp.route("/api/auth_check")
@@ -397,6 +410,21 @@ def api_acp_read_child_messages():
     return {"messages": messages, "count": len(messages)}
 
 
+@bp.route("/api/acp/parent_messages/read", methods=["POST"])
+def api_acp_read_parent_messages():
+    if not _check_api_key():
+        return {"error": "Unauthorized"}, 401
+    data = request.get_json(force=True)
+    session_id = data.get('session_id')
+    if not isinstance(session_id, str) or not session_id:
+        return {"error": "Missing session_id"}, 400
+    session = acp_manager.get_session(session_id)
+    if not session:
+        return {"error": "Session not found"}, 404
+    messages = session.read_parent_messages()
+    return {"messages": messages, "count": len(messages)}
+
+
 @bp.route("/api/acp/agent_message", methods=["POST"])
 def api_acp_agent_message():
     """Send a message from one agent to another (parent-child messaging)."""
@@ -555,6 +583,12 @@ def api_settings_set():
         return {'error': 'File browser view must be list or tile'}, 400
     if key == 'file_browser_hidden' and not isinstance(value, bool):
         return {'error': 'Hidden files setting must be a boolean'}, 400
+    if key == 'health_defender_enabled' and not isinstance(value, bool):
+        return {'error': 'Defender integration setting must be a boolean'}, 400
+    if key.startswith('health_defender_target_'):
+        from src.services.defender import valid_target
+        if not valid_target(key.removeprefix('health_defender_target_'), value):
+            return {'error': 'Invalid Defender target'}, 400
     set_setting(key, value)
     return json.dumps({"ok": True}), 200, {"Content-Type": "application/json"}
 
@@ -1888,6 +1922,26 @@ def api_health():
         reasons.append(f"Load {health['load']['1min']} ({load_per_core}/core)")
     elif load_per_core > load_warning:
         warning = True
+
+    if get_setting("health_defender_enabled") is True:
+        from src.services.defender import TARGET_FIELDS, evaluate_targets, get_health as get_defender_health
+        health["defender"] = dict(get_defender_health())
+        if 'report' in health['defender']:
+            targets = {field: get_setting('health_defender_target_' + field) for field in TARGET_FIELDS}
+            health['defender']['mismatches'] = evaluate_targets(health['defender']['report'], targets)
+            mismatched_fields = {item['field'] for item in health['defender']['mismatches']}
+            health['defender']['matches'] = [field for field, target in targets.items()
+                                           if target is not None and field not in mismatched_fields]
+            if health['defender']['mismatches']:
+                unhealthy = True
+                reasons.extend('Microsoft Defender: ' + mismatch['label'] + ' differs from target'
+                               for mismatch in health['defender']['mismatches'])
+        if "error" in health["defender"]:
+            warning = True
+            reasons.append("Microsoft Defender health unavailable")
+        elif health["defender"]["report"]["healthy"] is False:
+            unhealthy = True
+            reasons.append("Microsoft Defender reports unhealthy")
 
     health["status"] = "unhealthy" if unhealthy else ("warning" if warning else "healthy")
     health["reasons"] = reasons

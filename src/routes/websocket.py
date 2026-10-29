@@ -1088,9 +1088,9 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             return {'error': 'Invalid CSRF token'}
         session = acp_manager.get_session(data.get("session_id"))
-        message = session.take_queued_message(data.get("message_id")) if session else None
+        message = session.take_queued_message(data.get("message_id"), user_only=True) if session else None
         if message is None:
-            return {'error': 'Message is no longer queued'}
+            return {'error': 'Only queued user messages can be edited'}
         return {'text': message['text']}
 
     @socketio.on("acp_cancel")

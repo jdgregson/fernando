@@ -10,6 +10,7 @@
         if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative';
         const pill = document.createElement('div');
         pill.className = 'scroll-pill';
+        pill.style.display = 'none';
         parent.appendChild(pill);
         let timer = null;
         let hovered = false;
@@ -17,7 +18,13 @@
         let dragStartY, dragStartScroll;
 
         function update() {
-            if (el.scrollHeight <= el.clientHeight + 1) { pill.classList.remove('visible'); return; }
+            if (!el.getClientRects().length || el.scrollHeight <= el.clientHeight + 1) {
+                pill.style.display = 'none';
+                pill.classList.remove('visible');
+                clearTimeout(timer);
+                return;
+            }
+            pill.style.display = '';
             const ratio = el.clientHeight / el.scrollHeight;
             const pillHeight = Math.max(24, ratio * el.clientHeight);
             const scrollRatio = el.scrollTop / (el.scrollHeight - el.clientHeight);
@@ -68,6 +75,11 @@
             pill.addEventListener('touchcancel', onEnd);
         }, { passive: false });
         pillMap.set(el, pill);
+        const resizeObserver = new ResizeObserver(update);
+        resizeObserver.observe(el);
+        resizeObserver.observe(parent);
+        new MutationObserver(update).observe(el, {childList: true, subtree: true, characterData: true});
+        update();
     }
 
     function scanScrollables() {

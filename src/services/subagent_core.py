@@ -70,6 +70,7 @@ Update {workspace}/status.json frequently:
 {context_instructions}
 
 === AGENT MESSAGING ===
+Use read_parent_messages while working and before reporting completion to consume all queued parent instructions. When a parent message arrives, call it before acting to pick up additional queued instructions.
 You were spawned by a parent agent. If you receive an [AGENT MESSAGE from ...] prompt:
 - This is a message from your parent agent
 - You MUST reply using the message_parent tool

@@ -1,0 +1,13 @@
+{
+  "name": "fernando-wterm",
+  "private": true,
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@wterm/dom": "0.5.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

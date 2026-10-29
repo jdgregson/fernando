@@ -191,6 +191,27 @@ function emitWithCsrf(event, data = {}) {
     socket.emit(event, { ...data, csrf_token: csrfToken });
 }
 
+async function refreshWorkingAgentCount() {
+    const counter = document.getElementById('workingAgentCount');
+    counter.textContent = '?';
+    counter.title = 'Number of agents running: unavailable';
+    counter.setAttribute('aria-label', counter.title);
+    const response = await fetch('/api/agents/working', {
+        headers: {'X-API-Key': window.FERNANDO_API_KEY},
+        cache: 'no-store',
+        signal: AbortSignal.timeout(9000)
+    });
+    if (!response.ok) throw new Error(`Working agent count: HTTP ${response.status}`);
+    const data = await response.json();
+    if (!Number.isInteger(data.working_count) || data.working_count < 0) throw new Error('Invalid working agent count');
+    counter.textContent = String(data.working_count);
+    counter.title = `Number of agents running: ${data.working_count}`;
+    counter.setAttribute('aria-label', counter.title);
+}
+
+refreshWorkingAgentCount();
+setInterval(refreshWorkingAgentCount, 10000);
+
 socket.on('mutating', () => {
     isMutating = true;
     // Clear notes iframe to prevent stale auth alerts during restart
@@ -360,6 +381,8 @@ function loadSettings() {
             document.getElementById('healthCpuCritical').value = data.health_cpu_critical ?? 80;
             document.getElementById('healthLoadWarning').value = data.health_load_warning ?? 1.5;
             document.getElementById('healthLoadCritical').value = data.health_load_critical ?? 2.0;
+            document.getElementById('healthDefenderEnabled').checked = data.health_defender_enabled === true;
+            renderDefenderTargets(data);
             // Store thresholds globally for getHealthClass
             window.healthThresholds = {
                 memory: { warning: data.health_memory_warning ?? 65, critical: data.health_memory_critical ?? 80 },
@@ -368,6 +391,85 @@ function loadSettings() {
                 load: { warning: data.health_load_warning ?? 1.5, critical: data.health_load_critical ?? 2.0 }
             };
         }).catch(() => {});
+}
+
+function renderDefenderTargets(data) {
+    const container = document.getElementById('healthDefenderTargets');
+    container.hidden = data.health_defender_enabled !== true;
+    container.replaceChildren();
+    const fields = [
+        ['Real-time protection', 'realTimeProtectionEnabled', [[true, 'Enabled'], [false, 'Disabled']]],
+        ['Behavior monitoring', 'behaviorMonitoring', [['enabled', 'Enabled'], ['disabled', 'Disabled'], ['default', 'Default']]],
+        ['Network protection', 'networkProtectionStatus', [['started', 'Enabled'], ['stopped', 'Disabled']]],
+        ['Network enforcement', 'networkProtectionEnforcementLevel', [['block', 'Block'], ['audit', 'Audit'], ['disabled', 'Disabled']]],
+        ['Cloud protection', 'cloudEnabled', [[true, 'Enabled'], [false, 'Disabled']]],
+        ['Tamper protection', 'tamperProtectionEnforcementLevel', [['disabled', 'Disabled'], ['audit', 'Audit'], ['block', 'Block']]]
+    ];
+    for (const [label, field, options] of fields) {
+        const key = 'health_defender_target_' + field;
+        const row = document.createElement('div');
+        row.className = 'settings-row';
+        const title = document.createElement('label');
+        title.className = 'settings-label';
+        title.htmlFor = key;
+        title.textContent = label + ' target';
+        const input = document.createElement('select');
+        input.id = key;
+        input.className = 'settings-input';
+        const saved = data[key] ?? null;
+        const matched = options.find(([value, text]) => value === saved || (typeof saved === 'string' && (String(value).toLowerCase() === saved.trim().toLowerCase() || text.toLowerCase() === saved.trim().toLowerCase())));
+        if (matched) data[key] = matched[0];
+        if (saved !== null && !matched && field !== 'networkProtectionStatus') options.push([saved, String(saved)]);
+        if (saved !== null && !matched && field === 'networkProtectionStatus') {
+            const option = document.createElement('option');
+            option.value = JSON.stringify(saved);
+            option.textContent = 'Choose target';
+            option.disabled = true;
+            input.appendChild(option);
+        }
+        for (const [value, text] of [[null, 'Don’t check'], ...options]) {
+            const option = document.createElement('option');
+            option.value = JSON.stringify(value);
+            option.textContent = text;
+            input.appendChild(option);
+        }
+        input.value = JSON.stringify(data[key] ?? null);
+        input.onchange = () => {
+            const previous = data[key] ?? null;
+            const value = JSON.parse(input.value);
+            input.disabled = true;
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+                body: JSON.stringify({key, value})
+            }).then(response => {
+                if (!response.ok) throw new Error('Failed to save Defender target');
+                data[key] = value;
+                fetchHealth();
+            }).catch(error => {
+                input.value = JSON.stringify(previous);
+                showAlert(error.message);
+            }).finally(() => { input.disabled = false; });
+        };
+        row.append(title, input);
+        container.appendChild(row);
+    }
+}
+
+function saveDefenderIntegration(input) {
+    input.disabled = true;
+    fetch('/api/settings', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
+        body: JSON.stringify({key: 'health_defender_enabled', value: input.checked})
+    }).then(response => {
+        if (!response.ok) throw new Error('Failed to save Defender integration setting');
+        document.getElementById('healthDefenderTargets').hidden = !input.checked;
+        fetchHealth();
+    }).catch(error => {
+        input.checked = !input.checked;
+        showAlert(error.message);
+    }).finally(() => { input.disabled = false; });
 }
 
 function saveOpenCodeModel(value) {
@@ -652,16 +754,107 @@ function renderHealthLogs(element, records) {
     element.replaceChildren(fragment);
 }
 
+const defenderLayoutObserver = new ResizeObserver(() => {
+    const tables = document.getElementById('healthDefenderDetails');
+    const stacked = getComputedStyle(tables).getPropertyValue('--defender-tables-stacked').trim() === '1';
+    document.getElementById('healthOverview').classList.toggle('defender-stacked', stacked);
+});
+defenderLayoutObserver.observe(document.getElementById('healthDefender'));
+
+function updateDefenderHealth(defender) {
+    document.getElementById('healthOverview').classList.toggle('with-defender', Boolean(defender));
+    document.getElementById('healthDefender').hidden = !defender;
+    if (!defender) return;
+    const report = defender.report;
+    const status = document.getElementById('healthDefenderStatus');
+    const mismatches = defender.mismatches || [];
+    const healthy = report?.healthy && mismatches.length === 0;
+    status.textContent = defender.error ? 'Unavailable' : healthy ? 'Healthy' : 'Unhealthy';
+    status.className = defender.error ? 'warning' : healthy ? 'healthy' : 'critical';
+    const issues = document.getElementById('healthDefenderIssues');
+    issues.replaceChildren();
+    for (const issue of defender.error ? [defender.error] : report.healthIssues || []) {
+        const item = document.createElement('li');
+        item.textContent = issue;
+        issues.appendChild(item);
+    }
+    const targetText = value => value === null ? 'Unavailable' : typeof value === 'boolean' ? (value ? 'Enabled' : 'Disabled') : String(value);
+    for (const mismatch of mismatches) {
+        const item = document.createElement('li');
+        item.textContent = `${mismatch.label}: expected ${targetText(mismatch.expected)}, got ${targetText(mismatch.actual)}`;
+        issues.appendChild(item);
+    }
+    const details = document.getElementById('healthDefenderDetails');
+    details.replaceChildren();
+    const groups = [
+        ['Protection', [
+        ['Real-time protection', 'realTimeProtectionEnabled'],
+        ['Behavior monitoring', 'behaviorMonitoring'],
+        ['Network protection', 'networkProtectionStatus'],
+        ['Network enforcement', 'networkProtectionEnforcementLevel'],
+        ['Cloud protection', 'cloudEnabled'],
+        ['Tamper protection', 'tamperProtectionEnforcementLevel'],
+        ]],
+        ['Definitions', [
+        ['Status', 'definitionsStatus'],
+        ['Version', 'definitionsVersion'],
+        ['Age', 'definitionsUpdatedMinutesAgo'],
+        ]],
+        ['Product', [
+        ['Licensed', 'licensed'],
+        ['App version', 'appVersion'],
+        ['Release ring', 'releaseRing']
+        ]]
+    ];
+    const labels = {
+        upToDate: 'Up to date', enabled: 'Enabled', disabled: 'Disabled',
+        block: 'Block', audit: 'Audit',
+        enablement_failed_due_to_edr_capabilities: 'Enablement failed: EDR capabilities'
+    };
+    if (report) for (const [heading, fields] of groups) {
+        const table = document.createElement('table');
+        table.className = 'health-defender-details';
+        table.setAttribute('aria-label', heading);
+        const group = document.createElement('tbody');
+        const headingRow = document.createElement('tr');
+        const headingCell = document.createElement('th');
+        headingCell.colSpan = 2;
+        headingCell.scope = 'rowgroup';
+        headingCell.className = 'health-defender-group';
+        headingCell.textContent = heading;
+        headingRow.appendChild(headingCell);
+        group.appendChild(headingRow);
+        for (const [label, key] of fields) {
+            let value = report[key];
+            if (value && typeof value === 'object') value = value.value ?? value.$type;
+            const row = document.createElement('tr');
+            const term = document.createElement('th');
+            term.scope = 'row';
+            term.textContent = label;
+            const description = document.createElement('td');
+            if (mismatches.some(mismatch => mismatch.field === key)) description.className = 'health-defender-mismatch';
+            else if ((defender.matches || []).includes(key)) description.className = 'health-defender-match';
+            description.textContent = value === undefined ? 'Unknown' : typeof value === 'boolean' ? (key === 'licensed' ? (value ? 'Yes' : 'No') : (value ? 'Enabled' : 'Disabled')) : labels[value] || String(value);
+            if (key === 'definitionsUpdatedMinutesAgo' && typeof value === 'number') description.textContent = value + ' min';
+            row.append(term, description);
+            group.appendChild(row);
+        }
+        table.appendChild(group);
+        details.appendChild(table);
+    }
+}
+
 function updateHealthModal(data) {
+    updateDefenderHealth(data.defender);
     const banner = document.getElementById('healthStatusBanner');
     const icon = document.getElementById('healthStatusIcon');
     const text = document.getElementById('healthStatusText');
     const reasons = document.getElementById('healthReasons');
 
-    if (data.status === 'unhealthy') {
-        banner.className = 'health-status-banner unhealthy';
-        icon.innerHTML = '&#10007;';
-        text.textContent = 'System unhealthy';
+    if (data.status === 'unhealthy' || data.status === 'warning') {
+        banner.className = 'health-status-banner ' + data.status;
+        icon.textContent = data.status === 'warning' ? '!' : '\u2717';
+        text.textContent = data.status === 'warning' ? 'System warning' : 'System unhealthy';
         if (data.reasons && data.reasons.length) {
             reasons.textContent = data.reasons.join(' • ');
             reasons.style.display = 'block';

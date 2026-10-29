@@ -16,23 +16,28 @@ function harness() {
     const emitted = [];
     const timers = [];
     const initializers = [];
+    let document;
     function element() {
         const listeners = new Map();
         const textarea = {
             addEventListener(type, callback) { listeners.set(type, callback); },
-            focus() { listeners.get('focus')(); },
+            focus() { document.activeElement = textarea; listeners.get('focus')(); },
         };
         return {
             children: [],
-            appendChild(child) { this.children.push(child); },
+            style: {setProperty(name, value) { this[name] = value; }},
+            clientHeight: 600,
+            scrollTop: 0,
+            setAttribute() {},
+            addEventListener(type, callback) { listeners.set('element:' + type, callback); },
+            getBoundingClientRect() { return {top: 0, bottom: 600, height: 600}; },
+            appendChild(child) { this.children.push(child); child.parentElement = this; },
             querySelector(selector) { return selector === 'textarea' ? textarea : null; },
             textarea,
         };
     }
     const containers = {terminal1: element(), terminal2: element()};
-    const sandbox = vm.createContext({
-        termInstances: {},
-        document: {
+    document = {
             createElement: element,
             getElementById(id) {
                 if (containers[id]) return containers[id];
@@ -40,7 +45,15 @@ function harness() {
                 return {getBoundingClientRect: () => ({top: id === 'terminal1-container' ? 42 : 842})};
             },
             body: {scrollHeight: 1800},
-        },
+        };
+    const sandbox = vm.createContext({
+        termInstances: {},
+        document,
+        AbortController,
+        ResizeObserver: class { observe() {} disconnect() {} },
+        fitTerminal() {},
+        getComputedStyle: () => ({getPropertyValue: () => '17px'}),
+        clearTimeout() {},
         WTerm: class {
             constructor(el, options) { this.element = el; this.options = options; }
             init() { return {then(callback) { initializers.push(callback); return {catch() {}}; }}; }
@@ -53,6 +66,8 @@ function harness() {
         setTimeout(callback, delay) { timers.push({callback, delay}); },
         emitWithCsrf(type, data) { emitted.push([type, JSON.parse(JSON.stringify(data))]); },
         window: {
+            getSelection: () => ({isCollapsed: true}),
+            innerHeight: 800,
             scrollBy(value) { scrolling.push(['by', JSON.parse(JSON.stringify(value))]); },
             scrollTo(value) { scrolling.push(['to', JSON.parse(JSON.stringify(value))]); },
         },
@@ -88,7 +103,7 @@ for (const initialPane of [1, 2]) {
         assert.deepEqual(h.focus.at(-1), [initialPane, false]);
         h.sandbox.isSplit = false;
         h.timers.at(-1).callback();
-        assert.deepEqual(h.scrolling.at(-1), ['to', {top: 1800, behavior: 'smooth'}]);
+        assert.ok(h.scrolling.every(([type]) => type !== 'to'));
     }
 }
 
@@ -101,3 +116,35 @@ duringDelay.timers[0].callback();
 assert.deepEqual(duringDelay.scrolling, [['by', {top: 40, behavior: 'smooth'}]]);
 
 console.log('Terminal focus, scrolling, input, and resize follow pane moves before/after initialization; scroll timing and offsets preserved');
+
+const single = harness();
+single.sandbox.isSplit = false;
+single.sandbox.window.visualViewport = {height: 400, offsetTop: 80, scale: 1, addEventListener() {}};
+const singleEntry = single.sandbox.getOrCreateTerm('Shell', 1);
+single.initializers[0]();
+const textarea = singleEntry.element.textarea;
+let cursorTop = 400;
+let gridBottom = 600;
+singleEntry.element.querySelector = selector => {
+    if (selector === 'textarea') return textarea;
+    if (selector === '.term-cursor') return {getBoundingClientRect: () => ({top: cursorTop})};
+    if (selector === '.term-grid') return {getBoundingClientRect: () => ({bottom: gridBottom})};
+    return singleEntry.element.children.find(child => child.className === 'terminal-focus-spacer') || null;
+};
+textarea.focus();
+single.timers.at(-1).callback();
+assert.equal(singleEntry.element.scrollTop, 128.5);
+assert.equal(singleEntry.element.querySelector('.terminal-focus-spacer'), null);
+assert.equal(singleEntry.element.style['--terminal-keyboard-inset'], '120px');
+assert.deepEqual(single.scrolling, []);
+cursorTop = 450;
+singleEntry.positionInputLine();
+assert.equal(singleEntry.element.scrollTop, 128.5);
+cursorTop = 480;
+gridBottom = 497;
+singleEntry.positionInputLine(true);
+assert.equal(singleEntry.element.scrollTop, 145.5);
+single.sandbox.window.getSelection = () => ({isCollapsed: false});
+single.timers.at(-1).callback();
+assert.equal(singleEntry.element.scrollTop, 145.5);
+console.log('Focus centers an early prompt; typing only reveals hidden rows; bottom prompts remain at the bottom; keyboard reduces viewport without adding scroll content');

@@ -33,7 +33,8 @@ class ChildMessageRouteTests(unittest.TestCase):
         self.app = Flask(__name__)
         source = Path(__file__).resolve().parents[1] / 'src/routes/web.py'
         names = {'api_acp_child_messages': '/api/acp/child_messages',
-                 'api_acp_read_child_messages': '/api/acp/child_messages/read'}
+                 'api_acp_read_child_messages': '/api/acp/child_messages/read',
+                 'api_acp_read_parent_messages': '/api/acp/parent_messages/read'}
         nodes = [node for node in ast.parse(source.read_text()).body
                  if isinstance(node, ast.FunctionDef) and node.name in names]
         for node in nodes:
@@ -46,7 +47,7 @@ class ChildMessageRouteTests(unittest.TestCase):
         self.client = self.app.test_client()
 
     def test_both_routes_require_api_key(self):
-        for route in ('/api/acp/child_messages', '/api/acp/child_messages/read'):
+        for route in ('/api/acp/child_messages', '/api/acp/child_messages/read', '/api/acp/parent_messages/read'):
             self.assertEqual(self.client.post(route, json={'session_id': 'child'}).status_code, 401)
         self.manager.get_session.assert_not_called()
 
@@ -78,6 +79,20 @@ class ChildMessageRouteTests(unittest.TestCase):
         self.assertEqual(response.json, {'messages': [{'id': 'one'}], 'count': 1})
         self.manager.get_session.assert_called_once_with('parent')
 
+    def test_parent_read_uses_session_coordinator(self):
+        self.manager.get_session.return_value.read_parent_messages.return_value = [{'id': 'one'}]
+        response = self.client.post('/api/acp/parent_messages/read', json={'session_id': 'child'},
+                                    headers={'X-API-Key': 'test-key'})
+        self.assertEqual(response.json, {'messages': [{'id': 'one'}], 'count': 1})
+        self.manager.get_session.assert_called_once_with('child')
+
+    def test_parent_read_validates_session(self):
+        response = self.client.post('/api/acp/parent_messages/read', json={}, headers={'X-API-Key': 'test-key'})
+        self.assertEqual(response.status_code, 400)
+        self.manager.get_session.return_value = None
+        response = self.client.post('/api/acp/parent_messages/read', json={'session_id': 'missing'}, headers={'X-API-Key': 'test-key'})
+        self.assertEqual(response.status_code, 404)
+
 
 class AgentMessageQueueTests(unittest.TestCase):
     def setUp(self):
@@ -99,6 +114,57 @@ class AgentMessageQueueTests(unittest.TestCase):
 
     def finish_turn(self):
         self.session._dispatch({'id': 42, 'result': {'stopReason': 'end_turn'}})
+
+    def test_user_edit_cannot_consume_agent_messages(self):
+        self.session._is_prompting = True
+        self.session.send_agent_message('parent', 'instructions')
+        agent_id = self.session._agent_message_queue[0]['id']
+        self.session.queue_user_message('user text')
+        user_id = self.session._agent_message_queue[1]['id']
+        self.assertIsNone(self.session.take_queued_message(agent_id, user_only=True))
+        self.assertEqual(self.session.take_queued_message(user_id, user_only=True)['text'], 'user text')
+        self.assertEqual([message['id'] for message in self.session._agent_message_queue], [agent_id])
+
+    def test_parent_bulk_read_preserves_other_queue_entries(self):
+        self.session._is_prompting = True
+        self.session.send_agent_message('parent', 'first')
+        self.session.queue_user_message('user')
+        self.session.send_agent_message('other', 'unrelated')
+        self.session.send_agent_message('parent', 'second')
+        self.session.receive_child_message('child', 'child reply')
+        self.session.send_agent_message('parent', 'email', inbound_message_id='email-id')
+        with patch.object(acp, 'get_parent', return_value='parent'):
+            messages = self.session.read_parent_messages()
+            self.assertEqual([message['text'] for message in messages], ['first', 'second'])
+            self.assertEqual(self.session.read_parent_messages(), [])
+            self.session.send_agent_message('parent', 'later')
+            self.assertEqual([message['text'] for message in self.session.read_parent_messages()], ['later'])
+        self.assertEqual(len(self.session._agent_message_queue), 4)
+        removed = {event['id'] for event in self.session.history if event['type'] == 'agent_message_removed'}
+        self.assertTrue({message['id'] for message in messages}.issubset(removed))
+
+    def test_parent_bulk_read_without_parent_preserves_queue(self):
+        self.session._is_prompting = True
+        self.session.send_agent_message('other', 'keep')
+        with patch.object(acp, 'get_parent', return_value=None):
+            self.assertEqual(self.session.read_parent_messages(), [])
+        self.assertEqual(len(self.session._agent_message_queue), 1)
+
+    def test_concurrent_parent_reads_consume_once(self):
+        self.session._is_prompting = True
+        for index in range(10):
+            self.session.send_agent_message('parent', str(index))
+        consumed = []
+        with patch.object(acp, 'get_parent', return_value='parent'):
+            threads = [threading.Thread(target=lambda: consumed.extend(self.session.read_parent_messages())) for _ in range(4)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=2)
+                self.assertFalse(thread.is_alive())
+        self.assertEqual(len(consumed), 10)
+        self.assertEqual(len({message['id'] for message in consumed}), 10)
+        self.assertEqual(self.session._agent_message_queue, [])
 
     def test_bulk_read_removes_only_consumed_pokes_and_persists_removals(self):
         self.session._is_prompting = True

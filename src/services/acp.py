@@ -577,6 +577,20 @@ class ACPSession:
                     self.delete_queued_agent_message(queued['id'])
             return messages
 
+    def read_parent_messages(self):
+        with self._lock:
+            parent_id = get_parent(self.id)
+            if not parent_id:
+                return []
+            messages = [dict(message) for message in self._agent_message_queue
+                        if message['type'] == 'agent_message_queued'
+                        and message.get('from') == parent_id
+                        and 'child_message_id' not in message
+                        and 'inbound_message_id' not in message]
+            for message in messages:
+                self.delete_queued_agent_message(message['id'])
+            return messages
+
     def send_agent_message(self, from_session, text, child_message_id=None, inbound_message_id=None):
         with self._lock:
             evt = {"type": "agent_message_queued", "id": uuid.uuid4().hex,
@@ -598,10 +612,12 @@ class ACPSession:
     def delete_queued_agent_message(self, message_id):
         return self.take_queued_message(message_id) is not None
 
-    def take_queued_message(self, message_id):
+    def take_queued_message(self, message_id, *, user_only=False):
         with self._lock:
             for index, evt in enumerate(self._agent_message_queue):
                 if evt['id'] == message_id:
+                    if user_only and evt['type'] != 'user_message_queued':
+                        return None
                     self._agent_message_queue.pop(index)
                     self._publish_agent_queue_event({
                         'type': 'agent_message_removed', 'id': message_id, 'ts': time.time()})
@@ -640,6 +656,8 @@ class ACPSession:
         self._notify_status_change()
         self._last_activity = time.time()
         prefixed = f"[AGENT MESSAGE from {queued['from']}] {queued['text']}"
+        if queued['from'] == get_parent(self.id):
+            prefixed += '\n\nUse read_parent_messages() to consume any additional queued parent instructions before acting.'
         evt = {**queued, 'type': 'agent_message', 'ts': time.time()}
         self._publish_agent_queue_event(evt)
         self._send({
@@ -1699,6 +1717,10 @@ class ACPManager:
             _save_archived_map(archived)
         for removed_id in chat_history.delete(session_id):
             rag.delete_session(removed_id)
+
+    def working_agent_count(self):
+        with self._lock:
+            return sum(s.get_status() == "working" for s in self.sessions.values())
 
     def list_sessions(self):
         with _lineage_lock:

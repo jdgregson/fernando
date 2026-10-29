@@ -1169,10 +1169,14 @@ button.notebook-delete-btn {
     --term-bg: #102d50;
     --term-color-8: #999999;
     width: 100% !important;
-    height: 100% !important;
+    height: calc(100% - var(--terminal-keyboard-inset, 0px)) !important;
     border-radius: 0;
     box-shadow: none;
     padding: 0 !important;
+    overflow-y: auto;
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
 }
 
 .terminal.wterm.has-scrollback {
@@ -1760,6 +1764,72 @@ button.notebook-delete-btn {
 }
 .health-card-value.warning { color: #d4a017; }
 .health-card-value.critical { color: #e81123; }
+.health-overview.with-defender {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+.with-defender .health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 0;
+    align-content: start;
+}
+.with-defender.defender-stacked .health-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+.health-defender { min-width: 0; border-color: rgba(106, 140, 175, 0.14); container-type: inline-size; }
+.health-defender[hidden] { display: none; }
+.health-defender-health { display: flex; gap: 8px; font-size: 12px; line-height: 1.5; padding: 6px 0; color: #8899aa; }
+.health-defender-health .critical { color: #ff4d4d; }
+.health-defender-health .warning { color: #d4a017; }
+.health-defender-health .healthy { color: #4ec9b0; }
+.health-defender-issues { list-style: none; margin: 2px 0 8px; padding: 0; color: #ff4d4d; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.health-defender-issues:empty { display: none; }
+.health-defender-tables {
+    --defender-tables-stacked: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px 20px;
+    margin-bottom: 12px;
+}
+.health-defender-details {
+    width: 100%;
+    table-layout: auto;
+    border-collapse: collapse;
+    font-size: 12px;
+    line-height: 1.5;
+}
+.health-defender-details th { text-align: left; font-weight: 400; color: #8899aa; }
+.health-defender-details th, .health-defender-details td { padding: 3px 0; vertical-align: top; border-bottom: 1px solid rgba(106, 140, 175, 0.14); overflow-wrap: anywhere; }
+.health-defender-details th[scope="row"] { width: 1%; white-space: nowrap; padding-right: 8px; }
+.health-defender-details td { color: #d4d4d4; }
+.health-defender-details td.health-defender-mismatch { color: #ff4d4d; font-weight: 600; }
+.health-defender-details td.health-defender-match { color: #4ec9b0; font-weight: 600; }
+#healthDefenderTargets { margin-top: 8px; border-top: 1px solid rgba(106, 140, 175, 0.14); padding-top: 8px; }
+#healthDefenderTargets:not([hidden]) { display: grid; grid-template-columns: fit-content(50%) minmax(0, 190px); justify-content: start; column-gap: 10px; }
+#settingsModal #healthDefenderTargets .settings-row { display: grid; grid-template-columns: subgrid; grid-column: 1 / -1; }
+#settingsModal #healthDefenderTargets .settings-label { min-width: 0; }
+#settingsModal #healthDefenderTargets .settings-input { width: 100%; min-width: 0; max-width: none; box-sizing: border-box; }
+.health-defender-details .health-defender-group { padding: 12px 0 5px; font-weight: 600; color: #b5c5d5; }
+@container (min-width: 500px) {
+    .health-defender-tables { --defender-tables-stacked: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .health-defender-details:first-child { grid-column: 1; grid-row: 1 / span 2; }
+    .health-defender-details:nth-child(2) { grid-column: 2; grid-row: 1; }
+    .health-defender-details:nth-child(3) { grid-column: 2; grid-row: 2; }
+}
+.health-status-banner.warning {
+    background: rgba(212, 160, 23, 0.15);
+    border: 1px solid rgba(212, 160, 23, 0.3);
+    color: #d4a017;
+}
+@media (max-width: 800px) {
+    .health-overview.with-defender { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 500px) {
+    .with-defender .health-grid { grid-template-columns: minmax(0, 1fr); }
+}
 .health-card-detail {
     font-size: 12px;
     color: #6a7a8a;

@@ -19,6 +19,13 @@ DEFAULTS = {
     "health_cpu_critical": 80,
     "health_load_warning": 1.5,
     "health_load_critical": 2.0,
+    "health_defender_enabled": False,
+    "health_defender_target_realTimeProtectionEnabled": None,
+    "health_defender_target_behaviorMonitoring": None,
+    "health_defender_target_networkProtectionStatus": None,
+    "health_defender_target_networkProtectionEnforcementLevel": None,
+    "health_defender_target_cloudEnabled": None,
+    "health_defender_target_tamperProtectionEnforcementLevel": None,
 }
 
 
