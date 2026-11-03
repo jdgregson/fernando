@@ -231,7 +231,7 @@ let pendingNotebookOpen = null;
 function submitCreateNotebook() {
     const name = document.getElementById('notebookNameInput').value.trim().toLowerCase();
     if (!name) return;
-    pendingNotebookOpen = name;
+    pendingNotebookOpen = { name, groupId: window._notebookTargetGroupId };
     emitWithCsrf('create_notebook', { name: name });
     closeCreateNotebook();
 }
@@ -298,7 +298,8 @@ socket.on('jupyter_cmd', (data) => {
 socket.on('notebook_created', (data) => {
     emitWithCsrf('list_notebooks');
     const name = data.notebook && data.notebook.name;
-    if (pendingNotebookOpen && name === pendingNotebookOpen) {
+    if (pendingNotebookOpen && name === pendingNotebookOpen.name) {
+        window._notebookTargetGroupId = pendingNotebookOpen.groupId;
         pendingNotebookOpen = null;
         openNotebook(name);
     }

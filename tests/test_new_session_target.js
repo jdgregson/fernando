@@ -62,3 +62,43 @@ test('notebook creation honors an explicit Ungrouped destination', () => {
     context.window._notebookTargetGroupId = 'selected-group';
     assert.equal(adapters.get('notebook').prepare('notebook:new').groupId, 'selected-group');
 });
+
+for (const target of ['selected-group', '__ungrouped__']) {
+    test(`new notebook retains ${target} through dialog close and asynchronous creation`, t => {
+        const dom = new JSDOM(fs.readFileSync('src/templates/index.html', 'utf8'), {
+            url: 'https://fernando.test/', runScripts: 'outside-only',
+        });
+        t.after(() => dom.window.close());
+        const win = dom.window;
+        const context = dom.getInternalVMContext();
+        const handlers = new Map();
+        const adapters = new Map();
+        const opened = [];
+        win.socket = {on: (name, handler) => handlers.set(name, handler)};
+        win.emitWithCsrf = () => {};
+        win.newSessionTargetGroupId = target;
+        win.closeNewSessionModal = () => { win.newSessionTargetGroupId = null; };
+        win.getActivePaneGroupId = () => 'original-pane-group';
+        win._cachedSessionGroups = {};
+        win.paneController = {
+            register: (name, adapter) => adapters.set(name, adapter),
+            open: key => opened.push(adapters.get('notebook').prepare(key)),
+        };
+        vm.runInContext(fs.readFileSync('src/static/js/session-adapters.js', 'utf8'), context);
+        const source = fs.readFileSync('src/static/js/sessions.js', 'utf8');
+        vm.runInContext(source.slice(source.indexOf('function openNotebook('), source.indexOf('function restartDesktop(')), context);
+        win.showNotebookPicker();
+        win.promptCreateNotebook();
+        win.document.getElementById('notebookNameInput').value = 'New-Notebook';
+        win.submitCreateNotebook();
+        assert.equal(win.document.getElementById('notebookCreateModal').classList.contains('open'), false);
+        assert.equal(win._notebookTargetGroupId, null);
+        handlers.get('notebook_created')({notebook: {name: 'unrelated'}});
+        assert.equal(opened.length, 0);
+        handlers.get('notebook_created')({notebook: {name: 'new-notebook'}});
+        assert.equal(opened.length, 1);
+        assert.equal(opened[0].key, 'notebook:new-notebook');
+        assert.equal(opened[0].groupId, target === '__ungrouped__' ? null : target);
+        assert.equal(win._notebookTargetGroupId, null);
+    });
+}

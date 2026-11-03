@@ -496,6 +496,7 @@
             btn.style.background = '';
             btn.style.borderColor = '';
         } else if (state === 'working') {
+            isReady = true;
             btn.classList.remove('disabled');
             btn.textContent = 'Stop';
             btn.onclick = stopGeneration;

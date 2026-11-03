@@ -146,18 +146,19 @@ test('Send appears beside Stop only with text and queues without disturbing the 
     });
     const source = fs.readFileSync('src/templates/chat.html', 'utf8');
     win.eval(source.slice(source.indexOf('    function updateQueueSendButton('), source.indexOf('    function setStatus(')));
-    win.eval(source.slice(source.indexOf('    function sendMessage('), source.indexOf("    socket.on('acp_history_size'")));
+    win.eval(source.slice(source.indexOf('    function sendMessage('), source.indexOf("    socket.on('acp_session_slept'")));
     const input = win.document.getElementById('chat-message');
     const send = win.document.getElementById('queueSendBtn');
     win.updateQueueSendButton();
-    assert.equal(send.style.display, 'none');
+    assert.equal(send.disabled, true);
     input.value = 'Next task';
     win.updateQueueSendButton();
-    assert.equal(send.style.display, 'flex');
+    assert.equal(send.classList.contains('visible'), true);
+    assert.equal(send.disabled, false);
     assert.equal(win.document.getElementById('sendBtn').textContent, 'Stop');
     win.sendMessage();
     assert.equal(input.value, '');
-    assert.equal(send.style.display, 'none');
+    assert.equal(send.disabled, true);
     assert.equal(emitted.length, 1);
     assert.equal(emitted[0][0], 'acp_prompt');
     assert.equal(emitted[0][1].text, 'Next task');
@@ -165,5 +166,43 @@ test('Send appears beside Stop only with text and queues without disturbing the 
     input.value = 'Draft';
     win.document.getElementById('status').className = 'ready';
     win.updateQueueSendButton();
-    assert.equal(send.style.display, 'none');
+    assert.equal(send.disabled, true);
 });
+
+for (const initialState of ['connecting', 'sleeping']) {
+    test(`queue click sends after ${initialState} transitions directly to working`, t => {
+        const dom = new JSDOM('<div id="status"></div><div id="statusText"></div><div id="slashMenu"></div><textarea id="chat-message"></textarea><button id="sendBtn"></button><button id="queueSendBtn"></button>', {
+            runScripts: 'outside-only', url: 'https://fernando.example/'
+        });
+        t.after(() => dom.window.close());
+        const win = dom.window;
+        const emitted = [];
+        Object.assign(win, {
+            isReady: false, isWorking: true, _replayingHistory: false, attachedFiles: [],
+            draftKey: 'draft', csrfToken: 'csrf-token', sessionId: 'recipient',
+            socket: {emit: (...args) => emitted.push(args)}, scrollToBottom: () => {},
+            stopGeneration: () => {},
+            resetStallTimer: () => assert.fail('Must not reset the active turn timer')
+        });
+        const source = fs.readFileSync('src/templates/chat.html', 'utf8');
+        win.eval(source.slice(source.indexOf('    function updateQueueSendButton('), source.indexOf('    function updateHeaderStats(')));
+        win.eval(source.slice(source.indexOf('    function sendMessage('), source.indexOf("    socket.on('acp_session_slept'")));
+        const input = win.document.getElementById('chat-message');
+        const button = win.document.getElementById('queueSendBtn');
+        button.onclick = win.sendMessage;
+        win.setStatus(initialState, initialState);
+        input.value = 'Queued after reconnect';
+        win.sendMessage();
+        assert.equal(emitted.length, 0);
+        assert.equal(input.value, 'Queued after reconnect');
+        win.setStatus('working', 'Working...');
+        assert.equal(button.disabled, false);
+        button.click();
+        assert.equal(input.value, '');
+        assert.equal(emitted.length, 1);
+        assert.equal(emitted[0][0], 'acp_prompt');
+        assert.equal(emitted[0][1].text, 'Queued after reconnect');
+        assert.equal(emitted[0][1].csrf_token, 'csrf-token');
+        assert.equal(win.document.getElementById('sendBtn').textContent, 'Stop');
+    });
+}
