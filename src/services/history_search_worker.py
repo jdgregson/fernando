@@ -80,15 +80,25 @@ def fields(event):
                     yield 'tool:' + key, orjson.dumps(value, option=orjson.OPT_INDENT_2).decode(), False
 
 
-def scan(root, session_id, terms, report=None, excluded=()):
+def in_time_range(event, bounds):
+    if not bounds:
+        return True
+    timestamp = event.get('ts')
+    return type(timestamp) in (int, float) and timestamp > bounds.get('after', float('-inf')) and timestamp < bounds.get('before', float('inf'))
+
+
+def scan(root, session_id, terms, report=None, excluded=(), bounds=None):
     tail = ''
     previous = None
-    overlap = max(map(len, terms)) - 1
+    overlap = max(map(len, terms), default=1) - 1
     found = set()
     last_snippet = ''
     for index, event in enumerate(events(root, session_id)):
         if report and index and index % 10000 == 0:
             report(index)
+        if not in_time_range(event, bounds):
+            previous, tail, found = None, '', set()
+            continue
         parts = list(fields(event))
         if not parts:
             if event.get('result', {}).get('stopReason'):
@@ -109,13 +119,13 @@ def scan(root, session_id, terms, report=None, excluded=()):
                     found.add(term)
                     last_snippet = combined[max(0, position - 120):position + max(380, len(term))]
             if len(found) == len(terms):
-                return {'snippet': last_snippet, 'event_index': index, 'source': key, 'match_text': terms[0], 'match': 'Tool content' if key.startswith('tool:') else 'Message content'}
+                return {'snippet': last_snippet if terms else text[:380], 'event_index': index, 'source': key, 'match_text': terms[0] if terms else '', 'match': 'Tool content' if key.startswith('tool:') else 'Message content'}
             tail = combined[-overlap:] if streaming and overlap else ''
             previous = key if streaming else None
     return None
 
 
-def scan_matches(root, session_id, terms, excluded=()):
+def scan_matches(root, session_id, terms, excluded=(), bounds=None):
     text_parts = []
     segments = []
     length = 0
@@ -123,6 +133,9 @@ def scan_matches(root, session_id, terms, excluded=()):
     seen_tools = set()
 
     def matches(text, source, positions, tool_id=None):
+        if not terms:
+            yield {'snippet': text[:380], 'event_index': positions[0][1], 'source': source, 'match_text': '', 'match': 'Tool content' if source.startswith('tool:') else 'Message content'}
+            return
         folded = text.casefold()
         if not all(term in folded for term in terms):
             return
@@ -140,6 +153,11 @@ def scan_matches(root, session_id, terms, excluded=()):
             offset = end
 
     for index, event in enumerate(events(root, session_id)):
+        if not in_time_range(event, bounds):
+            if text_parts:
+                yield from matches(''.join(text_parts), previous, segments)
+            text_parts, segments, length, previous = [], [], 0, None
+            continue
         parts = list(fields(event))
         if not parts and not event.get('result', {}).get('stopReason'):
             continue
@@ -171,11 +189,11 @@ def main():
         def progress(count):
             print(json.dumps({'progress': count, 'id': job['id']}), flush=True)
         if job.get('all_matches'):
-            for result in scan_matches(job['root'], job['id'], job['terms'], job['excluded']):
+            for result in scan_matches(job['root'], job['id'], job['terms'], job['excluded'], job.get('bounds')):
                 print(json.dumps({'id': job['id'], 'match': result}), flush=True)
             result = None
         else:
-            result = scan(job['root'], job['id'], job['terms'], progress, job['excluded'])
+            result = scan(job['root'], job['id'], job['terms'], progress, job['excluded'], job.get('bounds'))
         print(json.dumps({'id': job['id'], 'result': result}), flush=True)
 
 

@@ -89,12 +89,13 @@ function parseConversationQuery(query) {
     const tokens = query.match(/"[^"]*"|“[^”]*”|\S+/gu) || [];
     const groups = tokens.filter(token => token.startsWith('group:')).map(token => token.slice(6));
     const exclusions = ['-text', '-tools', '-agent', '-user'];
-    return {text: tokens.filter(token => !token.startsWith('group:') && !exclusions.includes(token)).join(' '), group: groups[0] || null, excluded: exclusions.filter(token => tokens.includes(token))};
+    const times = tokens.filter(token => /^(before|after):/.test(token));
+    return {text: tokens.filter(token => !token.startsWith('group:') && !exclusions.includes(token) && !times.includes(token)).join(' '), group: groups[0] || null, excluded: exclusions.filter(token => tokens.includes(token)), times};
 }
 function searchConversationGroup(groupId) {
     const input = document.getElementById('archiveSearch');
     const parsed = parseConversationQuery(input.value);
-    input.value = ['group:' + groupId, parsed.text, ...parsed.excluded].filter(Boolean).join(' ');
+    input.value = ['group:' + groupId, parsed.text, ...parsed.excluded, ...parsed.times].filter(Boolean).join(' ');
     filterArchived();
     input.focus();
     input.setSelectionRange(input.value.length, input.value.length);
@@ -106,6 +107,7 @@ function updateConversationSearchStatus() {
     let text = conversationSearchCount + (exact ? ' exact matches in ' : ' matches in ') + (showArchived ? 'archived' : 'active');
     if (parsed.group) text += ' · group:' + parsed.group;
     if (parsed.excluded.length) text += ' · ' + parsed.excluded.join(' ');
+    if (parsed.times.length) text += ' · ' + parsed.times.join(' ');
     const progress = conversationSearchProgress;
     if (progress.state === 'searching' || progress.state === 'semantic' || progress.state === 'complete') {
         text += ' · ' + (progress.completed ?? 0) + '/' + (progress.total ?? '?') + ' searched';
@@ -216,7 +218,7 @@ function filterArchivedEntries(query) {
         const hit = conversationSearchMatches.get(item.dataset.session);
         const groupId = group?.dataset.groupId || '__ungrouped__';
         const inGroup = !parsed.group || parsed.group === groupId;
-        const matched = inGroup && (!q || groupMatch || name.textContent.toLowerCase().includes(q) || hit);
+        const matched = inGroup && (parsed.times.length ? !!hit : (!q || groupMatch || name.textContent.toLowerCase().includes(q) || hit));
         item.style.display = matched ? '' : 'none';
         if (matched && item.dataset.session?.startsWith('chat:')) count++;
         if (q) {

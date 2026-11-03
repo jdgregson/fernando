@@ -17,6 +17,41 @@ def chunk(text):
 
 
 class HistorySearchTests(unittest.TestCase):
+    def test_time_filter_parsing(self):
+        text, bounds = search.parse_time_filters('needle after:2026-11-03 before:2026-11-04T12:30:00Z -user')
+        self.assertEqual(text, 'needle -user')
+        self.assertEqual(bounds, {'after': 1793692800.0, 'before': 1793795400.0})
+        self.assertEqual(search.parse_time_filters('"before:2026-11-03"'), ('"before:2026-11-03"', {}))
+        for query in ('before:bad', 'after:2026-02-30', 'after:2026-11-03 before:2026-11-02', 'after:2026-11-03 after:2026-11-04', 'after:2026-03-08T02:30', 'after:2026-11-01T01:30'):
+            with self.subTest(query=query), self.assertRaises(ValueError):
+                search.parse_time_filters(query)
+        self.assertNotEqual(search.parse_time_filters('after:2026-11-01T01:30-07:00')[1], search.parse_time_filters('after:2026-11-01T01:30-08:00')[1])
+
+    def test_time_filters_exclude_boundaries_and_unknown_timestamps(self):
+        self.write('aaaaaaaa', [{'type': 'user_prompt', 'text': 'needle', **stamp} for stamp in ({'ts': 10}, {'ts': 20}, {}, {'ts': 30})])
+        bounds = {'after': 10, 'before': 30}
+        self.assertEqual(scan(self.root, 'aaaaaaaa', ['needle'], bounds=bounds)['event_index'], 1)
+        self.assertEqual([hit['event_index'] for hit in scan_matches(self.root, 'aaaaaaaa', [], bounds=bounds)], [1])
+        self.assertEqual([hit['event_index'] for hit in scan_matches(self.root, 'aaaaaaaa', ['needle'], bounds=bounds)], [1])
+
+    def test_time_filters_do_not_join_chunks_across_excluded_events(self):
+        self.write('aaaaaaaa', [{**chunk('nee'), 'ts': 20}, {**chunk('dle'), 'ts': 30}])
+        bounds = {'after': 10, 'before': 30}
+        self.assertIsNone(scan(self.root, 'aaaaaaaa', ['needle'], bounds=bounds))
+        self.assertEqual(list(scan_matches(self.root, 'aaaaaaaa', ['needle'], bounds=bounds)), [])
+
+    def test_time_only_search_uses_worker_and_excludes_title_matches(self):
+        self.write('aaaaaaaa', [{'type': 'user_prompt', 'text': 'eligible', 'ts': 20}])
+        self.write('bbbbbbbb', [{'type': 'user_prompt', 'text': 'old', 'ts': 10}])
+        replies = []
+        with patch.object(search.chat_history, 'HISTORY_DIR', self.root), patch.object(search, 'rag_search') as semantic:
+            thread = search.start('test-client', '', [{'id': sid, 'name': 'Title'} for sid in ('aaaaaaaa', 'bbbbbbbb')], replies.append, bounds={'after': 10})
+            thread.join(10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([(hit['id'], hit['match']) for reply in replies for hit in reply.get('sessions', [])], [('aaaaaaaa', 'Message content')])
+        semantic.assert_not_called()
+        self.assertEqual(replies[-1]['state'], 'complete')
+
     def test_all_matches_include_every_occurrence_across_streamed_messages(self):
         self.write('aaaaaaaa', [chunk('needle needle nee'), chunk('dle'), {'result': {'stopReason': 'end_turn'}}, {'type': 'user_prompt', 'text': 'needle'}, chunk('needle')])
         matches = list(scan_matches(self.root, 'aaaaaaaa', ['needle']))

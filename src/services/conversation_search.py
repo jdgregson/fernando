@@ -1,4 +1,6 @@
 from collections import deque
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from difflib import SequenceMatcher
 import json
 import logging
@@ -22,6 +24,33 @@ _lock = threading.Lock()
 _searches = {}
 _versions = {}
 WORKER = Path(__file__).with_name('history_search_worker.py')
+
+
+def parse_time_filters(query, timezone='America/Los_Angeles'):
+    tokens = re.findall(r'"[^"]*"|“[^”]*”|\S+', query)
+    bounds = {}
+    text = []
+    for token in tokens:
+        name, separator, value = token.partition(':')
+        if name not in ('before', 'after') or not separator:
+            text.append(token)
+            continue
+        if name in bounds:
+            raise ValueError('Use only one ' + name + ': filter')
+        if not re.fullmatch(r'\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})?)?', value):
+            raise ValueError('Use ' + name + ':YYYY-MM-DD or ' + name + ':YYYY-MM-DDTHH:MM[:SS][Z|±HH:MM]')
+        instant = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if instant.tzinfo is None:
+            zone = ZoneInfo(timezone)
+            instant = instant.replace(tzinfo=zone)
+            if datetime.fromtimestamp(instant.timestamp(), zone).replace(tzinfo=None) != instant.replace(tzinfo=None):
+                raise ValueError('That local time does not exist; use an explicit UTC offset')
+            if instant.utcoffset() != instant.replace(fold=1).utcoffset():
+                raise ValueError('That local time is ambiguous; use an explicit UTC offset')
+        bounds[name] = instant.timestamp()
+    if 'before' in bounds and 'after' in bounds and bounds['after'] >= bounds['before']:
+        raise ValueError('after: must be earlier than before:')
+    return ' '.join(text), bounds
 
 
 def parse_query(query):
@@ -53,7 +82,7 @@ def cancel(client, request_id=None):
             state.set()
 
 
-def start(client, query, sessions, send, preferred=None, request_id=0, excluded=(), all_matches=False):
+def start(client, query, sessions, send, preferred=None, request_id=0, excluded=(), all_matches=False, bounds=None):
     with _lock:
         version = (request_id, 1)
         if version <= _versions.get(client, (-1, -1)):
@@ -64,12 +93,12 @@ def start(client, query, sessions, send, preferred=None, request_id=0, excluded=
             previous.set()
         cancelled = threading.Event()
         _searches[client] = cancelled
-    thread = threading.Thread(target=_run, args=(client, cancelled, query, sessions, send, preferred, excluded, all_matches), daemon=True)
+    thread = threading.Thread(target=_run, args=(client, cancelled, query, sessions, send, preferred, excluded, all_matches, bounds), daemon=True)
     thread.start()
     return thread
 
 
-def _run(client, cancelled, query, sessions, send, preferred, excluded, all_matches):
+def _run(client, cancelled, query, sessions, send, preferred, excluded, all_matches, bounds=None):
     send_lock = threading.Lock()
     seen = {}
     completed = 0
@@ -140,19 +169,19 @@ def _run(client, cancelled, query, sessions, send, preferred, excluded, all_matc
             title_match = not query or (phrase is not None and phrase in session['name'].casefold())
             if phrase is None and terms:
                 title_match = all(any(term in word or (len(term) >= 4 and SequenceMatcher(None, term, word).ratio() >= .78) for word in words) for term in terms)
-            if title_match:
+            if title_match and not bounds:
                 match(session, {'snippet': '', 'match': 'Title'})
-            if query and (search_text or search_tools):
+            if (query or bounds) and (search_text or search_tools):
                 pending.append(session)
             else:
                 completed += 1
-        if phrase is None and query and sessions and search_text:
+        if phrase is None and query and sessions and search_text and not bounds:
             threading.Thread(target=semantic, daemon=True).start()
         else:
             semantic_done.set()
 
         def dispatch(process, session):
-            process.stdin.write((json.dumps({'root': str(chat_history.HISTORY_DIR), 'id': session['id'], 'terms': terms, 'excluded': excluded, 'all_matches': all_matches}) + '\n').encode())
+            process.stdin.write((json.dumps({'root': str(chat_history.HISTORY_DIR), 'id': session['id'], 'terms': terms, 'excluded': excluded, 'all_matches': all_matches, 'bounds': bounds}) + '\n').encode())
             process.stdin.flush()
             selector.register(process.stdout, selectors.EVENT_READ, (process, session))
 

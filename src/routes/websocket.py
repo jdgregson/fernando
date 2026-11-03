@@ -1347,7 +1347,8 @@ def register_handlers(socketio):
         sid = request.sid
         envelope = {'query': query, 'scope': scope, 'request_id': request_id}
         try:
-            text, group_id, excluded = conversation_search.parse_query(query)
+            timed_query, bounds = conversation_search.parse_time_filters(query)
+            text, group_id, excluded = conversation_search.parse_query(timed_query)
         except ValueError as error:
             conversation_search.cancel(sid, request_id)
             emit('acp_conversation_search_results', {**envelope, 'state': 'error', 'error': str(error)})
@@ -1360,7 +1361,7 @@ def register_handlers(socketio):
             if not isinstance(target, str) or not re.fullmatch(r'[a-f0-9]{8}', target):
                 return
             sessions = [session for session in sessions if session['id'] == target]
-        conversation_search.start(sid, text, sessions, lambda result: socketio.emit('acp_conversation_search_results', {**envelope, **result}, to=sid), preferred=data.get('preferred'), request_id=request_id, excluded=excluded, all_matches=target is not None)
+        conversation_search.start(sid, text, sessions, lambda result: socketio.emit('acp_conversation_search_results', {**envelope, **result}, to=sid), preferred=data.get('preferred'), request_id=request_id, excluded=excluded, all_matches=target is not None, bounds=bounds)
 
     @socketio.on('acp_cancel_conversation_search')
     def acp_cancel_conversation_search(data):

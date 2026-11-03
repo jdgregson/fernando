@@ -38,6 +38,24 @@ test('exclusions preserve exact mode, group changes, and literal quoted operator
     dom.window.close();
 });
 
+test('time filters hide title-only hits and survive group selection', () => {
+    const dom = new JSDOM('<div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="session-item" data-session="chat:a"><span class="session-name">needle</span></div></div>', {runScripts: 'outside-only'});
+    const win = dom.window;
+    win.socket = {on() {}};
+    win.emitWithCsrf = () => {};
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    const input = win.document.getElementById('archiveSearch');
+    input.value = 'needle after:2026-11-01 before:2026-11-03T14:30';
+    win.filterArchived();
+    assert.equal(win.document.querySelector('.session-item').style.display, 'none');
+    assert.equal(win.parseConversationQuery(input.value).text, 'needle');
+    win.searchConversationGroup('a5055f9f');
+    assert.equal(input.value, 'group:a5055f9f needle after:2026-11-01 before:2026-11-03T14:30');
+    assert.equal(win.parseConversationQuery('"after:2026-11-01"').times.length, 0);
+    win.clearConversationSearch();
+    dom.window.close();
+});
+
 test('search help modal documents operators, opens and restores focus', () => {
     const template = fs.readFileSync(require('node:path').join(__dirname, '../src/templates/index.html'), 'utf8');
     const dom = new JSDOM(template, {runScripts: 'outside-only'});
@@ -132,6 +150,7 @@ test('group menu inserts a scoped query and progressive replies accumulate witho
     win.eval(source.slice(source.indexOf('function showGroupContextMenu('), source.indexOf('function setupDropZone(')));
     win.dismissContextMenus = () => win.document.querySelectorAll('.group-context-menu').forEach(menu => menu.remove());
     win.trackContextMenu = () => {};
+    win.appendPageTitleAction = () => {};
     const input = win.document.getElementById('archiveSearch');
     input.value = '"needle phrase"';
     win.showGroupContextMenu('a5055f9f', 10, 10, 1);

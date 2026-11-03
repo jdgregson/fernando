@@ -106,18 +106,47 @@
         <div class="modal-content">
             <div class="modal-header" id="conversationSearchHelpTitle">Search operators</div>
             <div class="modal-body">
-                <dl class="search-operator-list">
-                    <dt><code>words</code></dt><dd>Search titles and conversation content, including related semantic matches. Searches are case-insensitive.</dd>
-                    <dt><code>"exact phrase"</code></dt><dd>Match the complete phrase, including spaces and punctuation. No fuzzy or semantic matches. Curly quotes also work: <code>“exact phrase”</code>.</dd>
-                    <dt><code>-text</code></dt><dd>Exclude message text, including user messages, assistant output, and reasoning, from content matching.</dd>
-                    <dt><code>-tools</code></dt><dd>Exclude tool content, including tool names, inputs, and outputs, from content matching.</dd>
-                    <dt><code>-agent</code></dt><dd>Exclude assistant messages, reasoning, and tool activity. Semantic matches are limited to user messages.</dd>
-                    <dt><code>-user</code></dt><dd>Exclude user messages. Semantic matches are limited to assistant messages.</dd>
-                    <dt><code>group:&lt;id&gt;</code></dt><dd>Search only that group. Use a group's Search action to insert its ID, or <code>group:__ungrouped__</code> for conversations without a group.</dd>
-                </dl>
-                <p>Combine operators outside the quotes: <code>"my-test-1" -text group:a5055f9f</code>. Quoted operator names are literal search text.</p>
-                <p>Click a content result to open its matching message or tool call. Use Previous and Next in the chat to move through matches for the same search and filters. The counter shows your position and whether matching is still in progress. Matching tool panels and reasoning are expanded automatically. Title-only matches open the conversation normally.</p>
-                <p>Exclusions skip content sources or actors, not entire conversations. Titles remain searchable; using <code>-text -tools</code> or <code>-agent -user</code> searches only titles and, for unquoted queries, group names. Searches use the selected Active or Archived list.</p>
+                <section class="search-help-section" aria-labelledby="searchHelpText">
+                    <h3 id="searchHelpText">Text matching</h3>
+                    <dl class="search-operator-list">
+                        <div><dt><code>words</code></dt><dd>Search titles and content, including related semantic matches.</dd></div>
+                        <div><dt><code class="search-syntax-string">"exact phrase"</code></dt><dd>Match spaces and punctuation exactly. No fuzzy or semantic matches.</dd></div>
+                    </dl>
+                    <p class="search-help-note">Case-insensitive. Curly quotes also work. Keep operators outside quotes.</p>
+                </section>
+                <section class="search-help-section" aria-labelledby="searchHelpTime">
+                    <h3 id="searchHelpTime">Date &amp; time</h3>
+                    <dl class="search-operator-list">
+                        <div><dt><code><span class="search-syntax-key">after:</span><span class="search-syntax-value">2026-11-01</span></code></dt><dd>Messages sent after midnight on November 1.</dd></div>
+                        <div><dt><code><span class="search-syntax-key">before:</span><span class="search-syntax-value">2026-11-03T14:30</span></code></dt><dd>Messages sent before November 3 at 14:30.</dd></div>
+                    </dl>
+                    <div class="search-help-example"><span class="search-help-label">Search a date range</span><code><span class="search-syntax-key">after:</span><span class="search-syntax-value">2026-11-01</span> <span class="search-syntax-key">before:</span><span class="search-syntax-value">2026-11-03</span></code></div>
+                    <ul class="search-help-notes">
+                        <li><strong>Timezone:</strong> PST/PDT by default. Append <code>Z</code> for UTC or an offset such as <code>-08:00</code>.</li>
+                        <li><strong>Boundaries:</strong> strictly before/after; dates mean midnight. Ambiguous daylight-saving times require an offset.</li>
+                        <li><strong>Scope:</strong> timestamped message/tool content only. No undated titles, group names, or semantic results. Works without search text.</li>
+                    </ul>
+                </section>
+                <section class="search-help-section" aria-labelledby="searchHelpExclude">
+                    <h3 id="searchHelpExclude">Exclude content</h3>
+                    <dl class="search-operator-list search-operator-list-compact">
+                        <div><dt><code class="search-syntax-exclude">-text</code></dt><dd>Skip message text and reasoning.</dd></div>
+                        <div><dt><code class="search-syntax-exclude">-tools</code></dt><dd>Skip tool names, inputs, and outputs.</dd></div>
+                        <div><dt><code class="search-syntax-exclude">-agent</code></dt><dd>Skip assistant messages, reasoning, and tools.</dd></div>
+                        <div><dt><code class="search-syntax-exclude">-user</code></dt><dd>Skip user messages.</dd></div>
+                    </dl>
+                    <p class="search-help-note">These exclude content, not whole conversations. Without time filters, titles remain searchable. Combine <code>-text -tools</code> or <code>-agent -user</code> to search only titles and unquoted group names.</p>
+                </section>
+                <section class="search-help-section" aria-labelledby="searchHelpGroup">
+                    <h3 id="searchHelpGroup">Limit to a group</h3>
+                    <dl class="search-operator-list"><div><dt><code><span class="search-syntax-key">group:</span><span class="search-syntax-value">&lt;id&gt;</span></code></dt><dd>Use a group's <strong>Search</strong> action to insert its ID. Use <code>group:__ungrouped__</code> for ungrouped conversations.</dd></div></dl>
+                    <div class="search-help-example"><span class="search-help-label">Combine filters</span><code><span class="search-syntax-string">"my-test-1"</span> <span class="search-syntax-exclude">-text</span> <span class="search-syntax-key">group:</span><span class="search-syntax-value">a5055f9f</span></code></div>
+                </section>
+                <section class="search-help-section" aria-labelledby="searchHelpResults">
+                    <h3 id="searchHelpResults">Navigate results</h3>
+                    <p>Click a content result to jump to its message or tool call. Use <strong>Previous</strong> and <strong>Next</strong> in the chat to move through matches. Tool panels and reasoning expand automatically.</p>
+                    <p class="search-help-note">Searches use the selected <strong>Active</strong> or <strong>Archived</strong> list. Title-only results open the conversation normally.</p>
+                </section>
                 <button class="modal-close" id="conversationSearchHelpClose" onclick="closeConversationSearchHelp()">Close</button>
             </div>
         </div>
