@@ -4,43 +4,9 @@ from src.services.pty_service import pty_service
 import os
 import signal
 import logging
-import re
+from src.services.logging_config import configure_logging
 
-
-class SingleLineFormatter(logging.Formatter):
-    """Format log records with newlines escaped so each record is one line."""
-    def format(self, record):
-        msg = super().format(record)
-        msg = msg.replace('\n', '\\n').replace('\r', '\\r')
-        # Redact api_key from URLs
-        msg = re.sub(r'api_key=[a-fA-F0-9]+', 'api_key=REDACTED', msg)
-        return msg
-
-
-class WerkzeugDisconnectFilter(logging.Filter):
-    """Filter out harmless 'write() before start_response' errors from werkzeug.
-    
-    These occur when a client disconnects before the response is sent - 
-    common with cancelled health polls, tab closes, navigation, etc.
-    """
-    def filter(self, record):
-        if record.name == 'werkzeug' and record.levelno == logging.ERROR:
-            msg = record.getMessage()
-            if 'write() before start_response' in msg:
-                return False
-        return True
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-)
-
-# Replace default formatter with single-line formatter on all handlers
-# and add filter to suppress harmless werkzeug disconnect errors
-for handler in logging.getLogger().handlers:
-    handler.setFormatter(SingleLineFormatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
-    handler.addFilter(WerkzeugDisconnectFilter())
+configure_logging()
 
 logger = logging.getLogger("fernando")
 
@@ -74,6 +40,8 @@ def _log_reaped():
 
 def _shutdown(signum, frame):
     logger.info(f"Received signal {signum}, shutting down...")
+    from src.services.acp import acp_manager
+    acp_manager.checkpoint_restart()
     pty_service.cleanup_all()
     try:
         from src.services.jupyter import stop as jupyter_stop

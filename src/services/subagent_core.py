@@ -1,6 +1,7 @@
 import json
 import os
 import random
+import re
 import string
 import subprocess
 from datetime import datetime
@@ -14,6 +15,31 @@ def _get_kiro_cmd():
     return ["kiro-cli", "chat", "--legacy-ui", "--trust-all-tools", "--model", model]
 
 SUBAGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "subagents")
+
+
+def report_startup_failure(manager, session_id, parent_id, name, error):
+    task_id = name.removeprefix('subagent-')
+    if name.startswith('subagent-') and re.fullmatch(r'[A-Za-z0-9_-]{1,173}', task_id):
+        workspace = os.path.join(SUBAGENT_DIR, task_id)
+        status_path = os.path.join(workspace, 'status.json')
+        if os.path.isfile(status_path):
+            with open(status_path) as stream:
+                status = json.load(stream)
+            now = datetime.now().isoformat()
+            status.update(status='failed', current_step='startup failed', error=error,
+                          verification_passed=False, end_time=now, last_update=now)
+            temporary = status_path + '.tmp'
+            with open(temporary, 'w') as stream:
+                json.dump(status, stream, indent=2)
+            os.replace(temporary, status_path)
+    if parent_id:
+        message = f'Subagent {session_id} ({name}) failed to start: {error}. No task prompt was delivered.'
+        parent = manager.get_session(parent_id)
+        if parent:
+            parent.receive_child_message(session_id, message)
+        else:
+            from src.services.acp import queue_child_message
+            queue_child_message(parent_id, session_id, message)
 
 SUBAGENT_INSTRUCTIONS = """
 You are a subagent working on a delegated task. Follow these rules STRICTLY:

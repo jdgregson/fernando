@@ -45,7 +45,7 @@
                 && Number.isFinite(frame.seconds) && frame.seconds >= 0 && frame.seconds < value.duration);
     }
 
-    function render(tc, content, fileUrl) {
+    function render(tc, content, fileUrl, chatImages) {
         const manifest = manifestFrom(content) || manifestFrom(tc.tcState.rawOutput);
         if (!validManifest(manifest)) return Boolean(tc.recordingPreview);
         const signature = JSON.stringify(manifest);
@@ -133,8 +133,7 @@
         for (const frame of manifest.frames) {
             const figure = document.createElement('figure');
             const img = document.createElement('img');
-            img.src = fileUrl(frame.path);
-            img.loading = 'lazy';
+            chatImages.set(img, fileUrl(frame.path));
             img.alt = 'Recording frame at ' + frame.seconds.toFixed(3) + ' seconds';
             const caption = document.createElement('figcaption');
             caption.textContent = frame.seconds.toFixed(3) + ' s';

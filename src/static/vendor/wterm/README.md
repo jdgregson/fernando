@@ -2,6 +2,8 @@
 
 Pinned to `@wterm/dom` and `@wterm/core` 0.5.7. Build dependencies and package integrity hashes are recorded in `package-lock.json`.
 
+The build also corrects box-drawing arm overlap to half the stroke width, preventing protruding junctions while preserving cell-edge connections.
+
 Rebuild from this directory:
 
 ```sh

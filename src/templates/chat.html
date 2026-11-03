@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="/static/css/context-menu.css">
     <link rel="stylesheet" href="/static/css/image-viewer.css">
     <script src="/static/js/image-viewer.js" defer></script>
+    <script src="/static/js/chat-images.js"></script>
     <script src="/static/js/recording-view.js"></script>
     <script src="/static/js/scroll-pill.js" defer></script>
     <script src="/static/js/pane-bridge.js" data-activate-on="mousedown"></script>
@@ -347,6 +348,11 @@
     let isActivePane = true; // Assume active unless told otherwise
 
     socket.on('mutating', () => { isMutating = true; });
+    socket.on('web_mutating', data => {
+        if (data.phase === 'starting') isMutating = true;
+        if (data.phase === 'failed') isMutating = false;
+        if (data.phase === 'ready') window.location.reload();
+    });
 
     document.addEventListener('visibilitychange', () => {
         if (!document.hidden && !socket.connected && !isMutating) {
@@ -1343,6 +1349,9 @@
     let seqBuffer = {};    // seq -> data, for out-of-order events
     let _modelListPending = false;  // true when we're collecting a model list response
     let _replayingHistory = false;
+    let _historyReplayPending = false;
+    let _historyReplayEvents = [];
+    const chatImages = new ChatImages(document.getElementById('messages'), () => scrollToBottom());
 
     // --- Message context menu for Fork ---
     function showMsgContextMenu(x, y, turnIndex, msgType, label, touch = false) {
@@ -1538,7 +1547,12 @@
         html = html.replace(/!\[([^\]]*)\]\((\/tmp\/[^)]+)\)/g,
             (m, alt, path) => `<img alt="${alt}" src="/api/files/tmp${path.slice(4)}?api_key=${apiKey}&session=${sessionId}">`);
         html = DOMPurify.sanitize(html);
-        currentContentDiv.innerHTML = html;
+        const fragment = document.createElement('template');
+        fragment.innerHTML = html;
+        for (const image of fragment.content.querySelectorAll('img')) {
+            chatImages.set(image, image.getAttribute('src'));
+        }
+        currentContentDiv.replaceChildren(fragment.content);
         scrollToBottom();
     }
     let _chunkDebugLog = [];
@@ -1558,10 +1572,10 @@
     }
     window._getChunkLog = () => _chunkDebugLog;
 
-    function appendImage(data, mimeType) {
+    function appendImage(data, mimeType, path) {
         ensureContentDiv();
         const img = document.createElement('img');
-        img.src = 'data:' + (mimeType || 'image/png') + ';base64,' + data;
+        chatImages.set(img, path ? fileUrl(path) : 'data:' + (mimeType || 'image/png') + ';base64,' + data);
         img.style.cssText = 'width:100%;border-radius:4px;margin:6px 0';
         currentContentDiv.appendChild(img);
         scrollToBottom();
@@ -1875,22 +1889,23 @@
     const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
 
     function renderToolImages(tc, content) {
-        if (FernandoRecording.render(tc, content, fileUrl)) return;
+        if (FernandoRecording.render(tc, content, fileUrl, chatImages)) return;
         const acpImages = (content || [])
             .filter(item => item.type === 'content' && item.content?.type === 'image')
             .map(item => item.content);
         const outputItems = tc.tcState.rawOutput?.items;
         const mcpImages = (Array.isArray(outputItems) ? outputItems : [])
             .flatMap(item => {
+                if (item.Image) return [item.Image];
                 const result = item.Json || item.json || item;
                 const blocks = result.content || result.Content;
                 return Array.isArray(blocks) ? blocks : [];
             })
             .filter(item => item.type === 'image');
         const images = [...acpImages, ...mcpImages]
-            .filter(image => typeof image.data === 'string' && /^image\/(png|jpeg|gif|webp|svg\+xml|bmp)$/i.test(image.mimeType));
-        if (images.length) tc.imageSources = [...new Set(images.map(image => 'data:' + image.mimeType + ';base64,' + image.data))];
-        const sources = tc.imageSources || extractFilePaths(tc.rawInput)
+            .filter(image => (typeof image.path === 'string' || typeof image.data === 'string') && /^image\/(png|jpeg|gif|webp|svg\+xml|bmp)$/i.test(image.mimeType));
+        if (images.length) tc.imageSources = [...new Set(images.map(image => image.path ? fileUrl(image.path) : 'data:' + image.mimeType + ';base64,' + image.data))];
+        const sources = tc.imageSources || (tc.status === 'completed' ? extractFilePaths(tc.rawInput) : [])
             .filter(path => typeof path === 'string' && IMAGE_EXTS.test(path))
             .map(fileUrl);
         if (!sources.length) return;
@@ -1903,10 +1918,9 @@
         tc.imagePreview.replaceChildren();
         for (const src of sources) {
             const img = document.createElement('img');
-            img.src = src;
+            chatImages.set(img, src);
             img.alt = 'Tool image';
             img.style.cssText = 'width:100%;border-radius:4px;display:block';
-            img.addEventListener('load', scrollToBottom);
             tc.imagePreview.appendChild(img);
         }
         tc.renderedImageSources = sources;
@@ -1948,9 +1962,9 @@
                 if (Array.isArray(contentArr)) {
                     // MCP standard format with content array
                     for (const c of contentArr) {
-                        if (c.type === 'image' && c.data) {
+                        if (c.type === 'image' && (c.path || c.data)) {
                             const img = document.createElement('img');
-                            img.src = 'data:' + (c.mimeType || 'image/png') + ';base64,' + c.data;
+                            chatImages.set(img, c.path ? fileUrl(c.path) : 'data:' + (c.mimeType || 'image/png') + ';base64,' + c.data);
                             img.style.cssText = 'max-width:100%;border-radius:3px;margin:4px 0';
                             container.appendChild(img);
                         } else {
@@ -3077,6 +3091,8 @@
 
     socket.on('acp_history_batch', (data) => {
         if (data.session_id !== sessionId) return;
+        chatImages.pause();
+        _historyReplayPending = true;
         resetStallTimer();
         resetTaskBar();
         
@@ -3166,10 +3182,6 @@
                 socket.emit('acp_restore', {csrf_token: csrfToken, session_id: sessionId});
             };
         } else {
-            // Clean up any in-progress assistant turn from replay WITHOUT setting ready.
-            // The ready state is ONLY set by session_ready event — not by history load.
-            // This prevents a race where history batch (deferred via RAF) overwrites
-            // the session_loading status that arrived immediately after.
             if (currentAssistantMsg) {
                 if (_chunkRenderPending) _renderCurrentChunk();
                 if (_canvasTimer) { clearTimeout(_canvasTimer); _canvasTimer = null; }
@@ -3177,24 +3189,30 @@
                 collapseCodeBlocks(currentAssistantMsg, 30);
                 highlightDiffs(currentAssistantMsg);
             }
-            currentAssistantMsg = null;
-            currentContentDiv = null;
-            currentText = '';
-            closeThought();
-            toolCalls = {};
-            isWorking = false;
-            // Do NOT call setStatus here — wait for session_ready or session_loading
         }
+
+        _historyReplayPending = false;
+        const deferredEvents = _historyReplayEvents;
+        _historyReplayEvents = [];
+        deferredEvents.forEach(handleAcpEvent);
 
         // Ask server for any pending auth request now that we've finished rendering
         socket.emit('acp_check_pending_auth', {csrf_token: csrfToken, session_id: sessionId});
-        requestAnimationFrame(() => searchNavigation.loaded());
+        requestAnimationFrame(() => {
+            scrollToBottom(true);
+            searchNavigation.loaded();
+            chatImages.resume();
+        });
 
         }); // end requestAnimationFrame
     });
 
-    socket.on('acp_event', (data) => {
+    function handleAcpEvent(data) {
         if (data.session_id !== sessionId) return;
+        if (_historyReplayPending) {
+            _historyReplayEvents.push(data);
+            return;
+        }
         resetStallTimer();
 
         // Sequence-based reordering for live events
@@ -3252,7 +3270,8 @@
             return;
         }
         processEvent(data);
-    });
+    }
+    socket.on('acp_event', handleAcpEvent);
 
     // ===== Task bar (todo_list widget) =====
     // Renders todo_list tool calls as a persistent, collapsible bar under the header.
@@ -3522,6 +3541,11 @@
             return;
         }
 
+        if (evt.type === 'session_working') {
+            isWorking = true;
+            setStatus('working', evt.retrying ? 'Retrying...' : 'Working...');
+            return;
+        }
         if (evt.type === 'session_ready') {
             if (window._waitingForLoad) {
                 window._waitingForLoad = false;
@@ -3589,7 +3613,7 @@
             if (!_replayingHistory) setStatus('working', 'Responding...');
             const c = update.content;
             if (c && c.type === 'text') appendChunk(c.text);
-            else if (c && c.type === 'image') appendImage(c.data, c.mimeType);
+            else if (c && c.type === 'image') appendImage(c.data, c.mimeType, c.path);
         } else if (su === 'tool_call') {
             isWorking = true;
             closeThought();
@@ -3938,6 +3962,9 @@
     // --- Plus menu & Tool modal ---
     let _mcpServers = null;
     let _mcpToolsByServer = {}; // server -> tools[]
+    let _mcpToolErrors = {};
+    let _mcpToolGeneration = 0;
+    const _mcpExpandedServers = new Set();
     let _selectedTool = null;
     let _toolResult = null;
     let _toolArgs = null;
@@ -3965,30 +3992,41 @@
         document.getElementById('toolExecView').style.display = 'none';
         document.getElementById('toolSearch').value = '';
         const list = document.getElementById('toolList');
-        // Show cached servers instantly, refresh in background
-        if (!_mcpServers) {
-            try { _mcpServers = JSON.parse(localStorage.getItem('mcp_servers')); } catch(e) {}
-        }
-        if (_mcpServers) {
-            renderServerList();
-        } else {
-            list.innerHTML = '<div style="color:#666;font-size:12px;padding:10px">Loading servers...</div>';
-        }
+        const generation = ++_mcpToolGeneration;
+        _mcpServers = [];
+        _mcpToolsByServer = {};
+        _mcpToolErrors = {};
+        _mcpExpandedServers.clear();
+        list.textContent = 'Loading configured servers...';
         try {
-            const res = await fetch('/api/mcp/servers', {headers: {'X-API-Key': apiKey}});
+            const res = await fetch('/api/mcp/servers', {headers: {'X-API-Key': apiKey}, cache: 'no-store'});
+            if (!res.ok) throw new Error('Unable to load configured servers');
+            if (!(res.headers.get('content-type') || '').includes('application/json')) throw new Error('Server discovery returned an unexpected non-JSON response');
             const data = await res.json();
-            const fresh = data.servers || [];
-            if (fresh.length > 0) {
-                _mcpServers = fresh;
-                localStorage.setItem('mcp_servers', JSON.stringify(_mcpServers));
+            if (generation !== _mcpToolGeneration) return;
+            _mcpServers = data.servers;
+            renderServerList();
+            await Promise.all(_mcpServers.map(async server => {
+                try {
+                    const response = await fetch('/api/mcp/tools?server=' + encodeURIComponent(server), {headers: {'X-API-Key': apiKey}, cache: 'no-store'});
+                    if (!response.ok) throw new Error(`Unable to discover tools from ${server} (HTTP ${response.status})`);
+                    if (!(response.headers.get('content-type') || '').includes('application/json')) throw new Error(`Tool discovery for ${server} returned an unexpected non-JSON response`);
+                    const result = await response.json();
+                    if (generation !== _mcpToolGeneration) return;
+                    _mcpToolsByServer[server] = result.tools;
+                } catch (error) {
+                    if (generation !== _mcpToolGeneration) return;
+                    _mcpToolErrors[server] = error.message;
+                }
                 renderServerList();
-            }
+            }));
         } catch(e) {
-            if (!_mcpServers) list.innerHTML = '<div style="color:#f7768e;font-size:12px;padding:10px">Failed to load servers</div>';
+            if (generation === _mcpToolGeneration) list.textContent = e.message;
         }
     }
 
     function closeToolModal() {
+        _mcpToolGeneration++;
         document.getElementById('toolModalOverlay').classList.remove('open');
     }
 
@@ -3996,6 +4034,12 @@
         const list = document.getElementById('toolList');
         const q = document.getElementById('toolSearch').value.toLowerCase();
         list.innerHTML = '';
+        const pending = (_mcpServers || []).filter(server => !_mcpToolsByServer[server] && !_mcpToolErrors[server]).length;
+        if (pending) {
+            const status = document.createElement('div');
+            status.textContent = `Discovering tools from ${pending} servers...`;
+            list.appendChild(status);
+        }
         for (const server of (_mcpServers || [])) {
             if (q && !server.toLowerCase().includes(q)) {
                 // If searching, also check loaded tools
@@ -4016,6 +4060,8 @@
                 const open = body.style.display !== 'none';
                 body.style.display = open ? 'none' : '';
                 header.querySelector('.tool-server-arrow').classList.toggle('open', !open);
+                if (open) _mcpExpandedServers.delete(server);
+                else _mcpExpandedServers.add(server);
                 if (!open) loadServerTools(server, body);
             });
 
@@ -4024,45 +4070,18 @@
             list.appendChild(section);
 
             // If searching and tools are loaded, auto-expand matching
-            if (q && _mcpToolsByServer[server]) {
+            if ((q && _mcpToolsByServer[server]) || _mcpExpandedServers.has(server) || _mcpToolErrors[server]) {
                 body.style.display = '';
                 header.querySelector('.tool-server-arrow').classList.add('open');
-                renderServerTools(server, body, q);
+                loadServerTools(server, body, q);
             }
         }
     }
 
-    async function loadServerTools(server, container) {
-        if (_mcpToolsByServer[server]) {
-            renderServerTools(server, container);
-            return;
-        }
-        // Try localStorage cache first
-        try {
-            const cached = localStorage.getItem('mcp_tools_' + server);
-            if (cached) {
-                _mcpToolsByServer[server] = JSON.parse(cached);
-                renderServerTools(server, container);
-                // Refresh in background
-                fetch('/api/mcp/tools?server=' + encodeURIComponent(server), {headers: {'X-API-Key': apiKey}})
-                    .then(r => r.json()).then(data => {
-                        _mcpToolsByServer[server] = data.tools || [];
-                        localStorage.setItem('mcp_tools_' + server, JSON.stringify(_mcpToolsByServer[server]));
-                    }).catch(() => {});
-                return;
-            }
-        } catch(e) {}
-        container.innerHTML = '<div style="color:#666;font-size:11px;padding:6px 10px">Loading...</div>';
-        try {
-            const res = await fetch('/api/mcp/tools?server=' + encodeURIComponent(server), {headers: {'X-API-Key': apiKey}});
-            const data = await res.json();
-            _mcpToolsByServer[server] = data.tools || [];
-            localStorage.setItem('mcp_tools_' + server, JSON.stringify(_mcpToolsByServer[server]));
-        } catch(e) {
-            container.innerHTML = '<div style="color:#f7768e;font-size:11px;padding:6px 10px">Failed to load</div>';
-            return;
-        }
-        renderServerTools(server, container);
+    function loadServerTools(server, container, filter) {
+        if (_mcpToolErrors[server]) container.textContent = _mcpToolErrors[server];
+        else if (!_mcpToolsByServer[server]) container.textContent = 'Loading tools...';
+        else renderServerTools(server, container, filter);
     }
 
     function renderServerTools(server, container, filter) {

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import threading
 import time
 
@@ -88,33 +89,7 @@ BUNDLED_SERVERS = {
     },
 }
 
-_tools_cache = {}  # server_name -> tools_list (in-memory)
-_CACHE_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "mcp_tools_cache.json")
-
-
-def _load_disk_cache():
-    """Load cached tools from disk."""
-    global _tools_cache
-    try:
-        if os.path.exists(_CACHE_FILE):
-            with open(_CACHE_FILE) as f:
-                _tools_cache = json.load(f)
-    except Exception as e:
-        logger.error(f"Failed to load MCP tools cache from disk: {e}")
-
-
-def _save_disk_cache():
-    """Persist tools cache to disk."""
-    try:
-        os.makedirs(os.path.dirname(_CACHE_FILE), exist_ok=True)
-        with open(_CACHE_FILE, "w") as f:
-            json.dump(_tools_cache, f)
-    except Exception as e:
-        logger.error(f"Failed to save MCP tools cache to disk: {e}")
-
-
-# Load disk cache on import
-_load_disk_cache()
+_discovery_slots = threading.BoundedSemaphore(4)
 
 
 def _load_server_configs():
@@ -152,14 +127,15 @@ async def _list_tools_from_server(name, config):
     params = StdioServerParameters(
         command=config["command"],
         args=config.get("args", []),
-        env={**os.environ, **(config.get("env") or {})},
+        env={**os.environ, 'PATH': os.path.dirname(sys.executable) + os.pathsep + os.environ.get('PATH', ''), **(config.get("env") or {})},
     )
     tools = []
-    try:
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.list_tools()
+    async with stdio_client(params) as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            cursor = None
+            while True:
+                result = await session.list_tools(cursor=cursor)
                 for tool in result.tools:
                     tools.append({
                         "name": tool.name,
@@ -167,57 +143,21 @@ async def _list_tools_from_server(name, config):
                         "inputSchema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
                         "server": name,
                     })
-    except Exception as e:
-        logger.error(f"Failed to list tools from MCP server '{name}': {e}")
+                cursor = result.nextCursor
+                if not cursor:
+                    break
     return tools
 
 
-def list_tools(server=None, force_refresh=False):
-    """Get tools for a specific server. Serves from disk cache instantly, refreshes in background."""
+def list_tools(server=None):
     configs = _load_server_configs()
-    if server:
-        if server not in configs:
-            return []
-        cached = _tools_cache.get(server)
-        if cached and not force_refresh:
-            # Serve cached, refresh in background
-            threading.Thread(target=_refresh_server, args=(server, configs[server]), daemon=True).start()
-            return cached
-        # No cache — must fetch synchronously
-        try:
-            tools = asyncio.run(_list_tools_from_server(server, configs[server]))
-            _tools_cache[server] = tools
-            _save_disk_cache()
-            return tools
-        except Exception as e:
-            logger.error(f"Failed to list tools for server '{server}': {e}")
-            return cached or []
-    else:
-        all_tools = []
-        for name in configs:
-            cached = _tools_cache.get(name)
-            if cached:
-                all_tools.extend(cached)
-            else:
-                try:
-                    tools = asyncio.run(_list_tools_from_server(name, configs[name]))
-                    _tools_cache[name] = tools
-                    all_tools.extend(tools)
-                except Exception as e:
-                    logger.error(f"Failed to list tools for server '{name}': {e}")
-        _save_disk_cache()
-        return all_tools
-
-
-def _refresh_server(server_name, config):
-    """Background refresh of a single server's tools."""
-    try:
-        tools = asyncio.run(_list_tools_from_server(server_name, config))
-        if tools != _tools_cache.get(server_name):
-            _tools_cache[server_name] = tools
-            _save_disk_cache()
-    except Exception as e:
-        logger.error(f"Background refresh failed for '{server_name}': {e}")
+    if server is not None and server not in configs:
+        raise ValueError('Unknown MCP server')
+    tools = []
+    for name in ([server] if server is not None else configs):
+        with _discovery_slots:
+            tools.extend(asyncio.run(asyncio.wait_for(_list_tools_from_server(name, configs[name]), timeout=30)))
+    return tools
 
 
 async def _call_tool(server_name, tool_name, arguments):
@@ -230,7 +170,7 @@ async def _call_tool(server_name, tool_name, arguments):
     params = StdioServerParameters(
         command=config["command"],
         args=config.get("args", []),
-        env={**os.environ, **(config.get("env") or {})},
+        env={**os.environ, 'PATH': os.path.dirname(sys.executable) + os.pathsep + os.environ.get('PATH', ''), **(config.get("env") or {})},
     )
     try:
         async with stdio_client(params) as (read, write):

@@ -316,18 +316,24 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="mutate",
-            description="Restart Fernando to apply code changes. Blocks with an explanation if more than one agent is working unless force=true. A blocked result does not restart anything. On success, restart triggers in the background within seconds. MCP server changes require manually restarting standalone Kiro CLI sessions. After a successful request, do not write another response; put follow-up information in continuation. A cancellation response during the restart may be caused by the process terminating rather than user cancellation.",
+            description="Restart Fernando's web process with mode=flask (default), preserving running agents, MCP servers, terminals, desktop, Jupyter and live chat connections. Changes to session-owning Socket.IO handlers, agent code or MCP servers require mode=all with force=true; full restart is otherwise always denied. Only full restart kills this agent: provide continuation and do not respond after full restart succeeds. Flask-only restart returns normally. Standalone CLI sessions must be restarted separately to reload their MCP servers.",
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["flask", "all"],
+                        "default": "flask",
+                        "description": "Restart only the web process, or explicitly request a full restart.",
+                    },
                     "force": {
                         "type": "boolean",
                         "default": False,
-                        "description": "Override the restart block when more than one agent is working.",
+                        "description": "Required for mode=all regardless of working-agent count. Not needed for mode=flask.",
                     },
                     "continuation": {
                         "type": "string",
-                        "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
+                        "description": "Optional continuation message sent only to this calling chat after a full restart, so it can resume its own next steps. Never sent to other agents. Not used for Flask-only restarts.",
                     },
                 },
             },
@@ -345,7 +351,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "continuation": {
                         "type": "string",
-                        "description": "Optional message to auto-send to all active chat sessions after restart completes, so the conversation can continue autonomously.",
+                        "description": "Optional continuation message sent only to this calling chat after reboot, so it can resume its own next steps. Never sent to other agents.",
                     },
                 },
             },
@@ -609,19 +615,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "mutate":
         if type(arguments.get("force", False)) is not bool:
             return [TextContent(type="text", text="force must be a boolean")]
-        command = ["bash", os.path.join(PROJECT_ROOT, "scripts", "mutate.sh")]
+        mode = arguments.get('mode', 'flask')
+        if mode not in {'flask', 'all'}:
+            return [TextContent(type='text', text='mode must be flask or all')]
+        if mode == 'all' and not arguments.get('force', False):
+            return [TextContent(type='text', text=json.dumps({'status': 'blocked', 'message': 'Full restart requires force=true.'}))]
+        command = ["bash", os.path.join(PROJECT_ROOT, "scripts", "mutate.sh"), '--mode', mode]
         if arguments.get("force", False):
             command.append("--force")
         restart = subprocess.run(
-            command, capture_output=True, text=True, timeout=15,
+            command, capture_output=True, text=True, timeout=100,
         )
         if restart.returncode != 0:
             return [TextContent(type="text", text=json.dumps({"status": "blocked", "message": restart.stderr.strip() or restart.stdout.strip()}))]
-        save_continuation(arguments.get("continuation"))
-        result = {
-            "status": "restart_initiated",
-            "message": "Fernando restart initiated. This process will be terminated as part of the restart. The conversation will resume via the continuation message.",
-        }
+        if mode == 'all':
+            save_continuation(arguments.get("continuation"))
+        result = json.loads(restart.stdout)
     elif name == "reboot":
         if type(arguments.get("force", False)) is not bool:
             return [TextContent(type="text", text="force must be a boolean")]

@@ -118,10 +118,16 @@ pkill -9 -f "tmux attach-session" 2>/dev/null
 # Ensure tmux server always uses bash as default shell
 tmux set-option -s default-shell /bin/bash 2>/dev/null || true
 # Graceful nginx stop
-nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null
+/usr/sbin/nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null
 pkill nginx 2>/dev/null
 sleep 1
-nginx -c "$REPO_DIR/nginx.conf"
+/usr/sbin/nginx -c "$REPO_DIR/nginx.conf"
+
+if [[ "${1:-}" == "--infrastructure" ]]; then
+    : > /tmp/fernando-flask.log
+    chmod 600 /tmp/fernando-flask.log
+    exit 0
+fi
 
 # Start Flask app
 echo "Starting Flask application on port $FLASK_PORT..."

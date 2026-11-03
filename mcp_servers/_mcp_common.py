@@ -61,9 +61,9 @@ def find_my_session_id():
 
 def save_continuation(continuation):
     """Save a continuation message for the calling chat session."""
-    if not continuation:
-        return
     session_id = find_my_session_id()
+    if not session_id:
+        raise RuntimeError('Cannot identify the calling chat for restart continuation')
     with open(os.path.join(PROJECT_ROOT, "data", "pending_continuation.json"), "w") as f:
         json.dump({"message": continuation, "session_id": session_id}, f)
 

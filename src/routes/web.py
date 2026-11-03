@@ -44,7 +44,11 @@ from src.microsoft_scopes import SCOPES, REDIRECT_URI
 @bp.route("/")
 def index():
     from src.services.settings import get_provider_settings
-    sessions = pty_service.list_sessions()
+    if current_app.config.get('FERNANDO_ROLE') == 'web':
+        from src.services.service_boundary import runtime_status
+        sessions = runtime_status()['terminals']
+    else:
+        sessions = pty_service.list_sessions()
     # Read API key
     try:
         with open("/tmp/fernando-api-key", "r") as f:
@@ -68,6 +72,13 @@ def api_mutating_notify():
     payload = request.get_json(silent=True) or {}
     if not isinstance(payload, dict) or type(payload.get("force", False)) is not bool:
         return {"error": "force must be a boolean"}, 400
+    if payload.get('mode') == 'flask':
+        phase = payload.get('phase')
+        if phase not in {'starting', 'ready', 'failed'}:
+            return {'error': 'Invalid web mutation phase'}, 400
+        from src import socketio
+        socketio.emit('web_mutating', {'phase': phase})
+        return {'ok': True}, 200
     working_count = acp_manager.working_agent_count()
     if working_count > 1 and not payload.get("force", False):
         return {"error": f"Restart blocked: {working_count} agents are currently working. Wait until at most one agent is working, or explicitly use force=true (scripts: --force).", "working_count": working_count}, 409
@@ -211,7 +222,15 @@ def api_spawn_subagent():
             return {'error': str(error)}, 400
     if not task:
         return json.dumps({"error": "Missing task"}), 400, {"Content-Type": "application/json"}
-    on_event = acp_manager.default_on_event
+    startup_failed = threading.Event()
+    startup_errors = []
+
+    def on_event(child_id, event):
+        if event.get('type') == 'session_error':
+            startup_errors.append(event['error'])
+            startup_failed.set()
+        if acp_manager.default_on_event:
+            acp_manager.default_on_event(child_id, event)
     if not group_id and parent_session_id:
         from src.services import groups
         group_id = groups.get_session_groups().get('chat:' + parent_session_id)
@@ -226,12 +245,19 @@ def api_spawn_subagent():
         set_parent(session_id, parent_session_id)
 
     def _send_when_ready():
+        from src.services.subagent_core import report_startup_failure
         for _ in range(120):
+            if startup_failed.is_set():
+                report_startup_failure(acp_manager, session_id, parent_session_id, name, startup_errors[0])
+                return
             session = acp_manager.get_session(session_id)
             if session and session.ready:
                 session.send_prompt(task)
                 return
-            time.sleep(1)
+            startup_failed.wait(1)
+        report_startup_failure(acp_manager, session_id, parent_session_id, name,
+                               startup_errors[0] if startup_errors else 'Session did not become ready within 120 seconds')
+        acp_manager.destroy_session(session_id)
     result = {'session_id': session_id}
     if schedule_mode == 'resume':
         from src.services.subagent_schedules import resume_scheduler
@@ -465,8 +491,11 @@ def api_mcp_tools():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     from src.services.mcp_client import list_tools
     server = request.args.get("server")
-    refresh = request.args.get("refresh") == "1"
-    tools = list_tools(server=server, force_refresh=refresh)
+    try:
+        tools = list_tools(server=server)
+    except Exception as error:
+        current_app.logger.error('MCP discovery failed for %s: %s', server, error)
+        return {'error': 'Unable to discover tools from this server'}, 502
     return json.dumps({"tools": tools}), 200, {"Content-Type": "application/json"}
 
 
@@ -1326,22 +1355,12 @@ def serve_file(filepath):
         cached_path = os.path.join(session_cache, file_hash + ext)
         if os.path.isfile(cached_path):
             return send_file(cached_path, mimetype=mime)
-        # Validate source path before caching
-        allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache", "fernando/data/file_cache")]
-        allowed.append("/tmp")
-        if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
-            return "Forbidden", 403
         if os.path.isfile(full_path):
             os.makedirs(session_cache, exist_ok=True)
             shutil.copy2(full_path, cached_path)
             return send_file(cached_path, mimetype=mime)
         return "Not found", 404
 
-    # Non-image or no session: serve directly with path validation
-    allowed = [os.path.join(home, d) for d in ("Documents", "Downloads", "Desktop", "uploads", "fernando/data/desktop", "fernando/data/image_cache", "fernando/data/file_cache")]
-    allowed.append("/tmp")
-    if not any(full_path.startswith(d + "/") or full_path == d for d in allowed):
-        return "Forbidden", 403
     if not os.path.isfile(full_path):
         return "Not found", 404
     response = send_file(full_path, mimetype=mime)
@@ -1741,6 +1760,25 @@ def _macos_volume_capacity(path):
         cf.CFRelease(cfpath)
 
 
+@bp.route('/api/health/logs')
+def api_health_logs():
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    import subprocess
+    from src.services.health_logs import read_logs, sources, redact_payload
+    source = request.args.get('source', 'flask')
+    try:
+        if request.args.get('list') == '1':
+            result = {'sources': sources(source)}
+        else:
+            result = {'records': read_logs(source, request.args.get('target', ''))}
+    except ValueError as error:
+        return redact_payload({'error': str(error)}), 400, {'Cache-Control': 'no-store'}
+    except (OSError, RuntimeError, subprocess.TimeoutExpired) as error:
+        return redact_payload({'error': str(error)}), 503, {'Cache-Control': 'no-store'}
+    return redact_payload(result), 200, {'Cache-Control': 'no-store'}
+
+
 @bp.route("/api/health")
 def api_health():
     """Return system health metrics for the status indicator."""
@@ -1749,6 +1787,11 @@ def api_health():
     import multiprocessing
     import subprocess
     health = {}
+    from src.services.health_logs import error_index, FILES
+    try:
+        health['backend_errors'] = error_index.snapshot(FILES['flask'])
+    except OSError:
+        health['backend_errors'] = {'recent_count': None}
 
     # Load average + CPU count
     load1, load5, load15 = os.getloadavg()
@@ -1861,28 +1904,6 @@ def api_health():
         }
     except Exception as e:
         health["processes"] = {"error": str(e)}
-
-    # Recent log lines
-    log_files = [
-        ("/tmp/fernando-flask.log", "flask"),
-        ("/tmp/fernando-mutate.log", "mutate"),
-    ]
-    health["logs"] = {}
-    from scripts.color_logs import parse_line, recent_errors, tail_lines
-    health["log_records"] = {}
-    for log_path, log_name in log_files:
-        try:
-            lines = tail_lines(log_path, 1000)
-            health["logs"][log_name] = lines
-            health["log_records"][log_name] = [parse_line(line) for line in lines]
-        except OSError:
-            pass
-
-    health["errors"] = []
-    try:
-        health["errors"] = recent_errors("/tmp/fernando-flask.log")
-    except OSError:
-        pass
 
     # Determine overall health status using configurable thresholds
     from src.services.settings import get as get_setting

@@ -145,27 +145,8 @@ dpkg-reconfigure -f noninteractive unattended-upgrades
 
 # Set up Fernando systemd service
 gecho "Configuring Fernando service..."
-cat > /etc/systemd/system/fernando.service << EOF
-[Unit]
-Description=Fernando terminal manager
-After=network.target docker.service
-Requires=docker.service
-
-[Service]
-Type=forking
-User=$FERNANDO_USER
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/scripts/start.sh
-ExecStop=$INSTALL_DIR/scripts/stop.sh
-RemainAfterExit=yes
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable fernando
+sudo -u "$FERNANDO_USER" python3 -m venv "$INSTALL_DIR/venv" || exit 1
+python3 "$INSTALL_DIR/scripts/install_service_split.py" --output "$INSTALL_DIR/data/service-units" --install || exit 1
 
 # Install Cloudflared
 gecho "Installing cloudflared..."

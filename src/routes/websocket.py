@@ -10,6 +10,7 @@ from src.services.pty_service import pty_service
 from src.services.docker import docker_service
 from src.services.acp import acp_manager
 from src.services.chat_history import replay_events
+from src.services.chat_images import project_images
 from src.services import conversation_search
 from src.services.automation import (
     automation_manager, create_rule, update_rule, delete_rule, list_rules,
@@ -717,6 +718,7 @@ def register_handlers(socketio):
         seq = acp_event_seq.get(session_id, 0)
         acp_event_seq[session_id] = seq + 1
         sids = acp_subscribers.get(session_id, set())
+        event = project_images(session_id, event)
         # Log first event and periodically to help debug delivery issues
         evt_type = event.get("type") or ((event.get("params") or {}).get("update") or {}).get("sessionUpdate", "")
         if seq == 0 or evt_type in ("session_ready", "session_ended", "session_error"):
@@ -968,7 +970,7 @@ def register_handlers(socketio):
                                 step_progress_events.append(evt)
                 emit("acp_history_batch", {
                     "session_id": acp_sid,
-                    "events": collapsed,
+                    "events": project_images(acp_sid, collapsed),
                     "step_progress": step_progress_events,
                     "sync_seq": next_seq,
                     "history_length": len(session.history),
@@ -977,7 +979,9 @@ def register_handlers(socketio):
                 })
                 if session._reloading:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading", "waking": True}})
-                elif session.ready:
+                elif session.is_loaded and (session._is_prompting or session._retry_pending):
+                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_working", "retrying": session._retry_pending}})
+                elif session.ready and session.is_loaded:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 elif not session.is_loaded and (session.acp_session_id or session._start_on_open):
                     # Session was unloaded due to idle timeout — reload it
@@ -985,17 +989,12 @@ def register_handlers(socketio):
                     acp_manager.reload_session(acp_sid)
                 elif session.proc is None or session.proc.poll() is not None:
                     if len(session.history) > 0:
-                        # Process died after loading — it's actually crashed
-                        logger.info(f"acp_subscribe: session {acp_sid} proc dead (post-load), sending session_ready")
-                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
+                        logger.info(f"acp_subscribe: session {acp_sid} process ended")
+                        emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ended"}})
                     else:
                         # Process hasn't started yet — session is still loading, don't send ready
                         logger.info(f"acp_subscribe: session {acp_sid} still loading (proc not yet spawned)")
                         emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading"}})
-                elif not session._is_prompting and (time.time() - session._last_activity) > 60:
-                    # Process alive but idle for >60s without being in a prompt — stalled
-                    logger.info(f"acp_subscribe: session {acp_sid} stalled (idle {time.time() - session._last_activity:.0f}s), sending session_ready")
-                    emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_ready"}})
                 else:
                     # Session exists but not ready yet — still loading
                     logger.info(f"acp_subscribe: session {acp_sid} not ready. ready={session.ready} proc={session.proc is not None} poll={session.proc.poll() if session.proc else 'N/A'} prompting={session._is_prompting} idle={time.time() - session._last_activity:.0f}s")
@@ -1056,7 +1055,7 @@ def register_handlers(socketio):
                                 break
                     emit("acp_history_batch", {
                         "session_id": acp_sid,
-                        "events": collapsed,
+                        "events": project_images(acp_sid, collapsed),
                         "step_progress": [],
                         "sync_seq": 0,
                         "history_length": len(history),

@@ -421,12 +421,13 @@
                     <div class="health-section-title">Processes</div>
                     <div id="healthProcesses" class="health-processes">--</div>
                 </div>
-                <div class="health-section" id="healthErrorsSection" style="display:none;">
-                    <div class="health-section-title">Errors in the Past Hour</div>
-                    <pre class="health-errors"><code id="healthErrors">--</code></pre>
-                </div>
                 <div class="health-section">
                     <div class="health-section-title">Recent Logs</div>
+                    <div class="sa-panel-tabs-wrapper">
+                        <div id="healthLogTabs" class="sa-panel-tabs" role="tablist" aria-label="Log source" onscroll="updateTabsOverflow(this)"></div>
+                    </div>
+                    <label id="healthLogTargetLabel" hidden>Source <select id="healthLogTarget" onchange="selectHealthLogTarget()"></select></label>
+                    <div id="healthLogStatus" role="status"></div>
                     <pre class="health-logs"><code id="healthLogs">--</code></pre>
                 </div>
                 <div class="health-timestamp" id="healthTimestamp">Last updated: --</div>

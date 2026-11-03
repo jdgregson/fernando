@@ -9,7 +9,9 @@ socketio = SocketIO()
 def create_app(config_name=None):
     from src.services.context_templates import sync_harness_settings
 
-    sync_harness_settings()
+    role = os.environ.get('FERNANDO_ROLE', 'runtime')
+    if role != 'web':
+        sync_harness_settings()
 
     if config_name is None:
         config_name = os.environ.get("FLASK_ENV", "development")
@@ -22,17 +24,24 @@ def create_app(config_name=None):
 
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
-    socketio.init_app(
-        app,
-        cors_allowed_origins=app.config["ALLOWED_ORIGINS"],
-        path=os.environ.get("SOCKET_PATH", "socket.io"),
-    )
+    if role != 'web':
+        socketio.init_app(
+            app,
+            cors_allowed_origins=app.config["ALLOWED_ORIGINS"],
+            path=os.environ.get("SOCKET_PATH", "socket.io"),
+        )
 
-    from src.routes import web, websocket, file_browser
+    from src.routes import web, file_browser
 
     app.register_blueprint(web.bp)
     app.register_blueprint(file_browser.bp)
-    websocket.register_handlers(socketio)
+    if role != 'web':
+        from src.routes import websocket
+        websocket.register_handlers(socketio)
+
+    if 'FERNANDO_ROLE' in os.environ:
+        from src.services.service_boundary import install_boundary
+        install_boundary(app, role)
 
     @app.after_request
     def add_no_cache_headers(response):
@@ -59,10 +68,12 @@ def create_app(config_name=None):
                     f.write(result.stdout.strip())
         except Exception:
             pass
-    threading.Thread(target=_cache_models, daemon=True).start()
+    if role != 'web':
+        threading.Thread(target=_cache_models, daemon=True).start()
 
     # Check if RAG index migration is needed (old format -> sentence-based)
     from src.services import rag
-    rag.maybe_start_migration()
+    if role != 'web':
+        rag.maybe_start_migration()
 
     return app

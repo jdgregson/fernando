@@ -217,14 +217,39 @@ def _save_pid_map(sessions):
     for sid, session in sessions.items():
         if session.proc and session.proc.poll() is None:
             pid_map[str(session.proc.pid)] = sid
-    try:
-        with open(PID_MAP_FILE, "w") as f:
-            json.dump(pid_map, f)
-    except Exception:
-        pass
+    temporary = PID_MAP_FILE + '.' + uuid.uuid4().hex + '.tmp'
+    with open(temporary, "w") as f:
+        json.dump(pid_map, f)
+    os.replace(temporary, PID_MAP_FILE)
 
 
 CONTINUATION_FILE = os.path.join(DATA_DIR, "pending_continuation.json")
+RESTART_SESSIONS_FILE = os.path.join(DATA_DIR, 'restart_sessions.json')
+_restart_sessions_lock = threading.Lock()
+
+
+def _restart_sessions():
+    if not os.path.exists(RESTART_SESSIONS_FILE):
+        return []
+    with open(RESTART_SESSIONS_FILE) as stream:
+        return json.load(stream)
+
+
+def _write_restart_sessions(session_ids):
+    temporary = RESTART_SESSIONS_FILE + '.' + uuid.uuid4().hex + '.tmp'
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, 'w') as stream:
+        json.dump(session_ids, stream)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, RESTART_SESSIONS_FILE)
+
+
+def _acknowledge_restart(session_id):
+    with _restart_sessions_lock:
+        pending = _restart_sessions()
+        if session_id in pending:
+            _write_restart_sessions([item for item in pending if item != session_id])
 
 
 def _pop_continuation():
@@ -250,6 +275,7 @@ class ACPSession:
         self.context_snapshot = None  # Last applied context, refreshed before every process launch
         self.pinned_messages = []
         self.proc = None
+        self._on_process_change = None
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
         from src.services.settings import get as get_setting
@@ -333,6 +359,8 @@ class ACPSession:
             )
             logger.info(f"[{self.id}] kiro-cli pid={self.proc.pid}")
         self._alive = True
+        if self._on_process_change:
+            self._on_process_change()
         self._last_activity = time.time()
         self._reader_thread = threading.Thread(target=self._read_loop, args=(self.proc,), daemon=True)
         self._reader_thread.start()
@@ -1306,11 +1334,24 @@ class ACPManager:
                 parts.append('group_members: ' + ', '.join(members))
         return '[Pane context: ' + ', '.join(parts) + ']'
 
+    def checkpoint_restart(self):
+        with self._lock:
+            known = set(self.sessions)
+            working = {sid for sid, session in self.sessions.items() if session.get_status() == 'working'}
+        self._save()
+        with _restart_sessions_lock:
+            pending = set(_restart_sessions()) & known
+            _write_restart_sessions(sorted(working | pending))
+
     def restore_sessions(self, on_event_factory):
         """Restore sessions from disk after restart."""
         continuation = _pop_continuation()
+        restarting = set(_restart_sessions())
         saved = _load_sessions_map()
         for fernando_id, info in saved.items():
+            session_continuation = continuation
+            if fernando_id in restarting and (not continuation or continuation.get('session_id') != fernando_id):
+                session_continuation = {'session_id': fernando_id, 'message': 'Service restarted, continue what you were doing.'}
             # Support old format (string) and new format (dict)
             if isinstance(info, str):
                 acp_id, name, backend = info, "Chat-" + fernando_id, "kiro"
@@ -1336,6 +1377,8 @@ class ACPManager:
             with self._lock:
                 self.sessions[fernando_id] = session
             # Only load sessions that were loaded before restart
+            if fernando_id in restarting:
+                was_loaded = True
             if not was_loaded:
                 session.acp_session_id = acp_id
                 session._start_on_open = not acp_id
@@ -1345,7 +1388,7 @@ class ACPManager:
                 logger.info(f"[restore] Loading session {fernando_id} (was loaded)")
                 threading.Thread(
                     target=self._load_existing,
-                    args=(fernando_id, session, acp_id, continuation),
+                    args=(fernando_id, session, acp_id, session_continuation),
                     daemon=True,
                 ).start()
             else:
@@ -1435,8 +1478,12 @@ class ACPManager:
             self._broadcast_sessions_list()  # Update sidebar icons
             if session.on_event:
                 session.on_event(session_id, {"type": "session_ready"})
+            if not continuation and session_id in _restart_sessions():
+                continuation = {'session_id': session_id, 'message': 'Service restarted, continue what you were doing.'}
             if continuation and continuation.get("session_id") == session_id:
-                session.send_continuation(continuation["message"])
+                if continuation.get('message'):
+                    session.send_continuation(continuation['message'])
+                _acknowledge_restart(session_id)
             session._drain_agent_messages()
         except Exception as e:
             session._reloading = False
@@ -1760,6 +1807,7 @@ class ACPManager:
     def _wire_session_status_callback(self, session):
         """Wire up the session's status change callback to the manager's callback."""
         session._on_status_change = self._on_status_change
+        session._on_process_change = self._save_pid_map
 
     def rename_session(self, session_id, new_name):
         with self._lock:
@@ -2001,8 +2049,7 @@ class ACPManager:
 
     def _save_pid_map(self):
         with self._lock:
-            sessions = dict(self.sessions)
-        _save_pid_map(sessions)
+            _save_pid_map(self.sessions)
 
 
-acp_manager = ACPManager()
+acp_manager = ACPManager() if os.environ.get('FERNANDO_ROLE') != 'web' else None

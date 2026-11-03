@@ -276,6 +276,31 @@ class ScheduleRouteTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             manager.create_session.assert_not_called()
 
+    def test_startup_error_is_reported_without_delivering_task(self):
+        with patch.object(self.web, 'acp_manager') as manager, patch.object(acp, 'set_parent'), patch.object(self.web.threading, 'Thread') as thread, patch('src.services.subagent_core.report_startup_failure') as report:
+            manager.create_session.return_value = 'aaaaaaaa'
+            response = self.client.post('/api/spawn_subagent', json={
+                'task': 'work', 'name': 'subagent-fixture', 'parent_session_id': 'bbbbbbbb', 'group_id': 'fixture-group',
+            })
+            self.assertEqual(response.status_code, 200)
+            callback = manager.create_session.call_args.kwargs['on_event']
+            callback('aaaaaaaa', {'type': 'session_error', 'error': 'ACP initialize failed'})
+            thread.call_args.kwargs['target']()
+            report.assert_called_once_with(manager, 'aaaaaaaa', 'bbbbbbbb', 'subagent-fixture', 'ACP initialize failed')
+            manager.get_session.return_value.send_prompt.assert_not_called()
+
+    def test_startup_deadline_reports_failure_and_destroys_child(self):
+        with patch.object(self.web, 'acp_manager') as manager, patch.object(self.web.threading, 'Thread') as thread, patch.object(self.web.threading, 'Event') as event, patch('src.services.subagent_core.report_startup_failure') as report:
+            manager.create_session.return_value = 'aaaaaaaa'
+            manager.get_session.return_value.ready = False
+            event.return_value.is_set.return_value = False
+            response = self.client.post('/api/spawn_subagent', json={'task': 'work'})
+            self.assertEqual(response.status_code, 200)
+            thread.call_args.kwargs['target']()
+            report.assert_called_once()
+            manager.destroy_session.assert_called_once_with('aaaaaaaa')
+            manager.get_session.return_value.send_prompt.assert_not_called()
+
     def test_resume_spawn_creates_one_session_and_registers_initial_task(self):
         with patch.object(self.web, 'acp_manager') as manager, patch.object(acp, 'set_parent') as lineage, patch.object(self.web.threading, 'Thread') as thread:
             manager.create_session.return_value = 'aaaaaaaa'

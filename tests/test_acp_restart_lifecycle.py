@@ -1,4 +1,7 @@
 import threading
+import json
+import tempfile
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
@@ -6,6 +9,42 @@ from src.services import acp
 
 
 class RestartLifecycleTests(unittest.TestCase):
+    def test_replacement_process_is_registered_before_initialize(self):
+        manager = acp.ACPManager.__new__(acp.ACPManager)
+        manager._lock = threading.Lock()
+        manager._on_status_change = None
+        session = acp.ACPSession('aaaaaaaa')
+        manager.sessions = {session.id: session}
+        manager._wire_session_status_callback(session)
+        process = Mock(pid=202)
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as directory:
+            mapping = Path(directory) / 'pids.json'
+            mapping.write_text('{"101": "aaaaaaaa"}')
+
+            def initialize(*args, **kwargs):
+                self.assertEqual(json.loads(mapping.read_text()), {'202': 'aaaaaaaa'})
+                return {'result': {}}
+
+            with patch.object(acp, 'PID_MAP_FILE', str(mapping)), patch('src.services.context_templates.resolve', return_value={'servers': {}}), patch('src.services.context_templates.prepare', return_value=({}, [])), patch('src.services.groups.get_session_groups', return_value={}), patch.object(acp.subprocess, 'Popen', return_value=process), patch.object(acp.threading, 'Thread'), patch.object(session, '_request', side_effect=initialize):
+                session._spawn_and_init()
+
+    def test_startup_failure_updates_workspace_and_notifies_parent(self):
+        from src.services import subagent_core
+        manager = Mock()
+        with tempfile.TemporaryDirectory() as directory, patch.object(subagent_core, 'SUBAGENT_DIR', directory):
+            workspace = Path(directory) / 'fixture'
+            workspace.mkdir()
+            status = workspace / 'status.json'
+            status.write_text('{"status": "pending", "start_time": null}')
+            subagent_core.report_startup_failure(manager, 'aaaaaaaa', 'bbbbbbbb', 'subagent-fixture', 'initialize timeout')
+            result = json.loads(status.read_text())
+            self.assertEqual(result['status'], 'failed')
+            self.assertEqual(result['error'], 'initialize timeout')
+            self.assertIsNone(result['start_time'])
+            manager.get_session.return_value.receive_child_message.assert_called_once()
+            self.assertIn('initialize timeout', manager.get_session.return_value.receive_child_message.call_args.args[1])
+
     def test_waking_is_announced_before_starting_reload(self):
         manager = acp.ACPManager.__new__(acp.ACPManager)
         manager._lock = threading.Lock()

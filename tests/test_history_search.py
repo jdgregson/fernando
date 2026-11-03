@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.services import conversation_search as search
+from src.services.chat_images import project_images
 from src.services.history_search_worker import scan, scan_matches
 
 
@@ -297,9 +298,9 @@ class HistorySearchTests(unittest.TestCase):
         from src.services import chat_history, acp, groups
         events = [{'type': 'user_prompt', 'text': 'hello'}, chunk('my-'), chunk('test-1'), {'result': {'stopReason': 'end_turn'}}]
         manager = Mock()
-        session = SimpleNamespace(history=events, mark_read=Mock(), is_loaded=True, ready=True, model='test', backend='opencode')
+        session = SimpleNamespace(history=events, mark_read=Mock(), is_loaded=True, ready=True, _reloading=False, _is_prompting=False, _retry_pending=False, model='test', backend='opencode')
         emitted = Mock()
-        scope = {'validate_csrf': lambda data: True, 'logger': Mock(), 'request': SimpleNamespace(sid='socket'), 'acp_manager': manager, 'acp_subscribers': {}, 'acp_event_seq': {}, 'emit': emitted, 'replay_events': chat_history.replay_events, 'time': SimpleNamespace(time=lambda: 0)}
+        scope = {'validate_csrf': lambda data: True, 'logger': Mock(), 'request': SimpleNamespace(sid='socket'), 'acp_manager': manager, 'acp_subscribers': {}, 'acp_event_seq': {}, 'emit': emitted, 'replay_events': chat_history.replay_events, 'project_images': project_images, 'time': SimpleNamespace(time=lambda: 0)}
         tree = ast.parse(Path('src/routes/websocket.py').read_text())
         node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'acp_subscribe')
         node.decorator_list = []
@@ -322,7 +323,7 @@ class HistorySearchTests(unittest.TestCase):
         manager = Mock()
         manager.get_session.return_value = session
         socket = Mock()
-        scope = {'acp_manager': manager, 'acp_event_seq': {}, 'acp_subscribers': {'aaaaaaaa': {'socket'}}, 'logger': Mock(), 'socketio': socket}
+        scope = {'acp_manager': manager, 'acp_event_seq': {}, 'acp_subscribers': {'aaaaaaaa': {'socket'}}, 'logger': Mock(), 'socketio': socket, 'project_images': project_images}
         tree = ast.parse(Path('src/routes/websocket.py').read_text())
         node = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == 'acp_on_event')
         exec(compile(ast.Module(body=[node], type_ignores=[]), '<handler>', 'exec'), scope)

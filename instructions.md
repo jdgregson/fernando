@@ -88,7 +88,7 @@ The host's `~/projects/` directory is bind-mounted into the Kasm desktop contain
 ## Development Details
 
 - You are able to mutate the fernando application as needed, to apply and test changes for the user. You can also reboot the instance if a full reboot is needed.
-- Restarting/Mutating Fernando does not restart MCP servers for standalone Kiro CLI sessions. To mutate MCP servers for those, inform me to start a new Kiro session, or spawn a subagent to run the new MCP server. ACP chat sessions are killed and respawned on mutate, so MCP servers reload automatically for those.
+- Mutate defaults to `mode="flask"`, restarting only the web process once split services are installed. The calling agent survives and should continue verification normally. Runtime-owned Socket.IO/session handlers, ACP internals and agent MCP changes require `mode="all", force=true`; full mode is otherwise denied even when agents are idle. Only full mode kills and restores ACP sessions and their MCP servers, so provide a continuation and stop responding after a successful full restart. Standalone CLI sessions still need their own restart to reload MCP servers. See SERVICE_LIFECYCLE.md for the service boundary and one-time migration.
 - Always verify that files are syntactically correct before committing them or mutating.
 - Always ask for approval before committing or pushing changes to the Fernando repository. This applies even if you were given permission to push different changes earlier in the same conversation. An explicit request to commit or push counts as approval.
 - Always mutate when changes require it without approval, if the files are syntactically correct.

@@ -11,6 +11,16 @@ await build({
     plugins: [{
         name: 'host-scroll-extent',
         setup(builder) {
+            builder.onLoad({filter: /[/\\]@wterm[/\\]dom[/\\]dist[/\\]renderer\.js$/}, async ({path}) => {
+                let contents = await readFile(path, 'utf8');
+                for (const name of ['verticalLength', 'horizontalLength']) {
+                    const before = 'const ' + name + ' = `calc(50% + ${stroke})`;';
+                    const after = 'const ' + name + ' = `calc(50% + ${stroke} / 2)`;';
+                    if (contents.split(before).length !== 2) throw new Error(`Unexpected wterm source: ${before}`);
+                    contents = contents.replace(before, after);
+                }
+                return {contents, loader: 'js'};
+            });
             builder.onLoad({filter: /[/\\]@wterm[/\\]dom[/\\]dist[/\\]wterm\.js$/}, async ({path}) => {
                 let contents = await readFile(path, 'utf8');
                 const changes = [

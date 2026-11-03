@@ -64,6 +64,16 @@ class RestartGuardTests(unittest.TestCase):
                         guard.main()
                         self.assertEqual(connection.request.call_count, 2)
 
+    def test_web_mutation_notifies_without_working_agent_block(self):
+        with patch.dict(sys.modules, {'src': SimpleNamespace(socketio=self.socket)}):
+            for phase in ['starting', 'ready', 'failed']:
+                response = self.client.post('/api/mutating', json={'mode': 'flask', 'phase': phase})
+                self.assertEqual(response.status_code, 200)
+                self.socket.emit.assert_called_with('web_mutating', {'phase': phase})
+            self.assertEqual(self.client.post('/api/mutating', json={'mode': 'flask', 'phase': 'bad'}).status_code, 400)
+            self.authorized = False
+            self.assertEqual(self.client.post('/api/mutating', json={'mode': 'flask', 'phase': 'ready'}).status_code, 401)
+
     def test_old_server_cannot_trigger_restart_notification(self):
         connection = Mock()
         connection.getresponse.return_value = SimpleNamespace(status=404, read=lambda: b"Not found")

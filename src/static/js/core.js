@@ -171,6 +171,7 @@ function showToast(message) {
 const socket = io({
     path: window.location.pathname.replace(/\/$/, '') + '/socket.io',
     query: { api_key: window.FERNANDO_API_KEY },
+    transports: ['websocket'],
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionAttempts: 60
@@ -225,6 +226,27 @@ socket.on('mutating', () => {
             }
         }
     });
+});
+
+socket.on('web_mutating', data => {
+    if (data.phase === 'ready') {
+        window.location.reload();
+        return;
+    }
+    const overlay = document.getElementById('mutateOverlay');
+    if (data.phase === 'starting') {
+        isMutating = true;
+        document.getElementById('overlaySpinner').style.display = 'none';
+        document.getElementById('mutateHelix').style.display = '';
+        document.getElementById('overlayLabel').textContent = 'mutating...';
+        startMutateHelix();
+        overlay.classList.add('open');
+    } else if (data.phase === 'failed') {
+        isMutating = false;
+        stopMutateHelix();
+        document.getElementById('mutateHelix').style.display = 'none';
+        document.getElementById('overlayLabel').textContent = 'Web restart failed';
+    }
 });
 
 socket.on('connected', (data) => {
@@ -310,6 +332,9 @@ window.addEventListener('resize', function() {
     const modal = document.getElementById('settingsModal');
     if (modal && modal.classList.contains('open')) {
         initSettingsTabsOverflow();
+    }
+    if (document.getElementById('healthModal').classList.contains('open')) {
+        updateTabsOverflow(document.getElementById('healthLogTabs'));
     }
 });
 
@@ -686,6 +711,7 @@ function openHealthModal() {
     document.getElementById('healthModal').classList.add('open');
     healthModalOpen = true;
     fetchHealth();
+    activateHealthLog();
     if (!healthPollInterval) {
         healthPollInterval = setInterval(fetchHealth, 5000);
     }
@@ -694,6 +720,7 @@ function openHealthModal() {
 function closeHealthModal() {
     document.getElementById('healthModal').classList.remove('open');
     healthModalOpen = false;
+    stopHealthLog();
 }
 
 function fetchHealth() {
@@ -732,12 +759,237 @@ function updateHealthIndicator(data) {
     }
 }
 
+const healthLogSources = [['flask', 'Flask'], ['errors', 'Errors'], ['nginx-access', 'nginx access'], ['nginx-error', 'nginx errors'], ['restart', 'Restart'], ['jupyter', 'Jupyter'], ['journal', 'Service'], ['docker', 'Docker']];
+const healthLogStates = new Map();
+const healthLogTargets = new Map();
+let healthLogSource = 'flask';
+let healthLogTarget = '';
+let healthLogController = null;
+let healthLogTimer = null;
+let healthLogGeneration = 0;
+
+for (const [source, label] of healthLogSources) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.role = 'tab';
+    button.className = 'sa-tab' + (source === healthLogSource ? ' active' : '');
+    button.textContent = label;
+    button.dataset.source = source;
+    button.setAttribute('aria-selected', String(source === healthLogSource));
+    button.onclick = () => {
+        saveHealthLogPosition();
+        healthLogSource = source;
+        healthLogTarget = healthLogTargets.get(source) || '';
+        activateHealthLog();
+    };
+    document.getElementById('healthLogTabs').appendChild(button);
+}
+
+function healthLogState() {
+    const key = healthLogSource + ':' + healthLogTarget;
+    if (!healthLogStates.has(key)) healthLogStates.set(key, {records: null, text: null, top: 0, left: 0, following: true});
+    return healthLogStates.get(key);
+}
+
+function saveHealthLogPosition() {
+    const viewport = document.getElementById('healthLogs').parentElement;
+    const state = healthLogState();
+    state.top = viewport.scrollTop;
+    state.left = viewport.scrollLeft;
+    state.following = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop <= 2;
+}
+
+function stopHealthLog() {
+    saveHealthLogPosition();
+    healthLogGeneration++;
+    clearTimeout(healthLogTimer);
+    healthLogController?.abort();
+}
+
+async function healthLogRequest(params, signal) {
+    const response = await fetch('/api/health/logs?' + new URLSearchParams(params), {headers: {'X-API-Key': window.FERNANDO_API_KEY}, signal, cache: 'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to read logs');
+    return data;
+}
+
+async function activateHealthLog() {
+    clearTimeout(healthLogTimer);
+    healthLogController?.abort();
+    const generation = ++healthLogGeneration;
+    healthLogController = new AbortController();
+    const signal = healthLogController.signal;
+    const status = document.getElementById('healthLogStatus');
+    status.textContent = 'Loading…';
+    document.getElementById('healthLogs').textContent = '';
+    document.querySelectorAll('#healthLogTabs button').forEach(button => {
+        const active = button.dataset.source === healthLogSource;
+        button.setAttribute('aria-selected', String(active));
+        button.classList.toggle('active', active);
+    });
+    updateTabsOverflow(document.getElementById('healthLogTabs'));
+    const multiple = healthLogSource === 'docker';
+    document.getElementById('healthLogTargetLabel').hidden = !multiple;
+    try {
+        if (multiple) {
+            const data = await healthLogRequest({source: healthLogSource, list: '1'}, signal);
+            if (generation !== healthLogGeneration || !healthModalOpen) return;
+            const select = document.getElementById('healthLogTarget');
+            select.replaceChildren(...data.sources.map(item => new Option(item.label, item.id)));
+            if (!data.sources.some(item => item.id === healthLogTarget)) healthLogTarget = data.sources[0]?.id || '';
+            select.value = healthLogTarget;
+            healthLogTargets.set(healthLogSource, healthLogTarget);
+            if (!healthLogTarget) {
+                document.getElementById('healthLogs').textContent = '';
+                status.textContent = 'No log sources available';
+                return;
+            }
+        }
+        const state = healthLogState();
+        const element = document.getElementById('healthLogs');
+        if (state.records) renderHealthLogs(element, state.records);
+        else element.textContent = '';
+        element.parentElement.scrollTop = state.following ? element.parentElement.scrollHeight : state.top;
+        element.parentElement.scrollLeft = state.left;
+        await pollHealthLog(generation, signal);
+    } catch (error) {
+        if (error.name !== 'AbortError' && generation === healthLogGeneration) status.textContent = error.message;
+    }
+}
+
+function selectHealthLogTarget() {
+    saveHealthLogPosition();
+    healthLogTarget = document.getElementById('healthLogTarget').value;
+    healthLogTargets.set(healthLogSource, healthLogTarget);
+    activateHealthLog();
+}
+
+async function pollHealthLog(generation, signal) {
+    if (!healthModalOpen || generation !== healthLogGeneration) return;
+    const element = document.getElementById('healthLogs');
+    const status = document.getElementById('healthLogStatus');
+    const selection = window.getSelection();
+    saveHealthLogPosition();
+    const state = healthLogState();
+    try {
+        if (state.records && (!state.following || (selection && !selection.isCollapsed && selection.containsNode(element, true)))) {
+            status.textContent = 'Paused while reading. Scroll to the bottom to follow.';
+        } else {
+            const data = await healthLogRequest({source: healthLogSource, target: healthLogTarget}, signal);
+            if (!healthModalOpen || generation !== healthLogGeneration) return;
+            saveHealthLogPosition();
+            const currentSelection = window.getSelection();
+            if (!state.following || (currentSelection && !currentSelection.isCollapsed && currentSelection.containsNode(element, true))) return;
+            const text = JSON.stringify(data.records);
+            if (state.text !== text) {
+                renderHealthLogs(element, data.records);
+                state.records = data.records;
+                state.text = text;
+                element.parentElement.scrollTop = element.parentElement.scrollHeight;
+            }
+            status.textContent = healthLogSource === 'errors' ? 'Fernando backend errors · Latest 20 errors with preceding context and tracebacks' : data.records.length ? 'Following live logs' : 'No recent logs';
+        }
+    } catch (error) {
+        if (error.name !== 'AbortError' && generation === healthLogGeneration) status.textContent = error.message;
+    } finally {
+        if (healthModalOpen && generation === healthLogGeneration) healthLogTimer = setTimeout(() => pollHealthLog(generation, signal), 5000);
+    }
+}
+
+function highlightHealthLogText(element, text) {
+    const tokens = /(?<timestamp>\b\d{4}[-/]\d{2}[-/]\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?|\b\d{2}\/[A-Za-z]{3}\/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})|(?<level>\b(?:DEBUG|TRACE|INFO|NOTICE|WARN(?:ING)?|ERROR|ERR|CRITICAL|FATAL|ALERT|EMERG|FAILED|FAILURE)\b)|(?<status>(?<=\" )[1-5]\d{2}\b)|(?<method>\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|CONNECT)\b)|(?<url>https?:\/\/[^\s\"<>]+)|(?<address>\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b)/gi;
+    let offset = 0;
+    for (const match of text.matchAll(tokens)) {
+        element.appendChild(document.createTextNode(text.slice(offset, match.index)));
+        const token = document.createElement('span');
+        const kind = Object.keys(match.groups).find(key => match.groups[key] !== undefined);
+        let style = kind;
+        if (kind === 'level') {
+            const value = match[0].toUpperCase();
+            style = /^(ERROR|ERR|CRITICAL|FATAL|ALERT|EMERG|FAILED|FAILURE)$/.test(value) ? 'error' : /^(WARN|WARNING)$/.test(value) ? 'warning' : /^(DEBUG|TRACE)$/.test(value) ? 'timestamp' : 'success';
+        } else if (kind === 'status') {
+            style = Number(match[0]) >= 500 ? 'error' : Number(match[0]) >= 400 ? 'warning' : 'success';
+        }
+        token.className = 'health-token-' + style;
+        token.textContent = match[0];
+        element.appendChild(token);
+        offset = match.index + match[0].length;
+    }
+    element.appendChild(document.createTextNode(text.slice(offset)));
+}
+
+function appendHealthLogText(element, text) {
+    const colors = ['#282c34', '#e06c75', '#98c379', '#e5c07b', '#61afef', '#c678dd', '#56b6c2', '#abb2bf', '#5c6370', '#ff6b6b', '#b5e890', '#ffe08a', '#82c7ff', '#e2a0ff', '#7cdae5', '#ffffff'];
+    let color = '';
+    let background = '';
+    let bold = false;
+    let underline = false;
+    const append = value => {
+        if (!value) return;
+        const span = document.createElement('span');
+        if (color || background || bold || underline) span.textContent = value;
+        else highlightHealthLogText(span, value);
+        if (color) span.style.color = color;
+        if (background) span.style.backgroundColor = background;
+        if (bold) span.style.fontWeight = 'bold';
+        if (underline) span.style.textDecoration = 'underline';
+        element.appendChild(span);
+    };
+    let offset = 0;
+    for (const match of text.matchAll(/\x1b\[([0-9;]*)m/g)) {
+        append(text.slice(offset, match.index));
+        const codes = match[1].split(';').map(Number);
+        for (let index = 0; index < codes.length; index++) {
+            const code = codes[index];
+            if (code === 0) {
+                color = '';
+                background = '';
+                bold = false;
+                underline = false;
+            } else if (code === 1) bold = true;
+            else if (code === 22) bold = false;
+            else if (code === 4) underline = true;
+            else if (code === 24) underline = false;
+            else if (code === 39) color = '';
+            else if (code === 49) background = '';
+            else if (code >= 30 && code <= 37) color = colors[code - 30];
+            else if (code >= 90 && code <= 97) color = colors[code - 90 + 8];
+            else if (code >= 40 && code <= 47) background = colors[code - 40];
+            else if (code >= 100 && code <= 107) background = colors[code - 100 + 8];
+            else if (code === 38 || code === 48) {
+                const mode = codes[++index];
+                let extended = '';
+                if (mode === 2) {
+                    const rgb = codes.slice(index + 1, index + 4);
+                    index += 3;
+                    if (rgb.length === 3 && rgb.every(value => value >= 0 && value <= 255)) extended = `rgb(${rgb.join(',')})`;
+                } else if (mode === 5) {
+                    const value = codes[++index];
+                    if (value >= 0 && value < 16) extended = colors[value];
+                    else if (value >= 16 && value < 232) {
+                        const levels = [0, 95, 135, 175, 215, 255];
+                        const cube = value - 16;
+                        extended = `rgb(${levels[Math.floor(cube / 36)]},${levels[Math.floor(cube / 6) % 6]},${levels[cube % 6]})`;
+                    } else if (value >= 232 && value <= 255) {
+                        const gray = 8 + (value - 232) * 10;
+                        extended = `rgb(${gray},${gray},${gray})`;
+                    }
+                } else index = codes.length;
+                if (extended && code === 38) color = extended;
+                if (extended && code === 48) background = extended;
+            }
+        }
+        offset = match.index + match[0].length;
+    }
+    append(text.slice(offset));
+}
+
 function renderHealthLogs(element, records) {
     const fragment = document.createDocumentFragment();
     records.forEach((record, index) => {
         if (index) fragment.appendChild(document.createTextNode('\n'));
         if (!record.level) {
-            fragment.appendChild(document.createTextNode(record.text));
+            appendHealthLogText(fragment, record.text);
             return;
         }
         const line = document.createElement('span');
@@ -746,7 +998,7 @@ function renderHealthLogs(element, records) {
             if (field !== 'timestamp') line.appendChild(document.createTextNode(' '));
             const span = document.createElement('span');
             span.className = 'health-log-' + field;
-            span.textContent = record[field];
+            appendHealthLogText(span, record[field]);
             line.appendChild(span);
         }
         fragment.appendChild(line);
@@ -772,20 +1024,20 @@ function updateDefenderHealth(defender) {
     status.textContent = defender.error ? 'Unavailable' : healthy ? 'Healthy' : 'Unhealthy';
     status.className = defender.error ? 'warning' : healthy ? 'healthy' : 'critical';
     const issues = document.getElementById('healthDefenderIssues');
-    issues.replaceChildren();
-    for (const issue of defender.error ? [defender.error] : report.healthIssues || []) {
-        const item = document.createElement('li');
-        item.textContent = issue;
-        issues.appendChild(item);
-    }
     const targetText = value => value === null ? 'Unavailable' : typeof value === 'boolean' ? (value ? 'Enabled' : 'Disabled') : String(value);
-    for (const mismatch of mismatches) {
-        const item = document.createElement('li');
-        item.textContent = `${mismatch.label}: expected ${targetText(mismatch.expected)}, got ${targetText(mismatch.actual)}`;
-        issues.appendChild(item);
+    const issueTexts = [
+        ...(defender.error ? [defender.error] : report?.healthIssues || []),
+        ...mismatches.map(mismatch => `${mismatch.label}: expected ${targetText(mismatch.expected)}, got ${targetText(mismatch.actual)}`)
+    ];
+    issueTexts.forEach((value, index) => {
+        const item = issues.children[index] || issues.appendChild(document.createElement('li'));
+        if (item.textContent !== value) item.textContent = value;
+    });
+    while (issues.children.length > issueTexts.length) {
+        issues.lastElementChild.remove();
     }
     const details = document.getElementById('healthDefenderDetails');
-    details.replaceChildren();
+    details.hidden = !report;
     const groups = [
         ['Protection', [
         ['Real-time protection', 'realTimeProtectionEnabled'],
@@ -812,39 +1064,53 @@ function updateDefenderHealth(defender) {
         enablement_failed_due_to_edr_capabilities: 'Enablement failed: EDR capabilities'
     };
     if (report) for (const [heading, fields] of groups) {
-        const table = document.createElement('table');
-        table.className = 'health-defender-details';
-        table.setAttribute('aria-label', heading);
-        const group = document.createElement('tbody');
-        const headingRow = document.createElement('tr');
-        const headingCell = document.createElement('th');
-        headingCell.colSpan = 2;
-        headingCell.scope = 'rowgroup';
-        headingCell.className = 'health-defender-group';
-        headingCell.textContent = heading;
-        headingRow.appendChild(headingCell);
-        group.appendChild(headingRow);
-        for (const [label, key] of fields) {
+        let table = details.querySelector(`[aria-label="${heading}"]`);
+        if (!table) {
+            table = document.createElement('table');
+            table.className = 'health-defender-details';
+            table.setAttribute('aria-label', heading);
+            const group = document.createElement('tbody');
+            const headingRow = document.createElement('tr');
+            const headingCell = document.createElement('th');
+            headingCell.colSpan = 2;
+            headingCell.scope = 'rowgroup';
+            headingCell.className = 'health-defender-group';
+            headingCell.textContent = heading;
+            headingRow.appendChild(headingCell);
+            group.appendChild(headingRow);
+            for (const [label, key] of fields) {
+                const row = document.createElement('tr');
+                const term = document.createElement('th');
+                term.scope = 'row';
+                term.textContent = label;
+                const description = document.createElement('td');
+                description.dataset.field = key;
+                row.append(term, description);
+                group.appendChild(row);
+            }
+            table.appendChild(group);
+            details.appendChild(table);
+        }
+        for (const [, key] of fields) {
             let value = report[key];
             if (value && typeof value === 'object') value = value.value ?? value.$type;
-            const row = document.createElement('tr');
-            const term = document.createElement('th');
-            term.scope = 'row';
-            term.textContent = label;
-            const description = document.createElement('td');
-            if (mismatches.some(mismatch => mismatch.field === key)) description.className = 'health-defender-mismatch';
-            else if ((defender.matches || []).includes(key)) description.className = 'health-defender-match';
-            description.textContent = value === undefined ? 'Unknown' : typeof value === 'boolean' ? (key === 'licensed' ? (value ? 'Yes' : 'No') : (value ? 'Enabled' : 'Disabled')) : labels[value] || String(value);
-            if (key === 'definitionsUpdatedMinutesAgo' && typeof value === 'number') description.textContent = value + ' min';
-            row.append(term, description);
-            group.appendChild(row);
+            const description = table.querySelector(`[data-field="${key}"]`);
+            description.className = mismatches.some(mismatch => mismatch.field === key) ? 'health-defender-mismatch' : (defender.matches || []).includes(key) ? 'health-defender-match' : '';
+            const text = key === 'definitionsUpdatedMinutesAgo' && typeof value === 'number' ? value + ' min' : value === undefined ? 'Unknown' : typeof value === 'boolean' ? (key === 'licensed' ? (value ? 'Yes' : 'No') : (value ? 'Enabled' : 'Disabled')) : labels[value] || String(value);
+            if (description.textContent !== text) description.textContent = text;
         }
-        table.appendChild(group);
-        details.appendChild(table);
     }
 }
 
 function updateHealthModal(data) {
+    const errorTab = document.querySelector('#healthLogTabs [data-source="errors"]');
+    const recentErrors = data.backend_errors?.recent_count;
+    if (errorTab) {
+        const label = recentErrors > 0 ? `Errors (${recentErrors})` : 'Errors';
+        if (errorTab.textContent !== label) errorTab.textContent = label;
+        errorTab.classList.toggle('has-recent-errors', recentErrors > 0);
+        errorTab.title = recentErrors == null ? 'Backend error count unavailable' : `${recentErrors} backend errors in the past hour`;
+    }
     updateDefenderHealth(data.defender);
     const banner = document.getElementById('healthStatusBanner');
     const icon = document.getElementById('healthStatusIcon');
@@ -917,39 +1183,17 @@ function updateHealthModal(data) {
     const procs = data.processes || {};
     const procsEl = document.getElementById('healthProcesses');
     if (procs.error) {
-        procsEl.textContent = 'Error: ' + procs.error;
+        const message = 'Error: ' + procs.error;
+        if (procsEl.textContent !== message) procsEl.textContent = message;
     } else {
-        procsEl.innerHTML = `Kiro CLI sessions: <strong>${procs.kiro_cli_sessions || 0}</strong> &nbsp;|&nbsp; MCP servers: <strong>${procs.mcp_servers || 0}</strong> &nbsp;|&nbsp; Python total: <strong>${procs.python_total || 0}</strong>`;
-    }
-
-    // Errors
-    const errors = data.errors || [];
-    const errorsSection = document.getElementById('healthErrorsSection');
-    const errorsEl = document.getElementById('healthErrors');
-    if (errors.length) {
-        errorsSection.style.display = '';
-        const errorText = errors.map(e => e.replace(/\\n/g, '\n').replace(/\\r/g, '\r')).join('\n\n');
-        if (errorsEl.textContent !== errorText) errorsEl.textContent = errorText;
-    } else {
-        errorsSection.style.display = 'none';
-    }
-
-    // Logs
-    const logs = data.logs || {};
-    const logsEl = document.getElementById('healthLogs');
-    const flaskLogs = logs.flask || [];
-    const logText = flaskLogs.length ? flaskLogs.join('\n') : 'No recent logs';
-    const logViewport = logsEl.parentElement;
-    const selection = window.getSelection();
-    const selectingLogs = selection && !selection.isCollapsed && selection.containsNode(logsEl, true);
-    const followingLogs = logViewport.scrollHeight - logViewport.clientHeight - logViewport.scrollTop <= 2;
-    if (logsEl.textContent !== logText && followingLogs && !selectingLogs) {
-        if (flaskLogs.length) {
-            renderHealthLogs(logsEl, data.log_records.flask);
-        } else {
-            logsEl.textContent = logText;
+        if (!procsEl.querySelector('strong')) {
+            procsEl.innerHTML = 'Kiro CLI sessions: <strong></strong> &nbsp;|&nbsp; MCP servers: <strong></strong> &nbsp;|&nbsp; Python total: <strong></strong>';
         }
-        logViewport.scrollTop = logViewport.scrollHeight;
+        const values = [procs.kiro_cli_sessions || 0, procs.mcp_servers || 0, procs.python_total || 0];
+        procsEl.querySelectorAll('strong').forEach((element, index) => {
+            const value = String(values[index]);
+            if (element.textContent !== value) element.textContent = value;
+        });
     }
 
     // Timestamp
