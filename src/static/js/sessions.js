@@ -1155,6 +1155,13 @@ function showSessionContextMenu(sessionKey, x, y, onRename, onClose, onSleep, on
         idRow.appendChild(copyBtn);
         menu.appendChild(idRow);
         appendPageTitleAction(menu, sidebarItem.querySelector('.session-name'));
+        const downloadBtn = document.createElement('a');
+        downloadBtn.className = 'context-menu-item';
+        downloadBtn.textContent = 'Download chat';
+        downloadBtn.style.cssText = 'display:block;color:inherit;text-decoration:none;';
+        downloadBtn.href = '/api/chats/' + encodeURIComponent(chatId) + '/download?api_key=' + encodeURIComponent(window.FERNANDO_API_KEY);
+        downloadBtn.download = 'fernando-chat-' + chatId + '.jsonl';
+        menu.appendChild(downloadBtn);
     }
 
     if (onRename) {

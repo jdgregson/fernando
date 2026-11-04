@@ -263,7 +263,9 @@ socket.on('git_dirty', (data) => {
 
 socket.on('disconnect', () => {
     console.log('Socket disconnected');
+    clearTimeout(window._mutateTimer);
     window._mutateTimer = setTimeout(() => {
+        if (socket.connected) return;
         const overlay = document.getElementById('mutateOverlay');
         const spinner = document.getElementById('overlaySpinner');
         const helix = document.getElementById('mutateHelix');
@@ -288,7 +290,7 @@ socket.on('disconnect', () => {
             label.textContent = 'connecting...';
         }
         overlay.classList.add('open');
-    }, 800);
+    }, 5000);
 });
 
 socket.io.on('reconnect', () => {

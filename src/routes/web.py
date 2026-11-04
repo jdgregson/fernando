@@ -58,6 +58,25 @@ def index():
     return render_template("index.html", sessions=sessions, api_key=api_key, provider_settings=get_provider_settings())
 
 
+@bp.get('/api/chats/<session_id>/download')
+def api_download_chat(session_id):
+    from src.services import chat_history
+    import re
+
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    if not re.fullmatch(r'[a-f0-9]{8}', session_id):
+        return {'error': 'Invalid chat ID'}, 400
+    if chat_history.is_deleted(session_id) or not chat_history.path_for(session_id).is_file():
+        return {'error': 'Chat not found'}, 404
+    events = chat_history.load(session_id)
+    content = ''.join(json.dumps(event, ensure_ascii=False) + '\n' for event in events)
+    return Response(content, mimetype='application/x-ndjson', headers={
+        'Content-Disposition': f'attachment; filename="fernando-chat-{session_id}.jsonl"',
+        'X-Content-Type-Options': 'nosniff',
+    })
+
+
 @bp.route("/api/agents/working")
 def api_working_agents():
     if not _check_api_key():
