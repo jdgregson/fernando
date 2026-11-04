@@ -6,6 +6,8 @@ unset WERKZEUG_RUN_MAIN WERKZEUG_SERVER_FD
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
+NGINX_BIN=$(PATH="$PATH:/usr/sbin" command -v nginx) || { printf '%s\n' 'nginx was not found in PATH' >&2; exit 1; }
+
 # Create venv if it doesn't exist
 if [ ! -d "venv" ]; then
     echo "Creating virtual environment..."
@@ -118,10 +120,10 @@ pkill -9 -f "tmux attach-session" 2>/dev/null
 # Ensure tmux server always uses bash as default shell
 tmux set-option -s default-shell /bin/bash 2>/dev/null || true
 # Graceful nginx stop
-/usr/sbin/nginx -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null
+"$NGINX_BIN" -c "$REPO_DIR/nginx.conf" -s quit 2>/dev/null
 pkill nginx 2>/dev/null
 sleep 1
-/usr/sbin/nginx -c "$REPO_DIR/nginx.conf"
+"$NGINX_BIN" -c "$REPO_DIR/nginx.conf" || exit 1
 
 if [[ "${1:-}" == "--infrastructure" ]]; then
     : > /tmp/fernando-flask.log
