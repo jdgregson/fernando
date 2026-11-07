@@ -18,3 +18,4 @@ subagents
 config
 nginx.conf
 docker-compose.override.yml
+.wrangler/

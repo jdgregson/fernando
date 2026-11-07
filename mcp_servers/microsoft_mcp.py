@@ -23,6 +23,8 @@ if _project_root not in sys.path:
 import asyncio
 import json
 import mimetypes
+import tempfile
+from urllib.parse import quote
 import msal
 import requests
 from datetime import datetime, timezone
@@ -170,6 +172,66 @@ def _get_shared_onenote_base():
     return None
 
 
+def mail_attachment_path(arguments):
+    mailbox = arguments.get("mailbox")
+    owner = f"/users/{quote(mailbox, safe='')}" if mailbox else "/me"
+    return f"{owner}/messages/{quote(arguments['message_id'], safe='')}/attachments"
+
+
+def list_mail_attachments(arguments):
+    path = mail_attachment_path(arguments)
+    next_path = path + "?$select=id,name,contentType,size,isInline&$top=100"
+    attachments = []
+    seen = set()
+    while next_path:
+        if next_path in seen:
+            raise ValueError("Repeated attachment pagination URL")
+        seen.add(next_path)
+        data = graph_request("GET", next_path)
+        if "error" in data:
+            return data
+        attachments.extend(data.get("value", []))
+        next_path = data.get("@odata.nextLink")
+        if next_path and not next_path.startswith(GRAPH_BASE + path + "?"):
+            raise ValueError("Unexpected attachment pagination URL")
+    return {"count": len(attachments), "attachments": attachments}
+
+
+def download_mail_attachment(arguments):
+    path = mail_attachment_path(arguments) + "/" + quote(arguments["attachment_id"], safe="")
+    metadata = graph_request("GET", path + "?$select=id,name,contentType,size,isInline")
+    if "error" in metadata:
+        return metadata
+    if metadata.get("@odata.type") == "#microsoft.graph.referenceAttachment":
+        return {"error": "Cloud reference attachments cannot be downloaded through the mail attachment API."}
+    token, error = get_access_token()
+    if error:
+        return {"error": error}
+    with requests.get(
+        GRAPH_BASE + path + "/$value",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=60,
+        stream=True,
+        allow_redirects=False,
+    ) as response:
+        if response.status_code != 200:
+            return {"error": f"Attachment download failed: HTTP {response.status_code}"}
+        with tempfile.TemporaryDirectory(prefix="microsoft-attachment-") as staging:
+            pending = os.path.join(staging, "download")
+            size = 0
+            with open(pending, "xb", opener=lambda path, flags: os.open(path, flags, 0o600)) as output:
+                for chunk in response.iter_content(chunk_size=65536):
+                    output.write(chunk)
+                    size += len(chunk)
+            directory = tempfile.mkdtemp(prefix="microsoft-attachment-")
+            filename = os.path.basename(metadata.get("name", "attachment").replace("\\", "/"))
+            if filename in ("", ".", ".."):
+                filename = "attachment"
+            destination = os.path.join(directory, filename)
+            os.replace(pending, destination)
+    return {"path": destination, "name": metadata.get("name"), "content_type": metadata.get("contentType"), "size": size}
+
+
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
@@ -238,6 +300,31 @@ async def list_tools() -> list[Tool]:
                     },
                 },
                 "required": ["message_id"],
+            },
+        ),
+        Tool(
+            name="microsoft_mail_attachments_list",
+            description="List all attachments, including inline images, on a received email. Returns attachment IDs for microsoft_mail_attachment_download. Supports an optional shared mailbox.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message_id": {"type": "string", "description": "Email message ID"},
+                    "mailbox": {"type": "string", "description": "Shared mailbox email address; omit for own mailbox"},
+                },
+                "required": ["message_id"],
+            },
+        ),
+        Tool(
+            name="microsoft_mail_attachment_download",
+            description="Download an email attachment to a private local temporary directory and return its file path. Supports files, inline images and attached Outlook items. Cloud reference attachments are unsupported. Files persist until explicitly deleted or temporary storage is cleaned.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message_id": {"type": "string", "description": "Email message ID"},
+                    "attachment_id": {"type": "string", "description": "Attachment ID from microsoft_mail_attachments_list"},
+                    "mailbox": {"type": "string", "description": "Shared mailbox email address; omit for own mailbox"},
+                },
+                "required": ["message_id", "attachment_id"],
             },
         ),
         Tool(
@@ -832,6 +919,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "date": data.get("receivedDateTime"),
                 "body": data.get("body", {}).get("content", ""),
             }
+
+    elif name == "microsoft_mail_attachments_list":
+        result = list_mail_attachments(arguments)
+
+    elif name == "microsoft_mail_attachment_download":
+        result = download_mail_attachment(arguments)
 
     elif name == "microsoft_mail_send":
         import base64
