@@ -107,7 +107,8 @@ function toggleKasmKeyboard() {
 function updateKbdBtn() {
     const hasDesktop = [...paneController.sessionTypes.values()].some(adapter => adapter.keyboardButton && [1, 2].some(pn => paneController.isEmbedded(pn, adapter.type)));
     document.getElementById('kbdBtn').classList.toggle('kbdVisible', hasDesktop);
-    const hasTerminal = paneController.get(activeTerminal).surface === 'terminal';
+    const selectedPane = paneController.get(activeTerminal);
+    const hasTerminal = selectedPane.surface === 'terminal' && Boolean(selectedPane.terminalSession);
     document.getElementById('resizeBtn').classList.toggle('resizeBtnVisible', hasTerminal);
     updateMobileControls();
 }

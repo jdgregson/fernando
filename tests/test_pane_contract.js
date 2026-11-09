@@ -28,6 +28,20 @@ function workspace(search = '') {
     return {dom, win, context, controller, events, emitted, close: () => win.close()};
 }
 
+test('sleeping chats show a scheduled-resume clock and clear it after completion', t => {
+    const w = workspace();
+    t.after(() => w.close());
+    vm.runInContext('window._urlParamsProcessed = true', w.context);
+    const chat = {id: 'aaaaaaaa', name: 'resume-fixture', loaded: false, status: 'idle',
+        scheduled_resume: {id: 'timer', resume_at: 1800000000, status: 'scheduled'}};
+    w.win.updateSessionList([], [chat], {});
+    let item = w.win.document.querySelector('[data-session="chat:aaaaaaaa"]');
+    assert.ok(item.querySelector('[title^="Scheduled resume:"] svg'));
+    w.win.updateSessionList([], [{...chat, scheduled_resume: null}], {});
+    item = w.win.document.querySelector('[data-session="chat:aaaaaaaa"]');
+    assert.equal(item.querySelector('[title^="Scheduled resume:"]'), null);
+});
+
 test('one new adapter inherits sidebar, lifecycle, URL restoration, context, mobile controls, and validated activation', () => {
     const w = workspace();
     const {win, controller} = w;

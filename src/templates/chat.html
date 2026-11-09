@@ -2858,7 +2858,7 @@
         }).join('\n\n');
     }
 
-    function showContinuationModal(text, modalTitle = 'Continuation Message') {
+    function showContinuationModal(text, modalTitle = 'Continuation Message', actions = []) {
         const overlay = document.createElement('div');
         overlay.className = 'continuation-modal-overlay';
         bindModalBackdrop(overlay, () => overlay.remove());
@@ -2881,9 +2881,92 @@
         body.textContent = text;
         modal.appendChild(header);
         modal.appendChild(body);
+        if (actions.length) {
+            const controls = document.createElement('div');
+            controls.className = 'resume-modal-actions';
+            for (const action of actions) {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = action.label;
+                button.onclick = () => action.run(overlay, controls);
+                controls.appendChild(button);
+            }
+            modal.appendChild(controls);
+        }
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
         document.addEventListener('keydown', function _esc(e) { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', _esc); } });
+        return {overlay, body};
+    }
+
+    function resumeStatus(row) {
+        return {scheduled: 'Scheduled to resume', queued: 'Resume queued', waking: 'Waking to resume',
+            resumed: 'Resumed', canceled: 'Resume canceled', failed: 'Failed to resume'}[row.status];
+    }
+
+    function resumeTime(row) {
+        return new Date(row.resume_at * 1000).toLocaleString(undefined, {hour12: false, timeZoneName: 'short'});
+    }
+
+    function resumeDetails(row) {
+        return resumeStatus(row) + '\nScheduled time: ' + resumeTime(row) + '\n\n' + row.reason
+            + '\n\nContinuation\n' + row.continuation + '\n\nSchedule ID: ' + row.id
+            + (row.error ? '\n\nError: ' + row.error : '');
+    }
+
+    function showResumeModal(element) {
+        const row = element.resumeSchedule;
+        const actions = row.session_id === sessionId && ['scheduled', 'queued', 'waking'].includes(row.status) ? [
+            {label: 'Resume now', action: 'resume_now'}, {label: 'Cancel', action: 'cancel'}
+        ].map(item => ({label: item.label, run: (overlay, controls) => {
+            for (const button of controls.querySelectorAll('button')) button.disabled = true;
+            socket.timeout(10000).emit('acp_manage_resume', {
+                csrf_token: csrfToken, session_id: sessionId, schedule_id: row.id, action: item.action
+            }, (error, result) => {
+                if (!overlay.isConnected) return;
+                if (error || result?.error) {
+                    modal.body.textContent = resumeDetails(element.resumeSchedule) + '\n\n'
+                        + (result?.error || 'No confirmation received. Reopen this message to check the current status.');
+                    for (const button of controls.querySelectorAll('button')) button.disabled = false;
+                    return;
+                }
+                addScheduledResume(result.schedule);
+                overlay.remove();
+                showResumeModal(element);
+            });
+        }})) : [];
+        const modal = showContinuationModal(resumeDetails(row), 'Scheduled Resume', actions);
+        modal.overlay.dataset.resumeModal = row.id;
+    }
+
+    function addScheduledResume(row) {
+        const existing = Array.from(document.querySelectorAll('[data-resume-id]'))
+            .find(element => element.dataset.resumeId === row.id);
+        const element = existing || document.createElement('div');
+        element.className = 'msg system continuation scheduled-resume';
+        element.dataset.resumeId = row.id;
+        element.resumeSchedule = row;
+        element.textContent = resumeStatus(row) + ' · ' + resumeTime(row) + ' · ' + row.reason;
+        element.tabIndex = 0;
+        element.setAttribute('role', 'button');
+        element.onclick = () => showResumeModal(element);
+        element.onkeydown = event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                showResumeModal(element);
+            }
+        };
+        if (!existing) {
+            document.getElementById('messages').appendChild(element);
+            scrollToBottom(true);
+        }
+        for (const overlay of document.querySelectorAll('[data-resume-modal]')) {
+            if (overlay.dataset.resumeModal !== row.id) continue;
+            overlay.querySelector('.continuation-modal-body').textContent = resumeDetails(row);
+            if (!['scheduled', 'queued', 'waking'].includes(row.status)) {
+                overlay.querySelector('.resume-modal-actions')?.remove();
+            }
+        }
     }
 
     function addQueuedAgentMessage(evt) {
@@ -3563,6 +3646,10 @@
             if (!window._historyLoadedOnce) {
                 window._waitingForLoad = true;
             }
+            return;
+        }
+        if (evt.type === 'scheduled_resume') {
+            addScheduledResume(evt.schedule);
             return;
         }
         if (evt.type === 'system_message') {

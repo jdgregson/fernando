@@ -9,7 +9,7 @@ from src.config import get_config
 RUNTIME_ENDPOINTS = frozenset({
     'web.api_working_agents', 'web.api_mutating_notify', 'web.api_auth_check',
     'web.api_test_acp_command', 'web.api_spawn_subagent', 'web.api_subagent_schedule',
-    'web.api_send_continuation', 'web.api_acp_cancel', 'web.api_acp_sleep',
+    'web.api_send_continuation', 'web.api_chat_resume', 'web.api_acp_cancel', 'web.api_acp_sleep',
     'web.api_acp_wake', 'web.api_acp_terminate', 'web.api_acp_child_messages',
     'web.api_acp_read_child_messages', 'web.api_acp_read_parent_messages',
     'web.api_acp_agent_message', 'web.api_rename_chat', 'web.api_chat_context',

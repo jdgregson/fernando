@@ -70,7 +70,7 @@ BUNDLED_SERVERS = {
         "default_enabled": True,
     },
     "chat": {
-        "description": "Chat/session utilities (set_chat_name, save_memory, attach_file, live_canvas, conversation search)",
+        "description": "Chat/session utilities (scheduled resumes, set_chat_name, save_memory, attach_file, live_canvas, conversation search)",
         "command": "python3",
         "args": [os.path.join(_MCP_DIR, "chat_mcp.py")],
         "default_enabled": True,

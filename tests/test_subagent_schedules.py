@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask
 
-from src.services import acp, subagent_schedules
+from src.services import acp, subagent_schedules, subagent_core
 from src.services.subagent_schedules import ResumeScheduler, next_occurrence, validate_schedule
 
 
@@ -331,7 +331,7 @@ class ScheduleToolTests(unittest.TestCase):
         self.assertIn('manage_subagent_schedule', tools)
 
     def test_resume_never_writes_spawn_script_or_crontab(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(self.tools, 'create_workspace', return_value=('monitor-unique', directory)), patch.object(self.tools, 'write_spawn_script') as script, patch.object(self.tools, 'schedule_cron') as cron, patch.object(self.tools, 'read_api_key', return_value='fixture-key'), patch.object(self.tools.urllib.request, 'urlopen') as urlopen:
+        with tempfile.TemporaryDirectory() as directory, patch.object(subagent_core, 'SUBAGENT_DIR', directory), patch.object(self.tools, 'write_spawn_script') as script, patch.object(self.tools, 'schedule_cron') as cron, patch.object(self.tools, 'read_api_key', return_value='fixture-key'), patch.object(self.tools.urllib.request, 'urlopen') as urlopen:
             response = Mock()
             response.read.return_value = b'{"session_id":"aaaaaaaa","schedule":{"enabled":true}}'
             urlopen.return_value = response
@@ -340,7 +340,7 @@ class ScheduleToolTests(unittest.TestCase):
             payload = json.loads(urlopen.call_args.args[0].data)
             self.assertEqual(payload['schedule_mode'], 'resume')
             self.assertEqual(payload['parent_session_id'], 'bbbbbbbb')
-            self.assertEqual(json.loads((Path(directory) / 'task.json').read_text())['session_id'], 'aaaaaaaa')
+            self.assertEqual(json.loads((Path(result['workspace']) / 'task.json').read_text())['session_id'], 'aaaaaaaa')
             script.assert_not_called()
             cron.assert_not_called()
 

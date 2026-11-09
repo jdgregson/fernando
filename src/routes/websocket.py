@@ -759,6 +759,8 @@ def register_handlers(socketio):
     acp_manager.restore_sessions(lambda sid: acp_on_event)
     from src.services.subagent_schedules import resume_scheduler
     resume_scheduler.start(acp_manager)
+    from src.services.chat_resumes import chat_resume_scheduler
+    chat_resume_scheduler.start(acp_manager)
 
     @socketio.on("acp_create")
     def acp_create(data):
@@ -1073,6 +1075,17 @@ def register_handlers(socketio):
             text = data.get("text", "")
             if isinstance(text, str) and text.strip():
                 session.queue_user_message(text)
+
+    @socketio.on('acp_manage_resume')
+    def acp_manage_resume(data):
+        if not validate_csrf(data):
+            return {'error': 'Invalid CSRF token'}
+        if not isinstance(data.get('schedule_id'), str) or not isinstance(data.get('session_id'), str):
+            return {'error': 'Missing chat or schedule ID'}
+        try:
+            return {'schedule': chat_resume_scheduler.change(data['session_id'], data['schedule_id'], data.get('action'))}
+        except ValueError as error:
+            return {'error': str(error)}
 
     @socketio.on("acp_delete_queued_message")
     def acp_delete_queued_message(data):

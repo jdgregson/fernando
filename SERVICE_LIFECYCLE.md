@@ -27,6 +27,22 @@ Changes to `src/routes/websocket.py`, ACP internals, session-bound HTTP handlers
 
 During a web restart, existing chat/terminal streams and session-bound tool requests continue. New page/stateless HTTP requests may briefly receive 503; in-flight web-owned requests, including uploads, are not guaranteed to survive. This mode is not a rolling web deployment.
 
+## Scheduled chat resumes
+
+The Chat MCP server exposes `schedule_resume(delay_seconds, reason, continuation)` and `cancel_resume(schedule_id)` for the calling conversation. One pending resume is allowed per chat. A confirmed schedule is durable in `data/chat_resumes.json`; the agent can end its turn immediately. The runtime wakes the original conversation when due and waits for active turns and queued messages to finish before delivering the continuation. A user message does not cancel the schedule. Archiving or terminating the chat cancels it.
+
+The conversation shows one collapsed system-style row per schedule. Clicking it opens the existing continuation detail modal with the reason, deadline, instructions, state, and Resume now / Cancel actions. Status events are append-only in history and update the same row during replay and live delivery. A sidebar clock identifies pending resumes, including sleeping chats.
+
+Overdue resumes run after runtime recovery. Waking has a 120-second readiness deadline; busy chats have no such timeout. Delivery errors are recorded as failed, not silently retried. A persisted dispatch receipt prevents duplicate delivery; an interrupted delivery with no receipt is reported as uncertain and requires inspection before rescheduling. Resumed means the continuation was submitted to the agent transport, not that the follow-up work completed.
+
+## Recurring subagent lifecycle
+
+`spawn_subagent` defaults recurring `cron_schedule` tasks to `schedule_mode="resume"`, reusing one child conversation. Fresh workers on every tick require explicit `schedule_mode="spawn"`. Immediate and one-time invocations retain their existing behavior.
+
+Both recurring modes use `manage_subagent_schedule(action="get"|"update"|"cancel")`. Omit IDs for the current worker's originating schedule, or specify a child `session_id` or owned `task_id`. Cancel stops future runs without terminating current workers and returns `enabled=false` only after cancellation is confirmed. Unknown schedules and failed cron edits return errors. Resume schedules support timezone and wake-message updates; fresh-worker schedules support cron-expression updates.
+
+Task metadata records ownership and worker session IDs. Existing legacy workers are also resolved through their original task names. Terminating by task ID cancels future execution and terminates its workers; terminating a worker session cancels its originating schedule first. Archive/delete lifecycle operations use the same cancellation path. Cron edits and scheduled launches share a process/thread-safe lock. Cancellation persists a disabled task before removing and verifying the cron entry, so already-started launcher requests are rejected before creating a new worker.
+
 ## One-time activation
 
 The migration requires root to replace the old systemd unit and install the narrowly scoped `sudo systemctl restart fernando-web` permission. Normal mutate permissions cannot install units.

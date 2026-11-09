@@ -93,7 +93,7 @@ paneController.register('notebook', {
 });
 
 paneController.register('chat', {
-    sidebarKey: session => [session.key, session.name, !!session.loaded, session.status || 'idle'],
+    sidebarKey: session => [session.key, session.name, !!session.loaded, session.status || 'idle', session.scheduled_resume?.id, session.scheduled_resume?.resume_at, session.scheduled_resume?.status],
     syncOnClose: false,
     closeLabel: 'Archive',
     describeSession: session => session.key + (session.loaded === false ? ' (sleeping)' : ''),
@@ -208,6 +208,12 @@ function chatSidebarDescriptor(chat) {
         label() {
             const element = document.createElement('span');
             const sidebarLabel = chatSidebarLabel(chat);
+            if (chat.scheduled_resume) {
+                const clock = document.createElement('span');
+                clock.title = 'Scheduled resume: ' + new Date(chat.scheduled_resume.resume_at * 1000).toLocaleString(undefined, {hour12: false, timeZoneName: 'short'});
+                clock.innerHTML = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-right:4px"><circle cx="8" cy="8" r="6"/><path d="M8 4v4l3 2"/></svg>';
+                element.appendChild(clock);
+            }
             if (sidebarLabel.prefix) {
                 const prefix = document.createElement('span');
                 prefix.className = 'session-origin-prefix';

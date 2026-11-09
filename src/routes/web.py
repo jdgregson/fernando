@@ -219,13 +219,23 @@ def api_spawn_subagent():
     if not _check_api_key():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     data = request.get_json(force=True)
+    from src.services.subagent_core import schedule_guard, prepare_scheduled_spawn
+    with schedule_guard():
+        try:
+            task_id = prepare_scheduled_spawn(data.get('name', ''), data.get('parent_session_id'))
+        except ValueError as error:
+            return {'error': str(error)}, 409
+        return _spawn_subagent(data, task_id)
+
+
+def _spawn_subagent(data, task_id=None):
     task = data.get("task", "")
     name = data.get("name", "")
     model = data.get("model")
     backend = data.get("backend", "kiro")
     group_id = data.get("group_id")
     parent_session_id = data.get("parent_session_id")  # Optional: who spawned this agent
-    schedule_mode = data.get('schedule_mode', 'spawn')
+    schedule_mode = data.get('schedule_mode', 'resume' if data.get('cron_schedule') else 'spawn')
     if schedule_mode not in ('spawn', 'resume'):
         return {'error': 'Unknown schedule_mode'}, 400
     if schedule_mode == 'resume':
@@ -262,6 +272,8 @@ def api_spawn_subagent():
     if parent_session_id:
         from src.services.acp import set_parent
         set_parent(session_id, parent_session_id)
+    from src.services.subagent_core import register_task_session
+    register_task_session(task_id, session_id, parent_session_id)
 
     def _send_when_ready():
         from src.services.subagent_core import report_startup_failure
@@ -291,27 +303,39 @@ def api_spawn_subagent():
 def api_subagent_schedule():
     if not _check_api_key():
         return {'error': 'Unauthorized'}, 401
-    from src.services.acp import get_parent, is_child_of
-    from src.services.subagent_schedules import resume_scheduler
+    from src.services.subagent_core import manage_schedule
     data = request.get_json(force=True)
-    actor = data.get('actor_session_id')
-    session_id = data.get('session_id') or actor
-    if not isinstance(actor, str) or not isinstance(session_id, str):
-        return {'error': 'Missing actor_session_id or session_id'}, 400
-    if not ((actor == session_id and get_parent(actor)) or is_child_of(session_id, actor)):
-        return {'error': 'Only the child itself or its parent can manage this schedule'}, 403
-    action = data.get('action', 'get')
-    if action == 'get':
-        return {'schedule': resume_scheduler.get(session_id)}
-    if action == 'cancel':
-        return {'schedule': resume_scheduler.cancel(session_id)}
-    if action == 'update':
-        changes = {key: data[key] for key in ('cron_schedule', 'timezone', 'wake_message') if key in data}
-        try:
-            return {'schedule': resume_scheduler.update(session_id, **changes)}
-        except ValueError as error:
-            return {'error': str(error)}, 400
-    return {'error': 'Unknown schedule action'}, 400
+    changes = {key: data[key] for key in ('cron_schedule', 'timezone', 'wake_message') if key in data}
+    try:
+        return {'schedule': manage_schedule(acp_manager, data.get('actor_session_id'), data.get('action', 'get'),
+                                            session_id=data.get('session_id'), task_id=data.get('task_id'), **changes)}
+    except PermissionError as error:
+        return {'error': str(error)}, 403
+    except ValueError as error:
+        return {'error': str(error)}, 400
+    except (OSError, RuntimeError) as error:
+        return {'error': str(error)}, 500
+
+
+@bp.route('/api/acp/chat_resume', methods=['POST'])
+def api_chat_resume():
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    from src.services.chat_resumes import chat_resume_scheduler
+    data = request.get_json()
+    if not isinstance(data, dict) or not isinstance(data.get('session_id'), str):
+        return {'error': 'Missing session_id'}, 400
+    try:
+        if data.get('action') == 'schedule':
+            row = chat_resume_scheduler.create(data['session_id'], data.get('delay_seconds'),
+                                               data.get('reason'), data.get('continuation'))
+        elif data.get('action') == 'cancel':
+            row = chat_resume_scheduler.change(data['session_id'], data.get('schedule_id'), 'cancel')
+        else:
+            return {'error': 'Unknown scheduled resume action'}, 400
+    except ValueError as error:
+        return {'error': str(error)}, 400
+    return {'schedule': row}
 
 
 @bp.route("/api/send_continuation", methods=["POST"])
@@ -410,6 +434,28 @@ def api_acp_terminate():
     if not _check_api_key():
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
     data = request.get_json(force=True)
+    if 'task_id' in data:
+        from src.services.subagent_core import terminate_subagent, read_task, task_for_session, task_session_ids, schedule_guard
+        from src.services.acp import is_child_of
+        target = data.get('task_id')
+        actor = data.get('actor_session_id')
+        if not isinstance(target, str) or not isinstance(actor, str):
+            return {'error': 'Missing task_id or actor_session_id'}, 400
+        with schedule_guard():
+            record = read_task(target)
+            own_task, _ = task_for_session(acp_manager, actor)
+            allowed = actor == target or is_child_of(target, actor)
+            if record:
+                ids = task_session_ids(acp_manager, target, record)
+                allowed = actor == record.get('parent_session_id') or own_task == target or any(is_child_of(sid, actor) for sid in ids)
+            if not allowed:
+                return {'error': 'Only the task owner or its own worker can terminate it'}, 403
+            try:
+                return terminate_subagent(target, manager=acp_manager)
+            except ValueError as error:
+                return {'error': str(error)}, 400
+            except (OSError, RuntimeError) as error:
+                return {'error': str(error)}, 500
     session_id = data.get("session_id")
     if not session_id:
         return json.dumps({"error": "Missing session_id"}), 400, {"Content-Type": "application/json"}

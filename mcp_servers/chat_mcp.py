@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fernando MCP server: chat/session utilities.
 
-Tools: set_chat_name, save_memory, attach_file, live_canvas,
+Tools: schedule_resume, cancel_resume, set_chat_name, save_memory, attach_file, live_canvas,
        search_conversations, get_conversation
 """
 import _mcp_common  # noqa: F401  (activates venv + sys.path)
@@ -50,6 +50,24 @@ def _set_chat_name(name):
 @app.list_tools()
 async def list_tools() -> list[Tool]:
     return [
+        Tool(
+            name='schedule_resume',
+            description='Schedule this chat to resume after a delay, then end your turn instead of waiting. The durable timer survives sleeping and restarts, wakes this same conversation, and waits if it is busy. Only promise a follow-up after this tool confirms a schedule. One pending resume per chat; cancel it before replacing it.',
+            inputSchema={
+                'type': 'object',
+                'properties': {
+                    'delay_seconds': {'type': 'integer', 'minimum': 1, 'maximum': 31536000},
+                    'reason': {'type': 'string', 'minLength': 1, 'maxLength': 1000, 'description': 'Short user-visible purpose'},
+                    'continuation': {'type': 'string', 'minLength': 1, 'maxLength': 16000, 'description': 'Instructions to yourself when this conversation resumes'},
+                },
+                'required': ['delay_seconds', 'reason', 'continuation'],
+            },
+        ),
+        Tool(
+            name='cancel_resume',
+            description='Cancel a pending scheduled resume belonging to this chat.',
+            inputSchema={'type': 'object', 'properties': {'schedule_id': {'type': 'string'}}, 'required': ['schedule_id']},
+        ),
         Tool(
             name="set_chat_name",
             description="Set the display name of the current chat session in the sidebar. Use on your first turn to name the conversation based on what the user asked. Use lowercase words separated by dashes (e.g. 'debug-lambda-function').",
@@ -125,7 +143,19 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name == "set_chat_name":
+    if name in {'schedule_resume', 'cancel_resume'}:
+        session_id = find_my_session_id()
+        if not session_id:
+            raise ValueError('Cannot identify the current chat')
+        from src.services.service_boundary import runtime_url
+        payload = {**arguments, 'session_id': session_id, 'action': 'schedule' if name == 'schedule_resume' else 'cancel'}
+        req = urllib.request.Request(
+            runtime_url() + '/api/acp/chat_resume', data=json.dumps(payload).encode(),
+            headers={'Content-Type': 'application/json', 'X-API-Key': read_api_key()},
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            result = json.load(response)
+    elif name == "set_chat_name":
         result = _set_chat_name(arguments["name"])
     elif name == "save_memory":
         memory_path = os.path.expanduser("~/.kiro/steering/memory.md")

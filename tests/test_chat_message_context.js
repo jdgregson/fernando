@@ -20,6 +20,7 @@ function element() {
 const body = element();
 const messages = element();
 const sandbox = vm.createContext({
+    AbortController,
     currentTurnIndex: 0,
     document: {createElement: element, body, getElementById() { return messages; }, addEventListener() {}},
     window: {innerWidth: 1000, innerHeight: 1000},

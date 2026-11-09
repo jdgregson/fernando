@@ -331,6 +331,27 @@ body { display: flex; flex-direction: column; }
     word-break: break-word;
 }
 
+.resume-modal-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid #3b4261;
+}
+
+.resume-modal-actions button {
+    background: #292e42;
+    color: #c0caf5;
+    border: 1px solid #3b4261;
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+}
+
+.resume-modal-actions button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .msg.agent-message {
     align-self: center;
     color: #5a9bcf;

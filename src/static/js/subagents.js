@@ -60,7 +60,7 @@ socket.on('subagents_list', (data) => {
                 <span class="sa-badge ${statusClass}">${escapeHtml(s.status)}${s.progress > 0 ? ' ' + s.progress + '%' : ''}</span>
             </div>
             <div class="sa-task">${DOMPurify.sanitize(marked.parse(s.task || ''))}</div>
-            ${s.schedule ? `<div class="sa-schedule">⏱ ${escapeHtml(s.schedule)}</div>` : ''}
+            ${s.schedule ? `<div class="sa-schedule"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14" r="8"/><path d="M12 10v4M9 2h6M12 2v4M18 8l2-2"/></svg> ${escapeHtml(s.schedule)}</div>` : ''}
             ${s.current_step ? `<div class="sa-meta">${escapeHtml(s.current_step)}</div>` : ''}
             <div class="sa-actions">
                 <button class="sa-btn" onclick="viewSubagent('${escapeHtml(s.task_id)}')">View</button>

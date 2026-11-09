@@ -8,6 +8,7 @@ import re
 import select
 import subprocess
 import threading
+import tempfile
 import time
 import shutil
 import uuid
@@ -40,9 +41,16 @@ def load_history_file(session_id):
 
 def _save_sessions_map(sessions_map):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(SESSIONS_FILE, "w") as f:
-        os.fchmod(f.fileno(), 0o600)
-        json.dump(sessions_map, f, indent=2)
+    descriptor, temporary = tempfile.mkstemp(prefix='.chat_sessions-', suffix='.tmp', dir=os.path.dirname(SESSIONS_FILE))
+    try:
+        with os.fdopen(descriptor, 'w') as stream:
+            json.dump(sessions_map, stream, indent=2)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, SESSIONS_FILE)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def _load_sessions_map():
@@ -539,7 +547,7 @@ class ACPSession:
             },
         })
 
-    def send_continuation(self, text):
+    def send_continuation(self, text, *, schedule_id=None):
         """Send a prompt that displays as a system message, not a user message.
         Returns True if agent was idle (immediate delivery), False if busy (queued)."""
         if not self.acp_session_id:
@@ -552,6 +560,8 @@ class ACPSession:
         self._last_activity = time.time()
         prefixed = "[CONTINUATION] " + text
         evt = {"type": "continuation", "text": prefixed, "ts": time.time()}
+        if schedule_id:
+            evt['schedule_id'] = schedule_id
         self.history.append(evt)
         self._save_history()
         if self.on_event:
@@ -564,7 +574,10 @@ class ACPSession:
                 "sessionId": self.acp_session_id,
                 "prompt": [{"type": "text", "text": prefixed}],
             },
-        })
+        }, strict=bool(schedule_id))
+        if schedule_id:
+            self.history.append({'type': 'resume_dispatched', 'schedule_id': schedule_id, 'ts': time.time()})
+            self._save_history()
         return was_idle
 
     def queue_user_message(self, text):
@@ -859,12 +872,16 @@ class ACPSession:
             self._next_id += 1
             return self._next_id
 
-    def _send(self, msg):
+    def _send(self, msg, *, strict=False):
+        if strict and (not self.proc or not self.proc.stdin):
+            raise RuntimeError('Agent transport is unavailable')
         if self.proc and self.proc.stdin:
             try:
                 self.proc.stdin.write((json.dumps(msg) + "\n").encode())
                 self.proc.stdin.flush()
             except Exception as e:
+                if strict:
+                    raise
                 logger.error(f"ACP send error: {e}")
 
     def _request(self, method, params, timeout=30):
@@ -1549,6 +1566,35 @@ class ACPManager:
             session.send_prompt(text, initial_only=initial)
             return 'delivered'
 
+    def deliver_chat_resume(self, row):
+        session = self.get_session(row['session_id'])
+        if not session:
+            raise ValueError('Chat no longer exists')
+        with session._lock:
+            if any(event.get('type') == 'resume_dispatched' and event.get('schedule_id') == row['id'] for event in session.history):
+                return 'resumed'
+            if any(event.get('type') == 'continuation' and event.get('schedule_id') == row['id'] for event in session.history):
+                raise RuntimeError('Resume delivery was interrupted; inspect the conversation before scheduling again')
+            if (session._is_prompting or session._turn_finishing
+                    or session._retry_pending or session._agent_message_queue):
+                return 'queued'
+            if not session.acp_session_id:
+                raise ValueError('Cannot resume without the original conversation')
+            if session._reloading:
+                return 'waking'
+            if not session.is_loaded:
+                self.reload_session(session.id)
+                return 'waking'
+            if not session.ready or not session._alive:
+                return 'waking'
+            try:
+                session.send_continuation(row['continuation'], schedule_id=row['id'])
+            except (OSError, RuntimeError, ValueError):
+                session._is_prompting = False
+                session._notify_status_change()
+                raise
+            return 'resumed'
+
     def sleep_scheduled_session(self, session_id, now):
         if session_id in self._active_pane_sessions:
             return
@@ -1661,6 +1707,10 @@ class ACPManager:
             session.on_event(session_id, {"type": "session_ready"})
 
     def destroy_session(self, session_id, delete_history=True):
+        from src.services.subagent_core import cancel_origin_schedule
+        cancel_origin_schedule(self, session_id)
+        from src.services.chat_resumes import chat_resume_scheduler
+        chat_resume_scheduler.cancel_session(session_id)
         from src.services.subagent_schedules import resume_scheduler
         resume_scheduler.cancel(session_id, 'terminated')
         with self._lock:
@@ -1674,6 +1724,10 @@ class ACPManager:
 
     def archive_session(self, session_id):
         """Stop the process and move session from active to archived. History is preserved."""
+        from src.services.subagent_core import cancel_origin_schedule
+        cancel_origin_schedule(self, session_id)
+        from src.services.chat_resumes import chat_resume_scheduler
+        chat_resume_scheduler.cancel_session(session_id)
         from src.services.subagent_schedules import resume_scheduler
         resume_scheduler.cancel(session_id, 'archived')
         with self._lock:
@@ -1782,6 +1836,7 @@ class ACPManager:
                     "id": sid,
                     "name": s.display_name,
                     "history_count": len(s.history),
+                    "scheduled_resume": getattr(s, 'scheduled_resume', None),
                     "loaded": s.is_loaded,
                     "status": s.get_status(),
                     "parent_id": parent,
