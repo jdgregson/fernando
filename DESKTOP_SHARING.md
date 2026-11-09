@@ -31,6 +31,12 @@ Kasm's initial profile-copy operation excludes Documents and Downloads and does 
 
 The macOS Compose entrypoint runs the same initialization boundary before Kasm. Docker Desktop's host-sharing provider handles native host access; Linux POSIX ACL rewriting is not applied to macOS user data. Desktop-account read/write/traverse access is checked explicitly. Linux/Sysbox has been runtime-tested; Docker Desktop/macOS changes require verification on a Mac.
 
+## Accessibility socket storage
+
+AT-SPI sockets use a private `0700` directory under the container's `/dev/shm`, rather than the host-mounted home directory. The image routes D-Bus activation, XDG desktop autostart, and systemd user activation through `desktop-atspi-launcher.sh`. Only the accessibility launcher's `XDG_CACHE_HOME` changes; application caches and the existing GUI session bus are preserved. The native launcher publishes `AT_SPI_BUS` on the X root window so independent desktop-tool processes can discover it.
+
+Image builds explicitly install the GI typelib, Python GI bindings, AT-SPI service, and D-Bus X11 support, then verify that the system Python can import `Atspi`. Changes to upstream activation-file layouts fail the build instead of silently leaving an unpatched launch path.
+
 ## Explicit legacy migration
 
 Old installations may have `~/Documents` and `~/Downloads` symlinked into `data/desktop`. Normal startup/setup refuses that legacy arrangement rather than silently migrating personal data.
