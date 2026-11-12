@@ -113,8 +113,9 @@ def validate_rule(rule, meta_policy=None):
         return False, "inbound trigger requires 'from'"
     if ttype == "inbound" and not rule.get("purpose"):
         return False, "inbound rules require a 'purpose'"
-    if ttype == "inbound" and rule.get("backend", "kiro") not in ("kiro", "opencode"):
-        return False, "Agent provider must be kiro or opencode"
+        from src.services.providers import provider_ids
+        if ttype == "inbound" and rule.get("backend", "kiro") not in provider_ids():
+            return False, "Unknown agent provider"
     if not isinstance(rule.get("allow_chat_targeting", False), bool):
         return False, "allow_chat_targeting must be a boolean"
     if rule.get("allow_chat_targeting") and rule.get("created_by") == "agent":

@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import re
 import threading
+import sys
+
+from src.services.providers import get_provider, provider_ids, providers
 
 ROOT = Path(__file__).resolve().parents[2]
 STORE = ROOT / "data" / "context_templates.json"
@@ -77,15 +80,11 @@ def _initial():
         }
         for name, info in BUNDLED_SERVERS.items()
     }
-    for path in (HOME / ".kiro/settings/mcp.json", ROOT / ".kiro/settings/mcp.json"):
-        for name, config in read_jsonc(path).get("mcpServers", {}).items():
-            item = servers.setdefault(name, {"description": name})
-            item.update(kiro=config, global_enabled=not config.get("disabled", False))
-    for name, config in opencode_base().get("mcp", {}).items():
-        item = servers.setdefault(name, {"description": name})
-        item["opencode"] = config
-        # Respect existing OpenCode toggles when both harnesses have a definition.
-        item["global_enabled"] = config.get("enabled", True)
+    for provider in providers():
+        for name, (definition, enabled) in provider.import_servers(sys.modules[__name__]).items():
+            item = servers.setdefault(name, {'description': name})
+            item[provider.id] = definition
+            item['global_enabled'] = enabled
     for item in servers.values():
         item["global"] = item.pop("global_enabled", False)
     documents = {}
@@ -139,14 +138,14 @@ def save_config(data):
     for name, item in data["servers"].items():
         if type(item.get("global", False)) is not bool:
             raise ValueError("Global selection must be a boolean")
-        for backend in ("kiro", "opencode"):
+        for backend in provider_ids():
             config = item.get(backend)
             if config is not None and not isinstance(config, dict):
                 raise ValueError(f"Invalid {backend} configuration for {name}")
-        if not item.get("kiro") and not item.get("opencode"):
+        if not any(item.get(backend) for backend in provider_ids()):
             raise ValueError(f"Missing server configuration: {name}")
         # Validate that the selected definition can actually be launched.
-        for backend in ("kiro", "opencode"):
+        for backend in provider_ids():
             server_config(item, backend)
     for item in data["templates"].values():
         if not isinstance(item.get("name"), str) or not item["name"].strip():
@@ -171,22 +170,13 @@ def save_config(data):
 
 def _push_to_harnesses(data):
     """Push Fernando's MCP server config to Kiro and OpenCode configs."""
-    kiro_path = HOME / ".kiro/settings/mcp.json"
-    kiro_config = read_jsonc(kiro_path)
-    opencode_path = HOME / ".config/opencode/opencode.jsonc"
-    opencode_config = read_jsonc(opencode_path)
-    kiro_config["mcpServers"] = {
-        name: server_config(item, "kiro")
-        for name, item in data["servers"].items()
-        if item.get("global")
-    }
-    opencode_config["mcp"] = {
-        name: server_config(item, "opencode")
-        for name, item in data["servers"].items()
-        if item.get("global")
-    }
-    _write(kiro_path, kiro_config)
-    _write(opencode_path, opencode_config)
+    for provider in providers():
+        path, config, key = provider.global_mcp(sys.modules[__name__])
+        config[key] = {
+            name: server_config(item, provider.id)
+            for name, item in data['servers'].items() if item.get('global')
+        }
+        _write(path, config)
 
 
 def sync_harness_settings():
@@ -195,88 +185,43 @@ def sync_harness_settings():
 
 
 def server_config(item, backend):
-    for source, definition in ((key, item.get(key)) for key in ("kiro", "opencode")):
+    provider = get_provider(backend)
+    definitions = {}
+    for source in providers():
+        definition = item.get(source.id)
         if definition is None:
             continue
         if not isinstance(definition, dict):
-            raise ValueError(f"{source} server configuration must be an object")
+            raise ValueError(f"{source.id} server configuration must be an object")
         if "url" in definition and (
             not isinstance(definition["url"], str)
             or not definition["url"].startswith(("http://", "https://"))
         ):
             raise ValueError("Remote MCP servers need an HTTP(S) URL")
-        if "command" in definition:
-            command = definition["command"]
-            if source == "kiro" and (not isinstance(command, str) or not command):
-                raise ValueError("Kiro MCP command must be a nonempty string")
-            if source == "opencode" and (
-                not isinstance(command, list)
-                or not command
-                or any(not isinstance(v, str) or not v for v in command)
-            ):
-                raise ValueError("OpenCode MCP command must be a nonempty string array")
-        if source == "kiro" and "args" in definition:
-            if not isinstance(definition["args"], list) or any(
-                not isinstance(v, str) for v in definition["args"]
-            ):
-                raise ValueError("MCP arguments must be a string array")
         for key in ("env", "environment", "headers"):
             if key in definition and (
                 not isinstance(definition[key], dict)
                 or any(not isinstance(v, str) for v in definition[key].values())
             ):
                 raise ValueError(f"MCP {key} must contain string values")
-    config = copy.deepcopy(item.get(backend))
-    if not config or not (config.get("command") or config.get("url")):
-        other = item.get("kiro" if backend == "opencode" else "opencode", {})
-        if backend == "opencode":
-            if other.get("url"):
-                config = {"type": "remote", "url": other["url"]}
-                for key in ("headers", "oauth"):
-                    if key in other:
-                        config[key] = copy.deepcopy(other[key])
-            else:
-                config = {
-                    "type": "local",
-                    "command": [other.get("command", "")] + other.get("args", []),
-                    "environment": copy.deepcopy(other.get("env", {})),
-                }
-        elif other.get("url"):
-            config = {"url": other["url"]}
-            for key in ("headers", "oauth"):
-                if key in other:
-                    config[key] = copy.deepcopy(other[key])
-        else:
-            command = other.get("command", [])
-            config = {
-                "command": command[0] if command else "",
-                "args": command[1:],
-                "env": copy.deepcopy(other.get("environment", {})),
-            }
-    if backend == "opencode":
-        config.setdefault("type", "remote" if config.get("url") else "local")
-        if config["type"] not in ("local", "remote"):
-            raise ValueError("OpenCode MCP type must be local or remote")
-        command = config.get("command")
-        if not config.get("url") and (
-            not isinstance(command, list)
-            or not command
-            or any(not isinstance(v, str) or not v for v in command)
-        ):
-            raise ValueError("OpenCode MCP command must be a nonempty string array")
-        config["enabled"] = True
-    else:
-        if not config.get("url") and not isinstance(config.get("command"), str):
-            raise ValueError("Kiro MCP command must be a string")
-        if not config.get("url") and not config.get("command"):
-            raise ValueError("MCP server needs a command or URL")
-        config.pop("disabled", None)
-    return config
+        decoded = source.decode_server(definition)
+        if decoded.get('command') or decoded.get('url'):
+            definitions[source.id] = decoded
+    if backend in definitions:
+        return provider.encode_server(definitions[backend])
+    if not definitions:
+        raise ValueError('MCP server needs a command or URL')
+    source = next(iter(definitions.values()))
+    keys = ('url', 'headers', 'oauth') if source.get('url') else ('command', 'env')
+    shared = {key: copy.deepcopy(source[key]) for key in keys if key in source}
+    if not source.get('url'):
+        shared.setdefault('env', {})
+    return provider.encode_server(shared)
 
 
 def resolve(group_id, backend):
     from src.services import groups
-
+    get_provider(backend)
     config = get_config()
     group = next((g for g in groups.list_groups() if g["id"] == group_id), None)
     if group_id and group is None:
@@ -327,19 +272,8 @@ def resolve(group_id, backend):
 
 
 def clear_inherited_context(env):
-    managed_opencode = False
-    for key in ("KIRO_HOME", "XDG_CONFIG_HOME", "OPENCODE_CONFIG", "OPENCODE_CONFIG_DIR"):
-        value = env.get(key)
-        if value and Path(value).is_relative_to(RUNTIME):
-            del env[key]
-            if key != "KIRO_HOME":
-                managed_opencode = True
-    if managed_opencode:
-        for key in (
-            "OPENCODE_DISABLE_PROJECT_CONFIG",
-            "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT",
-        ):
-            env.pop(key, None)
+    for provider in providers():
+        provider.clear_inherited_context(env, RUNTIME)
 
 
 def prepare(session_id, snapshot, backend):
@@ -355,40 +289,7 @@ def prepare(session_id, snapshot, backend):
         )
     )
     instructions.chmod(0o600)
-    if backend == "opencode":
-        config = opencode_base()
-        config["mcp"] = copy.deepcopy(snapshot["servers"])
-        config["instructions"] = [str(instructions)]
-        config["$schema"] = "https://opencode.ai/config.json"
-        config_path = directory / "config/opencode/opencode.json"
-        _write(config_path, config)
-        return {
-            "XDG_CONFIG_HOME": str(directory / "config"),
-            "OPENCODE_CONFIG": str(config_path),
-            "OPENCODE_CONFIG_DIR": str(config_path.parent),
-            "OPENCODE_DISABLE_PROJECT_CONFIG": "1",
-            "OPENCODE_DISABLE_CLAUDE_CODE_PROMPT": "1",
-        }, []
-    kiro_home = directory / "kiro"
-    settings = read_jsonc(HOME / ".kiro/settings/cli.json")
-    settings["chat.disableInheritingDefaultResources"] = True
-    _write(kiro_home / "settings/cli.json", settings)
-    _write(
-        kiro_home / "agents/fernando.json",
-        {
-            "name": "fernando",
-            "description": "Fernando chat context",
-            "tools": ["*"],
-            "includeMcpJson": False,
-            "mcpServers": snapshot["servers"],
-            "resources": ["file://" + str(instructions)],
-        },
-    )
-    # Native session history remains in its usual location for resume/fork support.
-    sessions = kiro_home / "sessions"
-    if not sessions.is_symlink() and not sessions.exists():
-        sessions.symlink_to(HOME / ".kiro/sessions", target_is_directory=True)
-    return {"KIRO_HOME": str(kiro_home)}, ["--agent", "fernando"]
+    return get_provider(backend).prepare_context(sys.modules[__name__], directory, instructions, snapshot)
 
 
 def summary(snapshot):

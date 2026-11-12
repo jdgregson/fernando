@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from src.services import acp, groups
+from src.services.providers import kiro_sessions
 
 
 class GroupArchiveTests(unittest.TestCase):
@@ -18,7 +19,7 @@ class GroupArchiveTests(unittest.TestCase):
             (groups, 'GROUPS_FILE', str(root / 'groups.json')),
             (acp, 'SESSIONS_FILE', str(root / 'sessions.json')),
             (acp, 'ARCHIVED_FILE', str(root / 'archived.json')),
-            (acp, 'KIRO_SESSIONS_DIR', str(root / 'native')),
+            (kiro_sessions, 'SESSIONS_DIR', str(root / 'native')),
         ):
             target = patch.object(module, name, value)
             target.start()

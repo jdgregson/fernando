@@ -4,6 +4,8 @@ MCP Server for Kasm Desktop Control
 Allows AI to control the Kasm desktop via keyboard/mouse commands
 """
 
+import _mcp_common
+
 import asyncio
 import json
 import os
@@ -15,12 +17,13 @@ from pathlib import Path
 from mcp.server import Server
 from mcp.types import Tool, TextContent, ImageContent
 from browser_cdp import browser
+from desktop_process import run_desktop, run_process
 
 
 CDP_PORT = 9222
 
 
-def cdp_send(ws_url, method, params=None):
+async def cdp_send(ws_url, method, params=None):
     """Send a CDP command via python3 inside the container and return the result."""
     msg_json = json.dumps({"id": 1, "method": method, "params": params or {}})
     script = """
@@ -35,20 +38,19 @@ while True:
         break
 ws.close()
 """
-    result = subprocess.run(
-        ["docker", "exec", "-i", "fernando-desktop", "python3", "-c", script, ws_url],
-        input=msg_json, capture_output=True, text=True, timeout=15,
+    result = await run_desktop(
+        ["python3", "-c", script, ws_url],
+        input=msg_json, timeout=15,
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr)
     return json.loads(result.stdout)
 
 
-def get_chrome_tabs():
+async def get_chrome_tabs():
     """Get list of open Chrome tabs via CDP HTTP API."""
-    result = subprocess.run(
-        ["docker", "exec", "fernando-desktop", "curl", "-s", f"http://localhost:{CDP_PORT}/json"],
-        capture_output=True, text=True, timeout=5,
+    result = await run_desktop(
+        ["curl", "-s", f"http://localhost:{CDP_PORT}/json"], timeout=5,
     )
     return json.loads(result.stdout) if result.stdout.strip() else []
 
@@ -121,21 +123,20 @@ async def recording_frames(recording_id, timestamps):
     return content
 
 
-def desktop_observation(*args):
+async def desktop_observation(*args):
     script = Path(__file__).with_name("desktop_observe.py").read_text()
-    result = subprocess.run(
-        ["docker", "exec", "-i", "--user", "1000:1000", "-e", "DISPLAY=:1",
-         "fernando-desktop", "/usr/bin/python3", "-", *args],
-        input=script, capture_output=True, text=True, timeout=20,
+    result = await run_desktop(
+        ["/usr/bin/python3", "-", *args], env={"DISPLAY": ":1"},
+        input=script, timeout=20,
     )
     if result.returncode:
         raise RuntimeError(f"Desktop observation failed: {result.stderr}")
     return json.loads(result.stdout)
 
 
-def screenshot_content():
+async def screenshot_content():
     filename = f"screenshot_{uuid.uuid4().hex[:12]}.png"
-    metadata = desktop_observation("screenshot", f"/home/kasm-user/{filename}")
+    metadata = await desktop_observation("screenshot", f"/home/kasm-user/{filename}")
     path = Path(__file__).resolve().parent.parent / "data" / "desktop" / filename
     image = path.read_bytes()
     width, height = struct.unpack(">II", image[16:24])
@@ -145,22 +146,15 @@ def screenshot_content():
             image_content(path)]
 
 
-def exec_in_kasm(cmd, env=None, shell=False, stdin_data=None):
+async def exec_in_kasm(cmd, env=None, shell=False, stdin_data=None):
     """Execute a command inside the Kasm container.
     cmd: shell string if shell=True, list of args if shell=False.
     env: dict of environment variables to set.
     stdin_data: optional string to pipe to stdin."""
-    base = ["docker", "exec", "-i" if stdin_data else None, "--user", "1000:1000"]
-    base = [x for x in base if x]
-    if env:
-        for k, v in env.items():
-            base += ["-e", f"{k}={v}"]
-    base += ["fernando-desktop"]
-    if shell:
-        base += ["bash", "-c", cmd]
-    else:
-        base += cmd
-    result = subprocess.run(base, capture_output=True, text=True, input=stdin_data)
+    result = await run_desktop(["bash", "-c", cmd] if shell else cmd,
+                               env=env, input=stdin_data, timeout=120 if shell else 30)
+    if result.returncode:
+        raise RuntimeError(f"Desktop command exited {result.returncode}:\n{result.stdout}{result.stderr}")
     return result.stdout + result.stderr
 
 
@@ -291,7 +285,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="desktop_shell",
-            description="Run a shell command in the Kasm desktop container",
+            description="Run a shell command in the Kasm desktop container with a 120-second deadline. Cancellation terminates its process group. Launch persistent applications using open_application or explicitly detach them with setsid and redirect all three standard streams.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -460,7 +454,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="desktop_exec",
-            description="Execute a bash command in the Kasm desktop container",
+            description="Execute a bash command in the Kasm desktop container with a 120-second deadline. Cancellation terminates its process group. Launch persistent applications using open_application or explicitly detach them with setsid and redirect all three standard streams.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -591,7 +585,7 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent]:
     result = await dispatch_tool(name, arguments)
     if name in OBSERVED_ACTIONS and arguments.get("observe", False):
-        result.extend(screenshot_content())
+        result.extend(await screenshot_content())
     return result
 
 
@@ -602,7 +596,7 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
         result = await recording_operation("sequence", actions=arguments["actions"])
         content = [TextContent(type="text", text=json.dumps(result, indent=2))]
         if arguments.get("observe", True):
-            content.extend(screenshot_content())
+            content.extend(await screenshot_content())
         return content
 
     elif name == "record_desktop":
@@ -660,11 +654,11 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     elif name == "type_text":
-        result = exec_in_kasm(["xdotool", "type", "--", arguments["text"]], env=_e)
+        result = await exec_in_kasm(["xdotool", "type", "--", arguments["text"]], env=_e)
         return [TextContent(type="text", text=f"Typed: {arguments['text']}\n{result}")]
 
     elif name == "press_key":
-        result = exec_in_kasm(["xdotool", "key", "--", arguments["key"]], env=_e)
+        result = await exec_in_kasm(["xdotool", "key", "--", arguments["key"]], env=_e)
         return [TextContent(type="text", text=f"Pressed: {arguments['key']}\n{result}")]
 
     elif name == "click_mouse":
@@ -675,37 +669,37 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
         if x is not None and y is not None:
             argv += ["mousemove", str(x), str(y)]
         argv += ["click", button]
-        result = exec_in_kasm(argv, env=_e)
+        result = await exec_in_kasm(argv, env=_e)
         return [TextContent(type="text", text=f"Clicked at ({x}, {y}) button {button}\n{result}")]
 
     elif name == "open_application":
         app_name = arguments["app"]
         if app_name in ("chrome", "google-chrome", "chromium"):
             app_name = "google-chrome"
-        result = exec_in_kasm(["bash", "-c", 'nohup "$1" &>/dev/null & sleep 1', "_", app_name], env=_e)
+        result = await exec_in_kasm(["bash", "-c", 'setsid "$1" </dev/null &>/dev/null & sleep 1', "_", app_name], env=_e)
         return [TextContent(type="text", text=f"Opened: {app_name}\n{result}")]
 
     elif name == "desktop_shell":
         cmd = arguments["command"]
-        result = exec_in_kasm(f"DISPLAY=:1 {cmd}", shell=True)
+        result = await exec_in_kasm(f"DISPLAY=:1 {cmd}", shell=True)
         return [TextContent(type="text", text=f"Command output:\n{result}")]
 
     elif name == "screenshot":
-        return screenshot_content()
+        return await screenshot_content()
 
     elif name == "accessibility":
-        result = desktop_observation("accessibility", str(arguments.get("max_nodes", 300)), str(arguments.get("max_depth", 12)))
+        result = await desktop_observation("accessibility", str(arguments.get("max_nodes", 300)), str(arguments.get("max_depth", 12)))
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     elif name == "scroll":
         x, y = str(arguments["x"]), str(arguments["y"])
         amount = str(arguments.get("amount", 3))
         button = "4" if arguments["direction"] == "up" else "5"
-        result = exec_in_kasm(["xdotool", "mousemove", x, y, "click", "--repeat", amount, button], env=_e)
+        result = await exec_in_kasm(["xdotool", "mousemove", x, y, "click", "--repeat", amount, button], env=_e)
         return [TextContent(type="text", text=f"Scrolled {arguments['direction']} {amount} times at ({x}, {y})\n{result}")]
 
     elif name == "move_mouse":
-        result = exec_in_kasm(["xdotool", "mousemove", str(arguments["x"]), str(arguments["y"])], env=_e)
+        result = await exec_in_kasm(["xdotool", "mousemove", str(arguments["x"]), str(arguments["y"])], env=_e)
         return [TextContent(type="text", text=f"Moved mouse to ({arguments['x']}, {arguments['y']})\n{result}")]
 
     elif name == "drag_mouse":
@@ -713,11 +707,11 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
         x2, y2 = str(arguments["x2"]), str(arguments["y2"])
         button = str(arguments.get("button", 1))
         delay = str(arguments.get("delay", 0.1))
-        result = exec_in_kasm(["xdotool", "mousemove", x1, y1, "mousedown", button, "sleep", delay, "mousemove", x2, y2, "sleep", delay, "mouseup", button], env=_e)
+        result = await exec_in_kasm(["xdotool", "mousemove", x1, y1, "mousedown", button, "sleep", delay, "mousemove", x2, y2, "sleep", delay, "mouseup", button], env=_e)
         return [TextContent(type="text", text=f"Dragged from ({x1}, {y1}) to ({x2}, {y2})\n{result}")]
 
     elif name == "get_mouse_position":
-        result = exec_in_kasm(["xdotool", "getmouselocation", "--shell"], env=_e)
+        result = await exec_in_kasm(["xdotool", "getmouselocation", "--shell"], env=_e)
         return [TextContent(type="text", text=f"Mouse position:\n{result}")]
 
     elif name == "double_click":
@@ -726,7 +720,7 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
         if x is not None and y is not None:
             argv += ["mousemove", str(x), str(y)]
         argv += ["click", "--repeat", "2", "1"]
-        result = exec_in_kasm(argv, env=_e)
+        result = await exec_in_kasm(argv, env=_e)
         return [TextContent(type="text", text=f"Double-clicked at ({x}, {y})\n{result}")]
 
     elif name == "right_click":
@@ -735,43 +729,43 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
         if x is not None and y is not None:
             argv += ["mousemove", str(x), str(y)]
         argv += ["click", "3"]
-        result = exec_in_kasm(argv, env=_e)
+        result = await exec_in_kasm(argv, env=_e)
         return [TextContent(type="text", text=f"Right-clicked at ({x}, {y})\n{result}")]
 
     elif name == "get_window_info":
-        result = exec_in_kasm(["wmctrl", "-lG"], env=_e)
+        result = await exec_in_kasm(["wmctrl", "-lG"], env=_e)
         return [TextContent(type="text", text=f"Open windows:\n{result}")]
 
     elif name == "focus_window":
         window = arguments["window"]
         flag = "-ia" if window.startswith("0x") else "-a"
-        result = exec_in_kasm(["wmctrl", flag, window], env=_e)
+        result = await exec_in_kasm(["wmctrl", flag, window], env=_e)
         return [TextContent(type="text", text=f"Focused window: {window}\n{result}")]
 
     elif name == "get_screen_size":
-        result = exec_in_kasm("DISPLAY=:1 xdpyinfo | grep dimensions", shell=True)
+        result = await exec_in_kasm("DISPLAY=:1 xdpyinfo | grep dimensions", shell=True)
         return [TextContent(type="text", text=f"Screen size:\n{result}")]
 
     elif name == "set_screen_size":
         w, h = str(arguments["width"]), str(arguments["height"])
-        result = exec_in_kasm(["xrandr", "--output", "VNC-0", "--fb", f"{w}x{h}"], env=_e)
+        result = await exec_in_kasm(["xrandr", "--output", "VNC-0", "--fb", f"{w}x{h}"], env=_e)
         return [TextContent(type="text", text=f"Set screen size to {w}x{h}\n{result}")]
 
     elif name == "get_clipboard":
-        result = exec_in_kasm(["xclip", "-selection", "clipboard", "-o"], env=_e)
+        result = await exec_in_kasm(["xclip", "-selection", "clipboard", "-o"], env=_e)
         return [TextContent(type="text", text=f"Clipboard content:\n{result}")]
 
     elif name == "set_clipboard":
-        result = exec_in_kasm(["xclip", "-selection", "clipboard"], env=_e, stdin_data=arguments["text"])
+        result = await exec_in_kasm(["python3", "-c", "import subprocess,sys; subprocess.run(['xclip', '-selection', 'clipboard'], stdin=sys.stdin, start_new_session=True, check=True)"], env=_e, stdin_data=arguments["text"])
         return [TextContent(type="text", text=f"Set clipboard to: {arguments['text']}\n{result}")]
 
     elif name == "desktop_exec":
-        result = exec_in_kasm(arguments["command"], shell=True)
+        result = await exec_in_kasm(arguments["command"], shell=True)
         return [TextContent(type="text", text=f"Command output:\n{result}")]
 
     elif name == "browser_tabs":
         try:
-            tabs = get_chrome_tabs()
+            tabs = await get_chrome_tabs()
             pages = [t for t in tabs if t.get("type") == "page"]
             if not pages:
                 return [TextContent(type="text", text="No browser tabs open (is Chrome running with --remote-debugging-port?)")]
@@ -782,7 +776,7 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
 
     elif name == "browser_get_dom":
         try:
-            tabs = get_chrome_tabs()
+            tabs = await get_chrome_tabs()
             pages = [t for t in tabs if t.get("type") == "page"]
             idx = arguments.get("tab_index", 0)
             if not pages or idx >= len(pages):
@@ -796,7 +790,7 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
             else:
                 sel_escaped = json.dumps(selector)
                 js = f"document.querySelector({sel_escaped})?.{prop} || 'Element not found: ' + {sel_escaped}"
-            resp = cdp_send(ws_url, "Runtime.evaluate", {"expression": js, "returnByValue": True})
+            resp = await cdp_send(ws_url, "Runtime.evaluate", {"expression": js, "returnByValue": True})
             result = resp.get("result", {}).get("result", {})
             if result.get("type") == "string":
                 return [TextContent(type="text", text=result["value"])]
@@ -806,13 +800,13 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
 
     elif name == "browser_exec_js":
         try:
-            tabs = get_chrome_tabs()
+            tabs = await get_chrome_tabs()
             pages = [t for t in tabs if t.get("type") == "page"]
             idx = arguments.get("tab_index", 0)
             if not pages or idx >= len(pages):
                 return [TextContent(type="text", text="Tab not found. Use browser_tabs to list available tabs.")]
             ws_url = pages[idx]["webSocketDebuggerUrl"]
-            resp = cdp_send(ws_url, "Runtime.evaluate", {
+            resp = await cdp_send(ws_url, "Runtime.evaluate", {
                 "expression": arguments["expression"],
                 "returnByValue": True,
                 "awaitPromise": True,
@@ -831,7 +825,7 @@ async def dispatch_tool(name: str, arguments: dict) -> list[TextContent | ImageC
 
     elif name == "browser_console":
         try:
-            tabs = get_chrome_tabs()
+            tabs = await get_chrome_tabs()
             pages = [t for t in tabs if t.get("type") == "page"]
             idx = arguments.get("tab_index", 0)
             if not pages or idx >= len(pages):
@@ -877,9 +871,8 @@ while time.time() < deadline:
 ws.close()
 print(json.dumps(entries))
 """
-            result = subprocess.run(
-                ["docker", "exec", "-i", "fernando-desktop", "python3", "-c", script, ws_url],
-                capture_output=True, text=True, timeout=15,
+            result = await run_desktop(
+                ["python3", "-c", script, ws_url], timeout=15,
             )
             if result.returncode != 0:
                 return [TextContent(type="text", text=f"Error: {result.stderr}")]
@@ -897,11 +890,11 @@ print(json.dumps(entries))
         try:
             if direction == "to_desktop":
                 dst = f"/home/kasm-user/{filename}"
-                subprocess.run(["docker", "cp", src, f"fernando-desktop:{dst}"], check=True, capture_output=True, text=True)
+                await run_process(["docker", "cp", src, f"fernando-desktop:{dst}"], check=True, timeout=120)
                 return [TextContent(type="text", text=f"Copied to container: {dst}")]
             else:
                 dst = f"/tmp/{filename}"
-                subprocess.run(["docker", "cp", f"fernando-desktop:{src}", dst], check=True, capture_output=True, text=True)
+                await run_process(["docker", "cp", f"fernando-desktop:{src}", dst], check=True, timeout=120)
                 return [TextContent(type="text", text=f"Copied to host: {dst}")]
         except subprocess.CalledProcessError as e:
             return [TextContent(type="text", text=f"Copy failed: {e.stderr}")]

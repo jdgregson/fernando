@@ -21,11 +21,25 @@ Both processes append to `/tmp/fernando-flask.log` with the existing log format.
 
 Before runtime shutdown, actively working sessions are checkpointed to a private atomic restart file. Once restored, each receives `Service restarted, continue what you were doing.` An explicit continuation replaces the generic one for its target session. Idle and sleeping sessions do not receive automatic work prompts. Pending recovery survives a session-load failure and is acknowledged after continuation submission. The runtime unit uses `KillMode=mixed` so its main process can checkpoint before systemd kills remaining child processes.
 
+After an abrupt runtime failure that bypasses shutdown checkpointing, restored
+previously loaded chats also inspect their durable conversation history. A
+submitted prompt without a terminal result, recorded error, or explicit
+cancellation receives a visible recovery continuation instructing the agent to
+check interrupted actions before repeating them. Such a chat is announced as
+working, not Ready. Completed, cancelled, and sleeping conversations remain
+stopped.
+
 Flask-only mode refuses to run before the split services have been installed. It never substitutes a full restart.
 
 Changes to `src/routes/websocket.py`, ACP internals, session-bound HTTP handlers, runtime startup, or MCP servers require the full mode. Stateless HTTP routes, templates, static assets, and web-only dependencies can use Flask-only mode. Shared modules used by the runtime require full mode to update the runtime's loaded copy.
 
 During a web restart, existing chat/terminal streams and session-bound tool requests continue. New page/stateless HTTP requests may briefly receive 503; in-flight web-owned requests, including uploads, are not guaranteed to survive. This mode is not a rolling web deployment.
+
+## MCP startup failures
+
+Each chat launch tracks the MCP servers selected by its resolved global and template configuration. Kiro startup notifications and OpenCode's authenticated process-local MCP status drive a persistent red failure alert above the chat. Successful servers produce no visible status list. Explicit failures show the server name and backend error; absent startup confirmation is reported as unconfirmed after 120 seconds, or 10 seconds after Kiro finishes loading the chat.
+
+The current failure snapshot accompanies every chat subscription, including incremental history reconnects. The close button dismisses the displayed failure for the current page; a changed failure or a freshly opened page shows it again. Startup status is independent of conversation-history replay suppression. A new launch checks the new resolved configuration, late results from older startup timers are ignored, and confirmed recovery clears the alert. Reload completion alone does not claim that MCP tools were restored.
 
 ## Scheduled chat resumes
 

@@ -38,7 +38,7 @@ socket.on('automation_rules', (data) => {
         if (r.fire_once) badges.push('<span class="sa-badge scheduled">once</span>');
         const details = [];
         if (trigger.from) details.push('from: ' + escapeHtml(trigger.from));
-        if (trigger.type === 'inbound' && r.action !== 'drop') details.push('provider: ' + (r.backend === 'opencode' ? 'OpenCode' : 'Kiro'));
+        if (trigger.type === 'inbound' && r.action !== 'drop') details.push('provider: ' + (window.agentProviders?.find(provider => provider.id === (r.backend || 'kiro'))?.name || r.backend || 'kiro'));
         if (trigger.subject_contains) details.push('subj: ' + escapeHtml(trigger.subject_contains));
         if (trigger.body_contains) details.push('body: ' + escapeHtml(trigger.body_contains));
         if (trigger.cron) details.push('cron: ' + escapeHtml(trigger.cron));
@@ -122,11 +122,10 @@ function updateTriggerFields() {
             </div>
             <div style="margin-top:14px">
                 <label class="sa-form-label" for="autoBackend">Agent provider</label>
-                <select id="autoBackend" class="sa-input">
-                    <option value="kiro">Kiro</option>
-                    <option value="opencode">OpenCode</option>
-                </select>
+                <select id="autoBackend" class="sa-input"></select>
             </div>`;
+        document.getElementById('autoBackend').replaceChildren(
+            ...window.agentProviders.map(provider => new Option(provider.name, provider.id)));
     } else if (type === 'schedule') {
         c.innerHTML = `
             <div style="margin-bottom:14px">

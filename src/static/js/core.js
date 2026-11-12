@@ -352,50 +352,28 @@ function loadSettings() {
     fetch('/api/settings', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
         .then(r => r.json())
         .then(data => {
-            // Load Kiro models
-            const kiroSel = document.getElementById('settingsKiroModel');
-            const currentKiroModel = data.default_model || '';
-            fetch('/api/models', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
-                .then(r => r.json())
-                .then(mdata => {
-                    if (mdata.models && kiroSel) {
-                        kiroSel.innerHTML = '';
-                        mdata.models.forEach(m => {
-                            const opt = document.createElement('option');
-                            opt.value = m.model_id;
-                            opt.textContent = m.model_name;
-                            kiroSel.appendChild(opt);
-                        });
-                        if (currentKiroModel) kiroSel.value = currentKiroModel;
-                    }
-                }).catch(() => {});
-            // Load OpenCode models
-            const openCodeSel = document.getElementById('settingsOpenCodeModel');
-            const currentOpenCodeModel = data.opencode_model || '';
-            fetch('/api/opencode_models', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
-                .then(r => r.json())
-                .then(mdata => {
-                    if (mdata.models && openCodeSel) {
-                        openCodeSel.innerHTML = '';
-                        mdata.models.forEach(m => {
-                            const opt = document.createElement('option');
-                            opt.value = m;
-                            opt.textContent = m;
-                            openCodeSel.appendChild(opt);
-                        });
-                        if (currentOpenCodeModel) openCodeSel.value = currentOpenCodeModel;
-                    }
-                }).catch(() => {
-                    if (openCodeSel) openCodeSel.innerHTML = '<option value="">Not available</option>';
-                });
+            document.querySelectorAll('[data-provider-model]').forEach(select => {
+                fetch('/api/providers/' + encodeURIComponent(select.dataset.providerModel) + '/models',
+                    {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
+                    .then(response => {
+                        if (!response.ok) throw new Error('Model discovery failed');
+                        return response.json();
+                    })
+                    .then(result => {
+                        select.replaceChildren(...result.models.map(model => new Option(model.name, model.id)));
+                        if (data[select.dataset.setting]) select.value = data[select.dataset.setting];
+                    })
+                    .catch(() => { select.replaceChildren(new Option('Not available', '')); });
+            });
+            document.querySelectorAll('[data-provider-enabled]').forEach(input => {
+                input.checked = !input.dataset.setting || data[input.dataset.setting] === true;
+            });
             const effortSel = document.getElementById('settingsEffort');
             document.getElementById('settingsFileView').value = data.file_browser_view;
             document.getElementById('settingsFileHidden').checked = data.file_browser_hidden === true;
             if (effortSel) effortSel.value = data.default_effort || 'max';
             const idleTimeoutSel = document.getElementById('settingsIdleTimeout');
             if (idleTimeoutSel) idleTimeoutSel.value = String(data.idle_session_timeout ?? 300);
-            const providerOpenCode = document.getElementById('providerOpenCode');
-            if (providerOpenCode) providerOpenCode.checked = data.providers_opencode === true;
             // Load subagent settings
             const subagentsCanSpawn = document.getElementById('settingsSubagentsCanSpawn');
             if (subagentsCanSpawn) subagentsCanSpawn.checked = data.subagents_can_spawn === true;
@@ -499,22 +477,11 @@ function saveDefenderIntegration(input) {
     }).finally(() => { input.disabled = false; });
 }
 
-function saveOpenCodeModel(value) {
+function saveProviderValue(key, value) {
     fetch('/api/settings', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
-        body: JSON.stringify({key: 'opencode_model', value})
-    }).then(response => {
-        if (!response.ok) throw new Error('Failed to save OpenCode model');
-        emitWithCsrf('get_sessions');
-    });
-}
-
-function saveProviderSetting(provider, enabled) {
-    fetch('/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
-        body: JSON.stringify({key: 'providers_' + provider, value: enabled})
+        body: JSON.stringify({key, value})
     }).then(response => {
         if (!response.ok) throw new Error('Failed to save provider setting');
         emitWithCsrf('get_sessions');
@@ -522,22 +489,13 @@ function saveProviderSetting(provider, enabled) {
 }
 
 function applyProviderSettings(data) {
-    const kiroChatTile = document.getElementById('kiroChatTile');
-    kiroChatTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.default_model})`;
-    const openCodeTile = document.getElementById('openCodeTile');
-    openCodeTile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${data.opencode_model})`;
-    openCodeTile.style.display = data.providers_opencode === true ? '' : 'none';
-}
-
-function saveDefaultModel(value) {
-    fetch('/api/settings', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-API-Key': window.FERNANDO_API_KEY},
-        body: JSON.stringify({key: 'default_model', value})
-    }).then(response => {
-        if (!response.ok) throw new Error('Failed to save Kiro model');
-        emitWithCsrf('get_sessions');
-    });
+    window.agentProviders = data.providers;
+    for (const provider of data.providers) {
+        const tile = document.querySelector('[data-provider="' + CSS.escape(provider.id) + '"]');
+        if (!tile) continue;
+        tile.querySelector('.session-card-desc').textContent = `Graphical chat UI (${provider.model})`;
+        tile.style.display = provider.enabled ? '' : 'none';
+    }
 }
 
 function saveDefaultEffort(value) {

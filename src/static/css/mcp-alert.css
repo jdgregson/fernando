@@ -1,0 +1,20 @@
+.mcp-alert {
+    flex: 0 0 auto;
+    border: 2px solid #ff6767;
+    background: #641c25;
+    color: #fff;
+    padding: 12px 16px;
+    max-height: 35vh;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.mcp-alert[hidden] { display: none; }
+.mcp-alert-header { display: flex; align-items: center; gap: 12px; font-size: 16px; }
+.mcp-alert-dismiss { background: none; border: 0; color: inherit; flex-shrink: 0; }
+.split-pane .mcp-alert {
+    border-right: 0;
+    border-left: 0;
+}
+.mcp-alert ul { margin: 6px 0 0; padding-left: 20px; }

@@ -1751,7 +1751,7 @@ button.notebook-delete-btn {
     animation: health-pulse 1.5s ease-in-out infinite;
 }
 .health-indicator.warning {
-    color: #3465a3;
+    color: #d4a017;
     animation: health-pulse 1.5s ease-in-out infinite;
 }
 @keyframes health-pulse {

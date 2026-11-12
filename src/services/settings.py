@@ -60,9 +60,14 @@ def get_all():
 
 
 def get_provider_settings():
+    from src.services.providers import providers
     settings = get_all()
-    return {
-        "providers_opencode": settings.get("providers_opencode") is True,
-        "default_model": settings["default_model"],
-        "opencode_model": settings.get("opencode_model", ""),
-    }
+    result = {'providers': []}
+    for provider in providers():
+        model = settings.get(provider.model_setting) or provider.default_model
+        enabled = provider.enabled_setting is None or settings.get(provider.enabled_setting) is True
+        result[provider.model_setting] = model
+        if provider.enabled_setting:
+            result[provider.enabled_setting] = enabled
+        result['providers'].append({**provider.metadata(), 'model': model, 'enabled': enabled})
+    return result

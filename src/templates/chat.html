@@ -21,6 +21,8 @@
     <script src="/static/js/modal.js"></script>
     <script src="/static/js/chat-pins.js"></script>
     <script src="/static/js/chat-search-navigation.js"></script>
+    <script src="/static/js/mcp-alert.js"></script>
+    <link rel="stylesheet" href="/static/css/mcp-alert.css">
 </head>
 <body>
     <div class="chat-header" id="chatHeader">
@@ -28,6 +30,7 @@
         <span id="statusText">Starting...</span>
         <span class="header-stats" id="headerStats"></span>
     </div>
+    <section class="mcp-alert" id="mcpAlert" role="alert" aria-live="assertive" aria-atomic="true" hidden></section>
     <div class="task-bar" id="taskBar" style="display:none">
         <div class="task-bar-head" onclick="toggleTaskBar()">
             <span class="tb-arrow" id="tbArrow"><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 4 10 8 6 12"/></svg></span>
@@ -134,6 +137,7 @@
 <script>
     bindModalBackdrop(document.getElementById('toolModalOverlay'), closeToolModal);
     const sessionId = "{{ acp_session_id }}";
+    const renderMcpAlert = createMcpAlert(document.getElementById('mcpAlert'));
     const apiKey = "{{ api_key }}";
     let savedPrompts = [];
     let promptSaving = false;
@@ -420,6 +424,7 @@
         const bdb = Math.round(xb * 0.6 + b * 0.4);
         const borderColor = `rgb(${bdr}, ${bdg}, ${bdb})`;
         // Full border when not split, bottom only when split
+        document.documentElement.classList.toggle('split-pane', Boolean(isSplit));
         if (isSplit) {
             header.style.border = 'none';
             header.style.borderBottom = `1px solid ${borderColor}`;
@@ -518,9 +523,24 @@
         updateQueueSendButton();
     }
 
+    function loadProviderModelPicker() {
+        if (!window._sessionProvider?.capabilities.model_switch) {
+            showAlert('This provider does not support model switching.');
+            return;
+        }
+        fetch('/api/providers/' + encodeURIComponent(window._sessionBackend) + '/models',
+            {headers: {'X-API-Key': apiKey}})
+            .then(response => {
+                if (!response.ok) throw new Error('Could not fetch models');
+                return response.json();
+            })
+            .then(data => showModelModal(data.models.map(model => model.id), window._sessionModel))
+            .catch(error => showAlert(error.message));
+    }
+
     function updateHeaderStats() {
         const parts = [];
-        const backend = window._sessionBackend === 'opencode' ? 'OpenCode' : 'Kiro';
+        const backend = window._sessionProvider?.name || 'Agent';
         parts.push(backend);
         if (sessionEventCount > 0) {
             parts.push(sessionEventCount.toLocaleString() + ' events');
@@ -532,7 +552,7 @@
         const clickable = document.createElement('span');
         clickable.className = 'stats-clickable';
         clickable.appendChild(document.createTextNode(parts.join(' · ')));
-        if (sessionTotalCost > 0 && backend === 'OpenCode') {
+        if (sessionTotalCost > 0 && window._sessionProvider?.capabilities.cost) {
             clickable.appendChild(document.createTextNode(' · '));
             const costSpan = document.createElement('span');
             costSpan.style.fontStyle = 'italic';
@@ -543,7 +563,7 @@
         clickable.onclick = () => showSessionMetaModal();
         statsEl.appendChild(clickable);
         
-        if (backend === 'OpenCode') {
+        if (window._sessionProvider?.capabilities.quota) {
             renderQuotaPill(statsEl);
         }
     }
@@ -594,7 +614,7 @@
         if (!body) return;
         body.innerHTML = '';
         
-        const backend = window._sessionBackend === 'opencode' ? 'OpenCode' : 'Kiro';
+        const backend = window._sessionProvider?.name || 'Agent';
         const model = window._sessionModel || 'unknown';
         
         // Session section
@@ -619,18 +639,7 @@
         modelValue.textContent = model;
         modelValue.onclick = () => {
             document.getElementById('sessionMetaOverlay').classList.remove('open');
-            const endpoint = window._sessionBackend === 'opencode' ? '/api/opencode_models' : '/api/models';
-            fetch(endpoint, {headers: {'X-API-Key': apiKey}})
-                .then(r => r.json())
-                .then(data => {
-                    const models = window._sessionBackend === 'opencode'
-                        ? (data.models || [])
-                        : (data.models || []).map(m => m.model_id);
-                    showModelModal(models, window._sessionModel || 'claude-opus-4.6');
-                })
-                .catch(() => {
-                    showModelModal(['claude-opus-4.6','claude-sonnet-4.6'], window._sessionModel || 'claude-opus-4.6');
-                });
+            loadProviderModelPicker();
         };
         modelRow.appendChild(modelLabel);
         modelRow.appendChild(modelValue);
@@ -1328,7 +1337,7 @@
     };
 
     function forceUnstick() {
-        if (!confirm("Kill the stuck kiro-cli process and reload the session? The agent's last partial response will be lost.")) return;
+        if (!confirm("Kill the stuck agent process and reload the session? The agent's last partial response will be lost.")) return;
         setStatus('working', 'Restarting agent...');
         socket.emit('acp_force_unstick', { csrf_token: csrfToken, session_id: sessionId });
     }
@@ -1372,6 +1381,7 @@
         
         const forkBtn = document.createElement('button');
         forkBtn.type = 'button';
+        forkBtn.disabled = !window._sessionProvider?.capabilities.fork_at_turn;
         forkBtn.className = 'msg-context-item';
         forkBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9a9 9 0 01-9 9"/><path d="M6 9a9 9 0 009 9"/></svg><span>Fork from here</span>';
         forkBtn.onclick = () => {
@@ -1436,6 +1446,10 @@
     }
     
     function forkAtTurn(turnIndex) {
+        if (!window._sessionProvider?.capabilities.fork_at_turn) {
+            showAlert('This provider does not support forking at a turn.');
+            return;
+        }
         addSystemMessage('Forking from turn ' + turnIndex + '...');
         const payload = {
             csrf_token: csrfToken,
@@ -3114,18 +3128,7 @@
             input.value = '';
             input.style.height = 'auto';
             localStorage.removeItem(draftKey);
-            const endpoint = window._sessionBackend === 'opencode' ? '/api/opencode_models' : '/api/models';
-            fetch(endpoint, {headers: {'X-API-Key': apiKey}})
-                .then(r => r.json())
-                .then(data => {
-                    const models = window._sessionBackend === 'opencode'
-                        ? (data.models || [])
-                        : (data.models || []).map(m => m.model_id);
-                    showModelModal(models, window._sessionModel || 'claude-opus-4.6');
-                })
-                .catch(() => {
-                    showModelModal(['claude-opus-4.6','claude-sonnet-4.6'], window._sessionModel || 'claude-opus-4.6');
-                });
+            loadProviderModelPicker();
             return;
         }
 
@@ -3175,6 +3178,7 @@
 
     socket.on('acp_history_batch', (data) => {
         if (data.session_id !== sessionId) return;
+        renderMcpAlert(data.mcp_status);
         chatImages.pause();
         _historyReplayPending = true;
         resetStallTimer();
@@ -3236,6 +3240,7 @@
         if (data.sync_seq !== undefined) expectedSeq = data.sync_seq;
         if (data.model) window._sessionModel = data.model;
         if (data.backend) window._sessionBackend = data.backend;
+        if (data.provider) window._sessionProvider = data.provider;
         if (data.history_length !== undefined) {
             historyOffset = data.history_length;
             sessionEventCount = data.history_length;
@@ -3625,6 +3630,10 @@
             return;
         }
 
+        if (evt.type === 'mcp_status') {
+            renderMcpAlert(evt);
+            return;
+        }
         if (evt.type === 'session_working') {
             isWorking = true;
             setStatus('working', evt.retrying ? 'Retrying...' : 'Working...');

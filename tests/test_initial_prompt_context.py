@@ -39,7 +39,7 @@ class InitialPromptContextTests(unittest.TestCase):
         ):
             manager._start_new('self', session, 'Read the notebook.')
         session.send_prompt.assert_called_once_with(
-            '[Pane context: subagent_messages: 2 unread, group_name: "Project", '
+            '[Pane context: chat_id: self, subagent_messages: 2 unread, group_name: "Project", '
             'group_id: group, group_color: #b8860b, group_members: chat:self, '
             'chat:asleep (sleeping), notebook:project, jupyter:analysis, terminal]\nRead the notebook.',
             initial_only=True,
@@ -53,4 +53,4 @@ class InitialPromptContextTests(unittest.TestCase):
             patch('src.services.groups.get_all', return_value={'groups': [], 'session_groups': {}}),
             patch.object(acp, 'count_unread_child_messages', return_value=0),
         ):
-            self.assertEqual(manager._initial_prompt_context('self'), '[Pane context: ]')
+            self.assertEqual(manager._initial_prompt_context('self'), '[Pane context: chat_id: self]')

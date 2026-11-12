@@ -110,12 +110,12 @@ class OpenCodeForkIntegration(unittest.TestCase):
             boundaries = [i for i, event in enumerate(snapshot) if event.get('type') == 'user_prompt']
             self.assertEqual(len(boundaries), 3)
             for turn, expected_users in ((0, 0), (1, 1)):
-                earlier_id = source.fork_opencode(snapshot, boundaries[turn])
-                earlier = source.opencode_request('GET', '/session/' + earlier_id + '/message')
+                earlier_id = source.provider.fork_session(source, snapshot, boundaries[turn])
+                earlier = source.provider.request(source, 'GET', '/session/' + earlier_id + '/message')
                 self.assertEqual(sum(m['info']['role'] == 'user' for m in earlier), expected_users)
-            native_id = source.fork_opencode(snapshot, boundaries[2])
+            native_id = source.provider.fork_session(source, snapshot, boundaries[2])
             self.assertTrue(source._is_prompting)
-            native = source.opencode_request('GET', '/session/' + native_id + '/message')
+            native = source.provider.request(source, 'GET', '/session/' + native_id + '/message')
             self.assertEqual(sum(m['info']['role'] == 'user' for m in native), 2)
             chat_history.fork(source.id, 'bbbbbbbb', boundaries[2])
             child = acp.ACPSession('bbbbbbbb', backend='opencode')
@@ -123,8 +123,12 @@ class OpenCodeForkIntegration(unittest.TestCase):
             stack.callback(stop_session, child)
             child.load(native_id)
             child.ready = True
-            self.assertEqual(child.history, snapshot[:boundaries[2]])
-            self.assertEqual(len(chat_history.read_local(child.id)), 1)
+            self.assertEqual(child.history[:boundaries[2]], snapshot[:boundaries[2]])
+            for event in child.history[boundaries[2]:]:
+                self.assertEqual(event['params']['update']['sessionUpdate'], 'available_commands_update')
+            local = chat_history.read_local(child.id)
+            self.assertEqual(local[0]['type'], 'history_reference')
+            self.assertEqual(len(local), 1 + len(child.history) - boundaries[2])
             child.send_prompt('branch-message')
             self.wait_for(lambda: not child._is_prompting)
             branch_request = next(body for body in received if 'branch-message' in json.dumps(body['messages'][-1]))

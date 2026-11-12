@@ -585,7 +585,7 @@ class NativeContextTests(ContextFixture, unittest.TestCase):
         snapshot["servers"] = {}
         env, _ = context.prepare("dddddddd", snapshot, "opencode")
         result = subprocess.run(
-            [acp.OPENCODE_CLI, "debug", "config"],
+            [acp.get_provider('opencode').executable, "debug", "config"],
             env={**os.environ, **env},
             capture_output=True,
             text=True,
@@ -600,7 +600,7 @@ class NativeContextTests(ContextFixture, unittest.TestCase):
         )
         env, _ = context.prepare("eeeeeeee", context.resolve(None, "kiro"), "kiro")
         result = subprocess.run(
-            [acp.KIRO_CLI, "settings", "chat.disableInheritingDefaultResources"],
+            [acp.get_provider('kiro').executable, "settings", "chat.disableInheritingDefaultResources"],
             env={**os.environ, **env},
             capture_output=True,
             text=True,

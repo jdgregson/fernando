@@ -177,14 +177,12 @@
                         <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-4px;margin-right:6px"><circle cx="8" cy="5" r="3"/><path d="M3 14c0-3 2-5 5-5s5 2 5 5"/></svg>Kiro CLI</div>
                         <div class="session-card-desc">Kiro CLI chat agent mode</div>
                     </div>
-                    <div class="session-card" id="kiroChatTile" onclick="createChatSession()">
-                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>Kiro Chat</div>
-                        <div class="session-card-desc">Graphical chat UI ({{ provider_settings.default_model }})</div>
+                    {% for provider in provider_settings.providers %}
+                    <div class="session-card" data-provider="{{ provider.id }}" onclick="createChatSession(this.dataset.provider)"{% if not provider.enabled %} style="display: none"{% endif %}>
+                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-4px;margin-right:6px"><path d="{{ provider.icon_path }}"/></svg>{{ provider.name }} Chat</div>
+                        <div class="session-card-desc">Graphical chat UI ({{ provider.model }})</div>
                     </div>
-                    <div class="session-card" id="openCodeTile" onclick="createOpenCodeChatSession()"{% if not provider_settings.providers_opencode %} style="display: none"{% endif %}>
-                        <div class="session-card-title"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-4px;margin-right:6px"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 6l3 2-3 2"/><line x1="9" y1="10" x2="12" y2="10"/></svg>OpenCode Chat</div>
-                        <div class="session-card-desc">Graphical chat UI ({{ provider_settings.opencode_model }})</div>
-                    </div>
+                    {% endfor %}
                 </div>
                 <div class="new-session-actions">
                     <button class="modal-close" onclick="closeNewSessionModal()">Cancel</button>
@@ -304,30 +302,23 @@
                     </section>
                 </div>
                 <div class="settings-tab-content" id="settingsTabProviders">
+                    {% for provider in provider_settings.providers %}
                     <div class="mcp-server-item settings-provider-card">
                         <div style="display:flex;align-items:center;gap:10px;">
-                            <input type="checkbox" id="providerKiro" checked disabled>
-                            <label for="providerKiro" style="display:flex;flex-direction:column;gap:2px;cursor:default;"><div class="mcp-server-name">Kiro</div><div class="mcp-server-desc">Kiro CLI agent backend (always enabled)</div></label>
+                            <input type="checkbox" id="provider-{{ provider.id }}" data-provider-enabled="{{ provider.id }}" data-setting="{{ provider.enabled_setting or '' }}" onchange="saveProviderValue(this.dataset.setting, this.checked)"{% if provider.enabled %} checked{% endif %}{% if not provider.enabled_setting %} disabled{% endif %}>
+                            <label for="provider-{{ provider.id }}" style="display:flex;flex-direction:column;gap:2px;"><div class="mcp-server-name">{{ provider.name }}</div><div class="mcp-server-desc">{{ provider.name }} agent backend{% if not provider.enabled_setting %} (always enabled){% endif %}</div></label>
                         </div>
                         <div class="settings-row" style="margin:0;padding-left:26px;">
-                            <label class="settings-label" for="settingsKiroModel">Model</label>
-                            <select id="settingsKiroModel" class="settings-select" onchange="saveDefaultModel(this.value)">
+                            <label class="settings-label" for="provider-model-{{ provider.id }}">Model</label>
+                            <select id="provider-model-{{ provider.id }}" data-provider-model="{{ provider.id }}" data-setting="{{ provider.model_setting }}" class="settings-select" onchange="saveProviderValue(this.dataset.setting, this.value)">
                                 <option value="">Loading...</option>
                             </select>
                         </div>
+                        {% if provider.setup_instructions %}
+                        <div class="mcp-server-desc" style="padding-left:26px;overflow-wrap:anywhere;">{{ provider.setup_instructions }}<br><code>{{ provider.login_command }}</code></div>
+                        {% endif %}
                     </div>
-                    <div class="mcp-server-item settings-provider-card">
-                        <div style="display:flex;align-items:center;gap:10px;">
-                            <input type="checkbox" id="providerOpenCode" onchange="saveProviderSetting('opencode', this.checked)">
-                            <label for="providerOpenCode" style="display:flex;flex-direction:column;gap:2px;cursor:pointer;"><div class="mcp-server-name">OpenCode</div><div class="mcp-server-desc">OpenCode agent backend (Bedrock models)</div></label>
-                        </div>
-                        <div class="settings-row" style="margin:0;padding-left:26px;">
-                            <label class="settings-label" for="settingsOpenCodeModel">Model</label>
-                            <select id="settingsOpenCodeModel" class="settings-select" onchange="saveOpenCodeModel(this.value)">
-                                <option value="">Loading...</option>
-                            </select>
-                        </div>
-                    </div>
+                    {% endfor %}
                 </div>
                 <div class="settings-tab-content" id="settingsTabMcp">
                     <div id="mcpServerList" style="color:#8899aa;font-size:13px;">Loading...</div>
@@ -537,6 +528,7 @@
     </div>
 
     <script>window.FERNANDO_API_KEY = '{{ api_key }}';</script>
+    <script>window.agentProviders = {{ provider_settings.providers | tojson }};</script>
     <script src="/static/js/core.js"></script>
     <script src="/static/js/modal.js"></script>
     <script src="/static/js/context.js"></script>

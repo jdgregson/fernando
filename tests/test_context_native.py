@@ -228,7 +228,7 @@ class NativeACPContextTests(unittest.TestCase):
                 (sessions[0], "alpha", "beta"),
                 (sessions[1], "beta", "alpha"),
             ]:
-                status = session.opencode_request("GET", "/mcp")
+                status = session.provider.request(session, "GET", "/mcp")
                 self.assertEqual(set(status), {name}, status)
                 self.assertEqual(status[name]["status"], "connected", status)
                 session.send_prompt("fixture-" + name)
@@ -249,7 +249,7 @@ class NativeACPContextTests(unittest.TestCase):
                 self.assertNotIn(excluded + "_probe", payload)
             original_history = copy.deepcopy(sessions[0].history)
             native_id = sessions[0].acp_session_id
-            native_messages = sessions[0].opencode_request(
+            native_messages = sessions[0].provider.request(sessions[0],
                 "GET", f"/session/{native_id}/message"
             )
             (root / "beta.md").write_text("UPDATED_STEERING_beta")
@@ -271,14 +271,14 @@ class NativeACPContextTests(unittest.TestCase):
             self.assertEqual(
                 sessions[0].history[: len(original_history)], original_history
             )
-            resumed_messages = sessions[0].opencode_request(
+            resumed_messages = sessions[0].provider.request(sessions[0],
                 "GET", f"/session/{native_id}/message"
             )
             self.assertEqual(
                 [m["info"]["id"] for m in resumed_messages],
                 [m["info"]["id"] for m in native_messages],
             )
-            self.assertEqual(set(sessions[0].opencode_request("GET", "/mcp")), {"beta"})
+            self.assertEqual(set(sessions[0].provider.request(sessions[0], "GET", "/mcp")), {"beta"})
             sessions[0].ready = True
             sessions[0].send_prompt("after-group-move")
             deadline = time.time() + 30

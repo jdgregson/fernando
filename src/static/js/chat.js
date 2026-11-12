@@ -1,31 +1,9 @@
 // --- ACP Chat Sessions ---
 
-function createChatSession() {
+function createChatSession(backend = 'kiro') {
     const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
     closeNewSessionModal();
-    emitWithCsrf('acp_create', groupId ? { group_id: groupId } : {});
-}
-
-function createOpenCodeChatSession() {
-    const groupId = typeof getNewSessionGroupId === 'function' ? getNewSessionGroupId() : getActivePaneGroupId();
-    closeNewSessionModal();
-    fetch('/api/settings', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
-        .then(r => r.json())
-        .then(data => {
-            const model = data.opencode_model || 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1';
-            emitWithCsrf('acp_create', {
-                backend: 'opencode',
-                model: model,
-                group_id: groupId
-            });
-        })
-        .catch(() => {
-            emitWithCsrf('acp_create', {
-                backend: 'opencode',
-                model: 'amazon-bedrock/us.anthropic.claude-opus-4-6-v1',
-                group_id: groupId
-            });
-        });
+    emitWithCsrf('acp_create', {backend, group_id: groupId});
 }
 
 socket.on('acp_created', (data) => { openChatPane(data.session_id); });

@@ -1,4 +1,4 @@
-"""ACP (Agent Client Protocol) service for managing kiro-cli acp subprocesses."""
+"""Shared ACP transport, conversation persistence, and agent process lifecycle."""
 
 import glob
 import json
@@ -10,20 +10,14 @@ import subprocess
 import threading
 import tempfile
 import time
-import shutil
 import uuid
-import secrets
 import copy
-import psutil
-import requests
-from urllib.parse import quote
 
 from src.services import rag, chat_history
+from src.services.mcp_startup import MCPStartup
+from src.services.providers import get_provider, legacy_provider
 
 logger = logging.getLogger(__name__)
-
-KIRO_CLI = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
-OPENCODE_CLI = os.path.expanduser("~/.opencode/bin/opencode")
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 SESSIONS_FILE = os.path.join(DATA_DIR, "chat_sessions.json")
@@ -32,7 +26,6 @@ PID_MAP_FILE = os.path.join(DATA_DIR, "acp_pid_map.json")
 LINEAGE_FILE = os.path.join(DATA_DIR, "session_lineage.json")
 CHILD_MESSAGES_DIR = os.path.join(DATA_DIR, "child_messages")
 HISTORY_DIR = os.path.join(DATA_DIR, "chat_history")
-KIRO_SESSIONS_DIR = os.path.expanduser("~/.kiro/sessions/cli")
 
 
 def load_history_file(session_id):
@@ -220,7 +213,7 @@ def count_unread_child_messages(parent_id):
 
 
 def _save_pid_map(sessions):
-    """Write mapping of kiro-cli PID -> fernando session ID."""
+    """Write the mapping of agent PIDs to Fernando session IDs."""
     pid_map = {}
     for sid, session in sessions.items():
         if session.proc and session.proc.poll() is None:
@@ -272,14 +265,14 @@ def _pop_continuation():
 
 
 class ACPSession:
-    """Manages a single kiro-cli acp subprocess and its ACP session."""
+    """Manages a provider subprocess and its ACP session."""
 
-    DEFAULT_MODEL = "claude-opus-4.6"
+    DEFAULT_MODEL = get_provider('kiro').default_model
 
     def __init__(self, session_id, on_event=None, backend="kiro"):
         self.id = session_id
         self.on_event = on_event
-        self.backend = backend  # "kiro" or "opencode"
+        self.backend = get_provider(backend).id
         self.context_snapshot = None  # Last applied context, refreshed before every process launch
         self.pinned_messages = []
         self.proc = None
@@ -287,7 +280,7 @@ class ACPSession:
         self.acp_session_id = None
         self.display_name = "Chat-" + session_id
         from src.services.settings import get as get_setting
-        self.model = get_setting("default_model") or self.DEFAULT_MODEL
+        self.model = self.provider.configured_model()
         self.effort = get_setting("default_effort") or "max"
         self._reader_thread = None
         self._stderr_thread = None
@@ -312,9 +305,21 @@ class ACPSession:
         self._retry_pending = False  # True while a retry is waiting to fire
         self._reloading = False  # True while reload is in progress (prevents race)
         self._start_on_open = False
+        self.mcp_startup = MCPStartup(self._publish_mcp_status)
+
+    def _publish_mcp_status(self, event):
+        if self.on_event:
+            self.on_event(self.id, event)
+
+    @property
+    def provider(self):
+        return get_provider(self.backend)
+
+    def _check_mcp_startup(self):
+        self.provider.check_mcp_startup(self)
 
     def _spawn_and_init(self):
-        """Spawn kiro-cli or opencode acp and run initialize handshake."""
+        """Launch the selected provider and initialize ACP."""
         from src.services import context_templates, groups
         # Resume the same native conversation, but resolve tools and steering from
         # current settings/membership. Persisted snapshots describe the last launch;
@@ -323,49 +328,19 @@ class ACPSession:
         snapshot = context_templates.resolve(group_id, self.backend)
         context_env, context_args = context_templates.prepare(self.id, snapshot, self.backend)
         self.context_snapshot = snapshot
+        generation = self.mcp_startup.begin(snapshot['servers'])
+        timer = threading.Timer(120, self.mcp_startup.unconfirmed, args=(
+            generation, 'MCP startup has not been confirmed after 120 seconds. Its tools may be unavailable.',
+        ))
+        timer.daemon = True
+        timer.start()
         logger.info(f"[{self.id}] Resolved context for group={group_id}, servers={list(snapshot['servers'])}")
-        if self.backend == "opencode":
-            logger.info(f"[{self.id}] Spawning opencode acp subprocess")
-            env = os.environ.copy()
-            config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config")
-            if os.path.exists(config_path):
-                with open(config_path) as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line or line.startswith("#"):
-                            continue
-                        if "=" in line:
-                            key, _, value = line.partition("=")
-                            env[key] = value
-            env.update(context_env)
-            if self.model:
-                import json as _json
-                env["OPENCODE_CONFIG_CONTENT"] = _json.dumps({"model": self.model})
-            logger.info(f"[{self.id}] env has AWS_BEARER_TOKEN_BEDROCK: {'AWS_BEARER_TOKEN_BEDROCK' in env}")
-            logger.info(f"[{self.id}] model={self.model}")
-            self._opencode_password = secrets.token_urlsafe(32)
-            env['OPENCODE_SERVER_USERNAME'] = 'fernando'
-            env['OPENCODE_SERVER_PASSWORD'] = self._opencode_password
-            self.proc = subprocess.Popen(
-                [OPENCODE_CLI, "acp", "--hostname", "127.0.0.1", "--port", "0", "--mdns=false"],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=os.path.expanduser("~/fernando"),
-                env=env,
-            )
-            logger.info(f"[{self.id}] opencode pid={self.proc.pid}")
-        else:
-            logger.info(f"[{self.id}] Spawning kiro-cli acp subprocess")
-            self.proc = subprocess.Popen(
-                [KIRO_CLI, "acp", "-a", "--model", self.model, "--effort", self.effort] + context_args,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=os.path.expanduser("~/fernando"),
-                env={**os.environ, **context_env},
-            )
-            logger.info(f"[{self.id}] kiro-cli pid={self.proc.pid}")
+        launch = self.provider.launch(self, context_env, context_args)
+        self.proc = subprocess.Popen(
+            launch.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            cwd=os.path.expanduser('~/fernando'), env=launch.environment,
+        )
+        logger.info('[%s] %s pid=%s', self.id, self.provider.name, self.proc.pid)
         self._alive = True
         if self._on_process_change:
             self._on_process_change()
@@ -380,7 +355,7 @@ class ACPSession:
             "protocolVersion": 1,
             "clientCapabilities": {},
             "clientInfo": {"name": "fernando-chat", "version": "1.0.0"},
-        }, timeout=30 if self.backend == "opencode" else 15)
+        }, timeout=self.provider.initialize_timeout)
         if not resp:
             raise RuntimeError("ACP initialize failed")
         logger.info(f"[{self.id}] ACP initialized successfully")
@@ -388,83 +363,18 @@ class ACPSession:
     def start(self):
         """Create a new ACP session."""
         self._spawn_and_init()
-        resp = self._request("session/new", {
-            "cwd": os.path.expanduser("~/fernando"),
-            "mcpServers": [],
-        }, timeout=120)
+        resp = self._request('session/new', self.provider.session_parameters(self), timeout=120)
         logger.info(f"[{self.id}] session/new response: sessionId={resp.get('sessionId') if resp else 'None'}")
         if resp and "sessionId" in resp:
             self.acp_session_id = resp["sessionId"]
             logger.info(f"[{self.id}] acp_session_id set to {self.acp_session_id}")
         else:
             raise RuntimeError("ACP session/new failed")
-
-    @staticmethod
-    def _patch_incomplete_mutate(acp_session_id):
-        """If the session's last tool use is a mutate with no ToolResults, append one."""
-        jsonl_path = os.path.join(KIRO_SESSIONS_DIR, f"{acp_session_id}.jsonl")
-        try:
-            with open(jsonl_path, "rb") as f:
-                lines = f.readlines()
-        except OSError:
-            return
-        # Walk backwards to find a dangling mutate/reboot tool use
-        pending_tool_use_id = None
-        has_result_for = set()
-        for line in reversed(lines):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except (json.JSONDecodeError, ValueError):
-                continue
-            kind = obj.get("kind", "")
-            if kind == "ToolResults":
-                for c in obj.get("data", {}).get("content", []):
-                    if not isinstance(c, dict):
-                        continue
-                    tid = c.get("data", {}).get("toolUseId")
-                    if tid:
-                        has_result_for.add(tid)
-            if kind == "AssistantMessage":
-                for c in obj.get("data", {}).get("content", []):
-                    if not isinstance(c, dict):
-                        continue
-                    if c.get("kind") == "toolUse" and c.get("data", {}).get("name") in ("mutate", "reboot"):
-                        tid = c["data"]["toolUseId"]
-                        if tid not in has_result_for:
-                            pending_tool_use_id = tid
-                if pending_tool_use_id:
-                    break
-        if not pending_tool_use_id:
-            return
-        result_entry = {
-            "version": "v1",
-            "kind": "ToolResults",
-            "data": {
-                "message_id": str(uuid.uuid4()),
-                "content": [{
-                    "kind": "toolResult",
-                    "data": {
-                        "toolUseId": pending_tool_use_id,
-                        "content": [{"kind": "text", "data": json.dumps({
-                            "status": "restart_complete",
-                            "message": "Fernando restarted successfully. The mutate tool call was in-flight when the old process was terminated as part of the restart sequence. This result was backfilled on session reload.",
-                        })}],
-                        "status": "success",
-                    },
-                }],
-            },
-        }
-        with open(jsonl_path, "a") as f:
-            f.write(json.dumps(result_entry) + "\n")
-        logger.info(f"Patched incomplete mutate tool use {pending_tool_use_id} in {acp_session_id}")
+        self._check_mcp_startup()
 
     def load(self, acp_session_id):
         """Load an existing ACP session (resume after restart)."""
-        if self.backend == "kiro":
-            self._patch_incomplete_mutate(acp_session_id)
+        self.provider.prepare_resume(self, acp_session_id)
         self._load_history()
         self._patch_our_incomplete_mutate()
         self._recording = False  # Don't overwrite rich history with kiro's stripped replay
@@ -472,21 +382,7 @@ class ACPSession:
         self._spawn_and_init()
         self.acp_session_id = acp_session_id
 
-        if self.backend == "kiro":
-            # Remove stale lock file (Kiro-specific)
-            lock_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_session_id}.lock")
-            try:
-                os.remove(lock_file)
-            except OSError:
-                pass
-
-        load_params = {
-            "sessionId": acp_session_id,
-            "cwd": os.path.expanduser("~/fernando"),
-            "mcpServers": [],
-        }
-        if self.model:
-            load_params["model"] = self.model
+        load_params = self.provider.session_parameters(self, acp_session_id)
         logger.info(f"[{self.id}] Calling session/load for {acp_session_id} (backend={self.backend})")
         resp = self._request("session/load", load_params, timeout=120)
         if not resp:
@@ -494,6 +390,8 @@ class ACPSession:
         logger.info(f"[{self.id}] session/load succeeded")
         self._recording = True
         self._broadcasting = True
+
+        self._check_mcp_startup()
 
     def send_prompt(self, text, *, initial_only=False, error_retry=False, queue_id=None):
         with self._lock:
@@ -714,6 +612,9 @@ class ACPSession:
     def cancel(self):
         if not self.acp_session_id:
             return
+        if self._is_prompting or self._retry_pending:
+            self.history.append({'type': 'prompt_cancelled', 'ts': time.time()})
+            self._save_history()
         stall_secs = time.time() - self._last_activity
         logger.info(f"[{self.id}] cancel requested, stall={stall_secs:.0f}s, proc_poll={self.proc.poll() if self.proc else 'N/A'}")
         self._send({
@@ -722,49 +623,8 @@ class ACPSession:
             "params": {"sessionId": self.acp_session_id},
         })
 
-    def opencode_request(self, method, path, body=None):
-        process = self.proc
-        if self.backend != 'opencode' or process is None or process.poll() is not None:
-            raise RuntimeError('OpenCode session is not loaded')
-        listeners = [c.laddr.port for c in psutil.Process(process.pid).net_connections(kind='tcp')
-                     if c.status == psutil.CONN_LISTEN and c.laddr.ip == '127.0.0.1']
-        if len(listeners) != 1:
-            raise RuntimeError('Expected one OpenCode loopback HTTP listener')
-        with requests.Session() as client:
-            client.trust_env = False
-            response = client.request(
-                method, f'http://127.0.0.1:{listeners[0]}{path}',
-                auth=('fernando', self._opencode_password), json=body,
-                params={'directory': os.path.expanduser('~/fernando')},
-                timeout=(5, 60), allow_redirects=False,
-            )
-            if not 200 <= response.status_code < 300:
-                raise RuntimeError(f'OpenCode HTTP request failed ({response.status_code})')
-            return response.json()
-
-    def fork_opencode(self, history, boundary):
-        session_path = '/session/' + quote(self.acp_session_id, safe='')
-        messages = self.opencode_request('GET', session_path + '/message')
-        native_users = [m for m in messages if m['info']['role'] == 'user'
-                        and any(p['type'] == 'text' and not p.get('synthetic') for p in m['parts'])]
-        prompts = [e for e in history[:boundary + 1]
-                   if e.get('type') in ('user_prompt', 'continuation', 'agent_message')]
-        if len(native_users) < len(prompts):
-            raise ValueError('Selected turn has not reached OpenCode yet; retry once it has been accepted')
-        for event, message in zip(prompts, native_users):
-            text = event['text']
-            if event['type'] == 'agent_message':
-                text = f"[AGENT MESSAGE from {event['from']}] {text}"
-            native_text = ''.join(p['text'] for p in message['parts']
-                                  if p['type'] == 'text' and not p.get('synthetic'))
-            if text != native_text:
-                raise ValueError('Fernando and OpenCode prompt histories do not match; refusing an ambiguous fork')
-        target_id = native_users[len(prompts) - 1]['info']['id']
-        result = self.opencode_request('POST', session_path + '/fork', {'messageID': target_id})
-        return result['id']
-
     def execute_command(self, command, args=None):
-        """Execute a slash command via ACP _kiro.dev/commands/execute extension.
+        """Execute a provider's native slash command.
         
         Args:
             command: Command name (with or without leading slash, e.g. "/tangent" or "tangent")
@@ -772,28 +632,7 @@ class ACPSession:
         """
         if not self.acp_session_id:
             return {"error": "No ACP session"}
-        # Strip leading slash if present
-        cmd_name = command.lstrip("/")
-        logger.info(f"[{self.id}] execute_command: {cmd_name} args={args}")
-        req_id = self._get_id()
-        # TuiCommand is an adjacently tagged enum: {command: string, args: object}
-        tui_command = {"command": cmd_name, "args": args or {}}
-        logger.info(f"[{self.id}] execute_command: req_id={req_id} tui_command={tui_command}")
-        event = threading.Event()
-        with self._lock:
-            self._pending[req_id] = {"event": event, "result": None, "error": None}
-        self._send({"jsonrpc": "2.0", "id": req_id, "method": "_kiro.dev/commands/execute", "params": {
-            "sessionId": self.acp_session_id,
-            "command": tui_command,
-        }})
-        got_response = event.wait(timeout=30)
-        with self._lock:
-            entry = self._pending.pop(req_id, {})
-        if entry.get("error"):
-            logger.warning(f"[{self.id}] execute_command error: {entry['error']}")
-            return {"error": entry["error"]}
-        logger.info(f"[{self.id}] execute_command result: {entry.get('result')}")
-        return entry.get("result")
+        return self.provider.execute_command(self, command, args)
 
     def stop(self):
         self._alive = False
@@ -856,6 +695,17 @@ class ACPSession:
             return "unread"
         return "idle"
 
+    def has_unfinished_turn(self):
+        for event in reversed(self.history):
+            if event.get('type') in ('prompt_cancelled', 'acp_error'):
+                return False
+            result = event.get('result')
+            if isinstance(result, dict) and result.get('stopReason'):
+                return False
+            if event.get('type') in ('user_prompt', 'continuation', 'agent_message'):
+                return True
+        return False
+
     def _notify_status_change(self):
         """Notify listeners that status changed."""
         if self._on_status_change:
@@ -884,7 +734,7 @@ class ACPSession:
                     raise
                 logger.error(f"ACP send error: {e}")
 
-    def _request(self, method, params, timeout=30):
+    def _request(self, method, params, timeout=30, return_error=False):
         req_id = self._get_id()
         logger.info(f"[{self.id}] _request: method={method} req_id={req_id}")
         event = threading.Event()
@@ -895,6 +745,8 @@ class ACPSession:
         logger.info(f"[{self.id}] _request: req_id={req_id} got_response={got_response}")
         with self._lock:
             entry = self._pending.pop(req_id, {})
+        if return_error and entry.get('error'):
+            return {'error': entry['error']}
         return entry.get("result")
 
     def _record_event(self, msg):
@@ -904,6 +756,7 @@ class ACPSession:
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             msg.setdefault("ts", time.time())
             msg.setdefault("model", self.model)
+            msg['backend'] = self.backend
             self.history.append(msg)
             is_turn_end = bool(msg.get("result", {}).get("stopReason"))
             self._save_history(index_rag=is_turn_end)
@@ -1052,7 +905,7 @@ class ACPSession:
                     break
                 for line in chunk.decode(errors="replace").splitlines():
                     if line.strip():
-                        logger.warning(f"[{self.id}] kiro-cli stderr: {line.rstrip()}")
+                        logger.warning(f"[{self.id}] {self.provider.name} stderr: {line.rstrip()}")
                         if "Transport" in line and "closed" in line:
                             logger.error(f"[{self.id}] MCP transport crash detected, scheduling auto-reload")
                             threading.Thread(target=self._auto_reload, daemon=True).start()
@@ -1082,12 +935,12 @@ class ACPSession:
             self.ready = True
             if self.on_event:
                 self.on_event(self.id, {"type": "session_ready"})
-                self.on_event(self.id, {"type": "system_message", "text": "Session reloaded. MCP tools restored."})
+                self.on_event(self.id, {"type": "system_message", "text": "Session reloaded."})
             # Auto-continue the agent so it resumes work
             if error_retry:
                 self.send_prompt("Continue", error_retry=True)
             else:
-                self.send_continuation("The MCP server connection was lost and has been automatically restored. All tools are available again. Continue where you left off.")
+                self.send_continuation("The session was automatically reloaded after an MCP connection failure. Check available tools before continuing where you left off.")
         except Exception as e:
             logger.error(f"[{self.id}] Auto-reload failed: {e}")
             if self.on_event:
@@ -1124,6 +977,8 @@ class ACPSession:
     def _dispatch(self, msg):
         msg_id = msg.get("id")
         method = msg.get("method", "")
+        if self.provider.handle_notification(self, method, msg.get('params', {})):
+            return
         
         # Log non-chunk messages for debugging
         if method != "session/update" or (msg.get("params", {}).get("update", {}).get("sessionUpdate") != "agent_message_chunk"):
@@ -1279,8 +1134,7 @@ class ACPManager:
 
     def create_session(self, on_event=None, model=None, backend="kiro", group_id=None, use_template_prompt=True):
         from src.services import context_templates, groups
-        if backend not in ('kiro', 'opencode'):
-            raise ValueError('Unknown agent backend')
+        get_provider(backend).validate_start()
         snapshot = context_templates.resolve(group_id, backend)
         session_id = str(uuid.uuid4())[:8]
         session = ACPSession(session_id, on_event=on_event, backend=backend)
@@ -1377,19 +1231,12 @@ class ACPManager:
                 acp_id, name = info["acp_id"], info.get("name", "Chat-" + fernando_id)
                 backend = info.get("backend", "kiro")
                 was_loaded = info.get("loaded", True)  # Default to loaded for backwards compat
-            # For Kiro, check if session file exists; for OpenCode, always try to load if we have acp_id
-            if backend == "kiro":
-                session_file = os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json")
-                can_load = os.path.exists(session_file)
-            else:
-                # OpenCode stores sessions in its SQLite DB, not as JSON files
-                # We'll try to load and fall back to new if it fails
-                can_load = bool(acp_id)
+            can_load = get_provider(backend).can_resume(acp_id)
             session = ACPSession(fernando_id, on_event=on_event_factory(fernando_id), backend=backend)
             session.display_name = name
             session.context_snapshot = info.get('context_snapshot') if isinstance(info, dict) else None
             session.pinned_messages = list(info.get('pinned_messages', [])) if isinstance(info, dict) else []
-            session.model = info.get("model", ACPSession.DEFAULT_MODEL) if isinstance(info, dict) else ACPSession.DEFAULT_MODEL
+            session.model = info.get('model', session.model) if isinstance(info, dict) else session.model
             self._wire_session_status_callback(session)
             with self._lock:
                 self.sessions[fernando_id] = session
@@ -1406,6 +1253,7 @@ class ACPManager:
                 threading.Thread(
                     target=self._load_existing,
                     args=(fernando_id, session, acp_id, session_continuation),
+                    kwargs={'recover_interrupted': True},
                     daemon=True,
                 ).start()
             else:
@@ -1447,6 +1295,7 @@ class ACPManager:
                 # Extract ACP session ID from history events so restore can reload context
                 acp_id = ""
                 model = ""
+                backend = None
                 try:
                     with open(fpath) as hf:
                         for line in hf:
@@ -1467,40 +1316,49 @@ class ACPManager:
                             # Also extract model from history events
                             if not model and obj.get("model"):
                                 model = obj["model"]
+                            if obj.get('backend'):
+                                backend = get_provider(obj['backend']).id
                             if acp_id and model:
                                 break
                 except OSError:
                     pass
-                # Detect backend from acp_id format: OpenCode uses ses_* format
-                backend = "opencode" if acp_id.startswith("ses_") else "kiro"
+                if backend is None:
+                    backend = legacy_provider(acp_id)
                 archived[sid] = {
                     "acp_id": acp_id,
                     "name": rag_names.get(sid, "Chat-" + sid),
                     "backend": backend,
-                    "model": model or ACPSession.DEFAULT_MODEL,
+                    "model": model or get_provider(backend).configured_model(),
                     "archived_at": os.path.getmtime(fpath),
                 }
             _save_archived_map(archived)
             logger.info(f"Recovered {len(orphaned)} orphaned sessions into archive")
 
-    def _load_existing(self, session_id, session, acp_session_id, continuation=None):
+    def _load_existing(self, session_id, session, acp_session_id, continuation=None, *, recover_interrupted=False):
         try:
             logger.info(f"_load_existing: starting for {session_id} acp={acp_session_id}")
             session.load(acp_session_id)
-            session.ready = True
-            session._reloading = False
-            logger.info(f"_load_existing: session {session_id} ready, history_len={len(session.history)}")
+            logger.info(f"_load_existing: session {session_id} loaded, history_len={len(session.history)}")
             self._save()  # Persist the loaded=True state
             self._save_pid_map()
-            self._broadcast_sessions_list()  # Update sidebar icons
-            if session.on_event:
-                session.on_event(session_id, {"type": "session_ready"})
+            if continuation and continuation.get('session_id') != session_id:
+                continuation = None
             if not continuation and session_id in _restart_sessions():
                 continuation = {'session_id': session_id, 'message': 'Service restarted, continue what you were doing.'}
+            if not continuation and recover_interrupted and session.has_unfinished_turn():
+                continuation = {
+                    'session_id': session_id,
+                    'message': "The runtime restarted while this turn was unfinished. Review the latest tool results and continue the user's task. Do not assume an interrupted action failed or repeat it without checking.",
+                }
             if continuation and continuation.get("session_id") == session_id:
                 if continuation.get('message'):
                     session.send_continuation(continuation['message'])
                 _acknowledge_restart(session_id)
+            session.ready = True
+            session._reloading = False
+            self._broadcast_sessions_list()
+            if session.on_event:
+                session.on_event(session_id, {'type': 'session_working' if session._is_prompting else 'session_ready'})
             session._drain_agent_messages()
         except Exception as e:
             session._reloading = False
@@ -1666,11 +1524,13 @@ class ACPManager:
         self.reload_session(session_id)
 
     def change_model(self, session_id, new_model):
-        """Change the model for a session by restarting the kiro-cli process."""
+        """Change a session's model through process restart and native resume."""
         logger.info(f"change_model: session={session_id} new_model={new_model}")
         session = self.get_session(session_id)
         if not session or not session.acp_session_id:
             return False
+        if not session.provider.capabilities.model_switch:
+            raise ValueError('This provider does not support model switching')
         acp_id = session.acp_session_id
         session.model = new_model
         session.ready = False
@@ -1773,17 +1633,14 @@ class ACPManager:
                 return False
             acp_id = info["acp_id"]
             backend = info.get("backend", "kiro")
-            if backend == "kiro":
-                can_load = acp_id and os.path.exists(os.path.join(KIRO_SESSIONS_DIR, f"{acp_id}.json"))
-            else:
-                can_load = bool(acp_id)
+            can_load = get_provider(backend).can_resume(acp_id)
             archived.pop(session_id)
             _save_archived_map(archived)
         session = ACPSession(session_id, on_event=on_event, backend=backend)
         session.display_name = info.get("name", "Chat-" + session_id)
         session.context_snapshot = info.get('context_snapshot')
         session.pinned_messages = list(info.get('pinned_messages', []))
-        session.model = info.get("model", ACPSession.DEFAULT_MODEL)
+        session.model = info.get('model', session.model)
         self._wire_session_status_callback(session)
         with self._lock:
             self.sessions[session_id] = session
@@ -1881,10 +1738,7 @@ class ACPManager:
             self._save()
 
     def clone_session(self, source_session_id, on_event=None):
-        """Clone a session using Kiro's /rewind to fork at the latest turn.
-        
-        This creates a true fork with shared conversation context, not just a UI copy.
-        """
+        """Fork native conversation state and reference its rich history."""
         source = self.get_session(source_session_id)
         if not source:
             logger.warning(f"[clone] Source session {source_session_id} not found")
@@ -1892,40 +1746,14 @@ class ACPManager:
         if not source.is_loaded:
             logger.warning(f"[clone] Source session {source_session_id} not loaded")
             return None
-        if source.backend == 'opencode':
-            result = source.opencode_request('POST', '/session/' + quote(source.acp_session_id, safe='') + '/fork', {})
-            with chat_history.lock:
-                source._save_history()
-                boundary = source._flushed
-            return self._register_fork(source, result['id'], boundary, None, on_event)
-        
-        # Get list of turns to find the latest one
-        turns_result = source.execute_command("rewind")
-        if not turns_result or not turns_result.get("success"):
-            logger.warning(f"[clone] Failed to get turns: {turns_result}")
-            return None
-        
-        turns = turns_result.get("data", {}).get("turns", [])
-        if not turns:
-            logger.warning(f"[clone] No turns available to fork from")
-            return None
-        
-        # Fork at the latest turn (first in the list, highest logIndex)
-        latest_turn = turns[0]
-        log_index = str(latest_turn.get("logIndex"))
-        logger.info(f"[clone] Forking at turn {log_index}: {latest_turn.get('label', '')[:50]}")
-        
-        fork_result = source.execute_command("rewind", {"value": log_index})
-        if not fork_result or not fork_result.get("success"):
-            logger.warning(f"[clone] Failed to fork: {fork_result}")
-            return None
-        
-        new_acp_id = fork_result.get("data", {}).get("sessionId")
+        if not source.provider.capabilities.fork:
+            raise ValueError('This provider does not support conversation forks')
+        new_acp_id = source.provider.fork_session(source)
         if not new_acp_id:
             logger.warning(f"[clone] No sessionId in fork result")
             return None
         
-        logger.info(f"[clone] Kiro created forked session: {new_acp_id}")
+        logger.info(f"[clone] {source.provider.name} created forked session: {new_acp_id}")
         
         with chat_history.lock:
             source._save_history()
@@ -1933,13 +1761,7 @@ class ACPManager:
         return self._register_fork(source, new_acp_id, boundary, None, on_event)
 
     def fork_at_turn(self, source_session_id, turn_index, on_event=None):
-        """Fork a session at a specific turn index.
-        
-        turn_index is the 1-based user message index from the UI (1 = first user message).
-        The UI only counts user_prompt events, not continuations.
-        Kiro's turns include both user_prompts and continuations.
-        We need to map the UI turn_index to the correct Kiro logIndex by matching content.
-        """
+        """Fork before the UI's one-based user turn using native provider history."""
         source = self.get_session(source_session_id)
         if not source:
             logger.warning(f"[fork_at_turn] Source session {source_session_id} not found")
@@ -1949,6 +1771,8 @@ class ACPManager:
             return None
         if type(turn_index) is not int or turn_index < 1:
             raise ValueError('turn_index must be a positive integer')
+        if not source.provider.capabilities.fork_at_turn:
+            raise ValueError('This provider does not support forking at a turn')
         with chat_history.lock:
             source._save_history()
             snapshot = source.history[:source._flushed]
@@ -1956,65 +1780,12 @@ class ACPManager:
         if turn_index > len(boundaries):
             raise ValueError('Selected user turn does not exist')
         boundary = boundaries[turn_index - 1]
-        if source.backend == 'opencode':
-            new_acp_id = source.fork_opencode(snapshot, boundary)
-            return self._register_fork(source, new_acp_id, boundary, turn_index, on_event)
-        
-        # Get list of turns from Kiro
-        turns_result = source.execute_command("rewind")
-        if not turns_result or not turns_result.get("success"):
-            logger.warning(f"[fork_at_turn] Failed to get turns: {turns_result}")
-            return None
-        
-        turns = turns_result.get("data", {}).get("turns", [])
-        if not turns:
-            logger.warning(f"[fork_at_turn] No turns available to fork from")
-            return None
-        
-        # Log the turns structure for debugging
-        logger.info(f"[fork_at_turn] Got {len(turns)} turns from Kiro, requested turn_index={turn_index}")
-        
-        # Kiro's turns list is ordered by logIndex descending (newest first)
-        # We need to find the turn that corresponds to the Nth user_prompt (non-continuation)
-        # Continuations have labels starting with "[CONTINUATION]"
-        
-        # First, build a list of non-continuation turns in chronological order
-        user_turns = []
-        for turn in reversed(turns):
-            label = turn.get("label", "")
-            if not label.startswith("[CONTINUATION]"):
-                user_turns.append(turn)
-        
-        logger.info(f"[fork_at_turn] Found {len(user_turns)} non-continuation turns out of {len(turns)} total")
-        for i, t in enumerate(user_turns[:5]):
-            logger.info(f"[fork_at_turn] User turn {i+1}: logIndex={t.get('logIndex')}, label={t.get('label', '')[:50]}")
-        
-        # "Fork from turn N" means fork BEFORE that turn, so we want the turn at N-1
-        # turn_index is 1-based, so to get the turn BEFORE turn N, we use index N-2
-        # (turn 1 maps to user_turns[0], so turn N-1 maps to user_turns[N-2])
-        target_idx = turn_index - 2
-        if target_idx < 0:
-            logger.warning(f"[fork_at_turn] Cannot fork before turn 1 (turn_index={turn_index})")
-            return None
-        if target_idx >= len(user_turns):
-            logger.warning(f"[fork_at_turn] turn_index {turn_index} out of range (have {len(user_turns)} user turns)")
-            return None
-        
-        target_turn = user_turns[target_idx]
-        log_index = str(target_turn.get("logIndex"))
-        logger.info(f"[fork_at_turn] Forking BEFORE turn {turn_index}, using Kiro logIndex={log_index} (turn {target_idx + 1}: {target_turn.get('label', '')[:50]})")
-        
-        fork_result = source.execute_command("rewind", {"value": log_index})
-        if not fork_result or not fork_result.get("success"):
-            logger.warning(f"[fork_at_turn] Failed to fork: {fork_result}")
-            return None
-        
-        new_acp_id = fork_result.get("data", {}).get("sessionId")
+        new_acp_id = source.provider.fork_session(source, snapshot, boundary, turn_index)
         if not new_acp_id:
             logger.warning(f"[fork_at_turn] No sessionId in fork result")
             return None
         
-        logger.info(f"[fork_at_turn] Kiro created forked session: {new_acp_id}")
+        logger.info(f"[fork_at_turn] {source.provider.name} created forked session: {new_acp_id}")
         
         return self._register_fork(source, new_acp_id, boundary, turn_index, on_event)
 

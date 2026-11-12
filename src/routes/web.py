@@ -114,43 +114,40 @@ def api_auth_check():
     return "", 401
 
 
-_models_cache = {"data": None, "ts": 0}
+def _provider_models_response(backend, normalized=False):
+    from src.services.providers import get_provider
+    from src.services.providers.models import list_models, normalized_models
+    import subprocess
+    if not _check_api_key():
+        return json.dumps({'error': 'Unauthorized'}), 401, {'Content-Type': 'application/json'}
+    try:
+        get_provider(backend)
+    except ValueError as error:
+        return json.dumps({'error': str(error)}), 404, {'Content-Type': 'application/json'}
+    try:
+        data = normalized_models(backend) if normalized else list_models(backend)
+    except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as error:
+        current_app.logger.error('Provider model discovery failed for %s: %s', backend, type(error).__name__)
+        return json.dumps({'error': 'Could not fetch models'}), 502, {'Content-Type': 'application/json'}
+    return json.dumps(data), 200, {'Content-Type': 'application/json'}
+
+
+@bp.route('/api/providers')
+def api_providers():
+    from src.services.settings import get_provider_settings
+    if not _check_api_key():
+        return json.dumps({'error': 'Unauthorized'}), 401, {'Content-Type': 'application/json'}
+    return json.dumps(get_provider_settings()), 200, {'Content-Type': 'application/json'}
+
+
+@bp.route('/api/providers/<backend>/models')
+def api_provider_models(backend):
+    return _provider_models_response(backend, normalized=True)
 
 
 @bp.route("/api/models")
 def api_models():
-    """Return available models from kiro-cli, cached for 5 minutes."""
-    if not _check_api_key():
-        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
-    import time, subprocess
-    now = time.time()
-    if _models_cache["data"] and now - _models_cache["ts"] < 300:
-        return _models_cache["data"], 200, {"Content-Type": "application/json"}
-    try:
-        import shutil
-        kiro_cli = shutil.which("kiro-cli") or os.path.expanduser("~/.local/bin/kiro-cli")
-        result = subprocess.run(
-            [kiro_cli, "chat", "--list-models", "--format", "json"],
-            capture_output=True, text=True, timeout=15
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            _models_cache["data"] = result.stdout.strip()
-            _models_cache["ts"] = now
-            _models_file = os.path.join(os.path.dirname(__file__), "..", "..", "data", "available_models.json")
-            try:
-                with open(_models_file, "w") as mf:
-                    mf.write(_models_cache["data"])
-            except OSError:
-                pass
-            return _models_cache["data"], 200, {"Content-Type": "application/json"}
-    except Exception:
-        pass
-    if _models_cache["data"]:
-        return _models_cache["data"], 200, {"Content-Type": "application/json"}
-    return json.dumps({"error": "Could not fetch models"}), 500, {"Content-Type": "application/json"}
-
-
-_opencode_models_cache = {"data": None, "ts": 0}
+    return _provider_models_response('kiro')
 
 
 @bp.route("/api/test_acp_command", methods=["POST"])
@@ -175,42 +172,7 @@ def api_test_acp_command():
 
 @bp.route("/api/opencode_models")
 def api_opencode_models():
-    """Return available models from opencode, cached for 5 minutes."""
-    if not _check_api_key():
-        return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
-    import time, subprocess
-    now = time.time()
-    if _opencode_models_cache["data"] and now - _opencode_models_cache["ts"] < 300:
-        return json.dumps(_opencode_models_cache["data"]), 200, {"Content-Type": "application/json"}
-    opencode_cli = os.path.expanduser("~/.opencode/bin/opencode")
-    if not os.path.exists(opencode_cli):
-        return json.dumps({"error": "OpenCode not installed"}), 404, {"Content-Type": "application/json"}
-    env = os.environ.copy()
-    config_path = os.path.join(os.path.dirname(__file__), "..", "..", "config")
-    if os.path.exists(config_path):
-        with open(config_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    key, _, value = line.partition("=")
-                    env[key] = value
-    try:
-        result = subprocess.run(
-            [opencode_cli, "models"],
-            capture_output=True, text=True, timeout=30, env=env
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            models = [m.strip() for m in result.stdout.strip().split("\n") if m.strip()]
-            _opencode_models_cache["data"] = {"models": models}
-            _opencode_models_cache["ts"] = now
-            return json.dumps(_opencode_models_cache["data"]), 200, {"Content-Type": "application/json"}
-    except Exception:
-        pass
-    if _opencode_models_cache["data"]:
-        return json.dumps(_opencode_models_cache["data"]), 200, {"Content-Type": "application/json"}
-    return json.dumps({"error": "Could not fetch OpenCode models"}), 500, {"Content-Type": "application/json"}
+    return _provider_models_response('opencode')
 
 
 @bp.route("/api/spawn_subagent", methods=["POST"])

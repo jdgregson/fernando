@@ -190,3 +190,5 @@ for obsolete in versions[3:]:
     shutil.rmtree(obsolete)
 print("Stored OpenCode versions:", ", ".join(path.name for path in versions[:3]), flush=True)
 PY
+
+python3 "$REPO_DIR/scripts/update-claude-code.py" --settings "$REPO_DIR/data/settings.json"

@@ -137,14 +137,14 @@ class HistoryForkTests(unittest.TestCase):
         history = [prompt('repeat'), {'type': 'continuation', 'text': '[CONTINUATION] continue'}, prompt('repeat')]
         native = [{'info': {'id': f'msg_{i}', 'role': 'user'}, 'parts': [{'type': 'text', 'text': e['text']}]}
                   for i, e in enumerate(history)]
-        source.opencode_request = Mock(side_effect=[native, {'id': 'ses_fork'}])
-        self.assertEqual(source.fork_opencode(history, 2), 'ses_fork')
-        self.assertEqual(source.opencode_request.call_args.args,
-                         ('POST', '/session/ses_original/fork', {'messageID': 'msg_2'}))
-        source.opencode_request = Mock(return_value=native)
-        with self.assertRaises(ValueError):
-            source.fork_opencode([prompt('different')], 0)
-        self.assertEqual(source.opencode_request.call_count, 1)
+        with patch.object(source.provider, 'request', side_effect=[native, {'id': 'ses_fork'}]) as request:
+            self.assertEqual(source.provider.fork_session(source, history, 2), 'ses_fork')
+            self.assertEqual(request.call_args.args,
+                             (source, 'POST', '/session/ses_original/fork', {'messageID': 'msg_2'}))
+        with patch.object(source.provider, 'request', return_value=native) as request:
+            with self.assertRaises(ValueError):
+                source.provider.fork_session(source, [prompt('different')], 0)
+            self.assertEqual(request.call_count, 1)
 
 
 if __name__ == '__main__':

@@ -26,7 +26,7 @@ class RestartLifecycleTests(unittest.TestCase):
                 self.assertEqual(json.loads(mapping.read_text()), {'202': 'aaaaaaaa'})
                 return {'result': {}}
 
-            with patch.object(acp, 'PID_MAP_FILE', str(mapping)), patch('src.services.context_templates.resolve', return_value={'servers': {}}), patch('src.services.context_templates.prepare', return_value=({}, [])), patch('src.services.groups.get_session_groups', return_value={}), patch.object(acp.subprocess, 'Popen', return_value=process), patch.object(acp.threading, 'Thread'), patch.object(session, '_request', side_effect=initialize):
+            with patch.object(acp, 'PID_MAP_FILE', str(mapping)), patch('src.services.context_templates.resolve', return_value={'servers': {}}), patch('src.services.context_templates.prepare', return_value=({}, [])), patch('src.services.groups.get_session_groups', return_value={}), patch.object(acp.subprocess, 'Popen', return_value=process), patch.object(acp.threading, 'Thread'), patch.object(acp.threading, 'Timer'), patch.object(session, '_request', side_effect=initialize):
                 session._spawn_and_init()
 
     def test_startup_failure_updates_workspace_and_notifies_parent(self):

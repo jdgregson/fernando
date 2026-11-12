@@ -978,6 +978,8 @@ def register_handlers(socketio):
                     "history_length": len(session.history),
                     "model": session.model,
                     "backend": session.backend,
+                    "provider": session.provider.metadata(),
+                    "mcp_status": session.mcp_startup.snapshot(),
                 })
                 if session._reloading:
                     emit("acp_event", {"session_id": acp_sid, "event": {"type": "session_loading", "waking": True}})
