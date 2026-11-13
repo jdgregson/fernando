@@ -31,6 +31,7 @@ Implement `Provider` in a new module and register its instance:
 | `list_models`, `normalize_models` | Native model discovery and normalized UI choices |
 | `prepare_resume`, `can_resume` | Native resume preparation and availability checks |
 | `session_parameters` | Standard new/load parameters, with optional provider overrides |
+| `validate_session` | Verify provider-reported session configuration before use |
 | `check_mcp_startup`, `handle_notification` | Provider-specific health confirmation and extension notifications |
 | `fork_session` | Create a native fork; supplied history/boundary identifies a selected user turn |
 | `execute_command` | Optional native slash-command extension |
@@ -43,6 +44,20 @@ when adding a backend. Unsupported operations must fail explicitly.
 Settings cards, new-chat cards, automation provider choices, and session metadata
 consume registry metadata. The backend chooses the configured default model when
 creating a session. Existing persisted provider IDs and setting keys are retained.
+
+## Execution permissions
+
+Fernando launches chat providers with unrestricted tool permissions. Kiro uses
+`acp -a`. OpenCode receives `permission: "allow"` in its generated configuration,
+configured agents, and launch override. Claude Code receives the initial ACP
+`mode` option `bypassPermissions` for new, resumed, and forked sessions, with
+`allowDangerouslySkipPermissions` enabled. Its reported mode must match before
+Fernando uses the session; unavailable bypass mode produces an explicit error.
+
+Claude's adapter owns the SDK permission mode, so setting the SDK
+`permissionMode` option alone is insufficient. Provider permission settings do
+not remove Fernando's authentication or explicit authorization for protected
+operations such as Git commits and pushes.
 
 ## HTTP API
 

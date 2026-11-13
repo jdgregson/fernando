@@ -3,6 +3,10 @@
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
+if [ -x "$REPO_DIR/venv/bin/python" ]; then
+    "$REPO_DIR/venv/bin/python" "$REPO_DIR/scripts/desktop-update.py" stop || exit 1
+fi
+
 echo "Stopping Flask (graceful)..."
 pkill -TERM -f "run_fernando.py"
 # Give it a moment to clean up child processes

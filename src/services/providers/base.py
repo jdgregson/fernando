@@ -105,6 +105,9 @@ class Provider(ABC):
     def can_resume(self, native_id):
         return bool(native_id)
 
+    def validate_session(self, response):
+        pass
+
     def matches_native_id(self, native_id):
         return False
 

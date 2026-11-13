@@ -348,23 +348,37 @@ function switchSettingsTab(tab, btn) {
 }
 
 
+function loadProviderModels(data) {
+    document.querySelectorAll('[data-provider-model]').forEach(select => {
+        const toggle = document.querySelector('[data-provider-enabled="' + CSS.escape(select.dataset.providerModel) + '"]');
+        const enabled = !toggle.dataset.setting || data[toggle.dataset.setting] === true;
+        select.disabled = !enabled;
+        if (!enabled) {
+            select.replaceChildren(new Option('Disabled', ''));
+            return;
+        }
+        fetch('/api/providers/' + encodeURIComponent(select.dataset.providerModel) + '/models',
+            {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
+            .then(response => {
+                if (!response.ok) throw new Error('Model discovery failed');
+                return response.json();
+            })
+            .then(result => {
+                if (select.disabled) return;
+                select.replaceChildren(...result.models.map(model => new Option(model.name, model.id)));
+                if (data[select.dataset.setting]) select.value = data[select.dataset.setting];
+            })
+            .catch(() => {
+                if (!select.disabled) select.replaceChildren(new Option('Not available', ''));
+            });
+    });
+}
+
 function loadSettings() {
     fetch('/api/settings', {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
         .then(r => r.json())
         .then(data => {
-            document.querySelectorAll('[data-provider-model]').forEach(select => {
-                fetch('/api/providers/' + encodeURIComponent(select.dataset.providerModel) + '/models',
-                    {headers: {'X-API-Key': window.FERNANDO_API_KEY}})
-                    .then(response => {
-                        if (!response.ok) throw new Error('Model discovery failed');
-                        return response.json();
-                    })
-                    .then(result => {
-                        select.replaceChildren(...result.models.map(model => new Option(model.name, model.id)));
-                        if (data[select.dataset.setting]) select.value = data[select.dataset.setting];
-                    })
-                    .catch(() => { select.replaceChildren(new Option('Not available', '')); });
-            });
+            loadProviderModels(data);
             document.querySelectorAll('[data-provider-enabled]').forEach(input => {
                 input.checked = !input.dataset.setting || data[input.dataset.setting] === true;
             });
@@ -485,7 +499,13 @@ function saveProviderValue(key, value) {
     }).then(response => {
         if (!response.ok) throw new Error('Failed to save provider setting');
         emitWithCsrf('get_sessions');
+        if (key.startsWith('providers_')) loadSettings();
     }).catch(error => showAlert(error.message));
+}
+
+function setProviderEnabled(input) {
+    document.getElementById('provider-model-' + input.dataset.providerEnabled).disabled = !input.checked;
+    saveProviderValue(input.dataset.setting, input.checked);
 }
 
 function applyProviderSettings(data) {

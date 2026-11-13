@@ -104,6 +104,11 @@ def register_handlers(socketio):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
             return
+        from src.services import desktop_update
+        current = desktop_update.status(include_log=False)
+        if not current['ready']:
+            emit('error', {'message': current['message']})
+            return
 
         path = data.get("path", "")
         client_sid = request.sid
@@ -145,6 +150,11 @@ def register_handlers(socketio):
     def handle_desktop_key(data):
         if not validate_csrf(data):
             emit("error", {"message": "Invalid CSRF token"})
+            return
+        from src.services import desktop_update
+        current = desktop_update.status(include_log=False)
+        if not current['ready']:
+            emit('error', {'message': current['message']})
             return
         key = data.get("key", "")
         if not key or not all(c.isalnum() or c in "+-_" for c in key):
@@ -278,10 +288,10 @@ def register_handlers(socketio):
             emit("error", {"message": "Invalid CSRF token"})
             return
         try:
-            docker_service.restart_kasm()
+            state = docker_service.restart_kasm()
             emit(
                 "desktop_restarted",
-                {"message": "Desktop container restarted successfully"},
+                state,
             )
         except Exception as e:
             emit("desktop_restart_error", {"error": str(e)})

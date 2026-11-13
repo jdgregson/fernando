@@ -93,6 +93,27 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             context_templates.resolve(None, 'missing')
 
+    def test_opencode_permissions_override_inherited_approval_rules(self):
+        provider = providers.get_provider('opencode')
+        snapshot = {'servers': {}, 'documents': []}
+        inherited = {'permission': {'edit': 'ask'}, 'agent': {'build': {'permission': {'bash': 'ask'}}}}
+        with patch.object(context_templates, 'opencode_base', return_value=inherited):
+            env, args = provider.prepare_context(context_templates, self.root, self.root / 'steering.md', snapshot)
+        config = json.loads(Path(env['OPENCODE_CONFIG']).read_text())
+        self.assertEqual(config['permission'], 'allow')
+        self.assertEqual(config['agent']['build']['permission'], 'allow')
+        session = acp.ACPSession('allowall', backend='opencode')
+        for model in ('', 'provider/model'):
+            session.model = model
+            launch = provider.launch(session, env, args)
+            inline = json.loads(launch.environment['OPENCODE_CONFIG_CONTENT'])
+            self.assertEqual(inline['permission'], 'allow')
+
+    def test_kiro_launch_trusts_all_tools(self):
+        session = acp.ACPSession('allowall', backend='kiro')
+        launch = session.provider.launch(session, {}, [])
+        self.assertIn('-a', launch.command)
+
     def test_shared_acp_launch_handshake_create_and_resume_for_third_provider(self):
         session = acp.ACPSession('fixture1', backend='fixture')
         snapshot = {'servers': {}, 'documents': [], 'initial_prompt': ''}

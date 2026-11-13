@@ -15,21 +15,7 @@ http {
     scgi_temp_path /tmp/nginx-fernando-scgi;
     client_max_body_size 50m;
 
-    # Auth callback for Docker containers (pinned subnet 172.25.0.0/24)
-    server {
-        listen 172.25.0.1:{{NGINX_PORT}} default_server;
-        server_name _;
-
-        location = /auth/callback {
-            proxy_pass http://localhost:{{FLASK_PORT}};
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-
-        location / {
-            return 403;
-        }
-    }
+    include /tmp/fernando-desktop-callback.conf;
 
     server {
         listen {{NGINX_HOST}}:{{NGINX_PORT}};

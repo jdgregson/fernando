@@ -1,0 +1,14 @@
+server {
+    listen 172.25.0.1:{{NGINX_PORT}} default_server;
+    server_name _;
+
+    location = /auth/callback {
+        proxy_pass http://localhost:{{FLASK_PORT}};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location / {
+        return 403;
+    }
+}

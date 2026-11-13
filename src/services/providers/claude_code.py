@@ -79,6 +79,7 @@ class ClaudeCodeProvider(Provider):
             'effort': session.effort,
             'settingSources': [],
             'strictMcpConfig': True,
+            'allowDangerouslySkipPermissions': True,
             'mcpServers': copy.deepcopy(snapshot['servers']),
             'systemPrompt': {'type': 'preset', 'preset': 'claude_code'},
             'extraArgs': {
@@ -88,11 +89,16 @@ class ClaudeCodeProvider(Provider):
         }
         params = {
             'cwd': str(ROOT), 'mcpServers': [],
+            'configOptions': [{'configId': 'mode', 'value': 'bypassPermissions'}],
             '_meta': {'claudeCode': {'options': options, 'emitRawSDKMessages': [{'type': 'system', 'subtype': 'init'}]}},
         }
         if native_id is not None:
             params['sessionId'] = native_id
         return params
+
+    def validate_session(self, response):
+        if response.get('modes', {}).get('currentModeId') != 'bypassPermissions':
+            raise RuntimeError('Claude Code did not enable bypassPermissions; refusing to start a chat with hidden approval requirements.')
 
     def list_models(self):
         self.require_installation()
@@ -165,4 +171,5 @@ class ClaudeCodeProvider(Provider):
         result = session._request('session/fork', self.session_parameters(session, session.acp_session_id), timeout=120, return_error=True)
         if not result or 'error' in result:
             raise ValueError('Claude Code could not fork this conversation')
+        self.validate_session(result)
         return result['sessionId']

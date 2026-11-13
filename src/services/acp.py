@@ -366,6 +366,7 @@ class ACPSession:
         resp = self._request('session/new', self.provider.session_parameters(self), timeout=120)
         logger.info(f"[{self.id}] session/new response: sessionId={resp.get('sessionId') if resp else 'None'}")
         if resp and "sessionId" in resp:
+            self.provider.validate_session(resp)
             self.acp_session_id = resp["sessionId"]
             logger.info(f"[{self.id}] acp_session_id set to {self.acp_session_id}")
         else:
@@ -387,6 +388,7 @@ class ACPSession:
         resp = self._request("session/load", load_params, timeout=120)
         if not resp:
             raise RuntimeError(f"session/load failed for {acp_session_id}")
+        self.provider.validate_session(resp)
         logger.info(f"[{self.id}] session/load succeeded")
         self._recording = True
         self._broadcasting = True

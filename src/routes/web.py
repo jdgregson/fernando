@@ -665,6 +665,27 @@ def api_mcp_call():
     return json.dumps(result), 200, {"Content-Type": "application/json"}
 
 
+@bp.route('/api/desktop/status')
+def api_desktop_status():
+    from src.services import desktop_update
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    return desktop_update.status(include_log=request.args.get('logs') != '0'), 200, {'Cache-Control': 'no-store'}
+
+
+@bp.route('/api/desktop/update', methods=['POST'])
+def api_desktop_update():
+    from src.services import desktop_update
+    if not _check_api_key():
+        return {'error': 'Unauthorized'}, 401
+    try:
+        return desktop_update.launch(), 202
+    except ValueError as error:
+        return {'error': str(error)}, 409
+    except OSError as error:
+        return {'error': str(error)}, 503
+
+
 @bp.route("/kasm/", defaults={"path": ""})
 @bp.route("/kasm/<path:path>")
 def kasm_proxy(path):
@@ -681,10 +702,16 @@ def kasm_proxy(path):
                 pass
     if not api_key_valid and not cookie_valid:
         return json.dumps({"error": "Unauthorized"}), 401, {"Content-Type": "application/json"}
-    if not docker_service.is_kasm_running():
-        return "Kasm desktop is not running. Use the restart button in the sidebar.", 503
     with open("/tmp/fernando-api-key") as stream:
         authenticated_key = stream.read().strip()
+    from src.services import desktop_update
+    desktop_status = desktop_update.status()
+    if not desktop_status['ready']:
+        if path:
+            return {'error': desktop_status['message']}, 503, {'Retry-After': '3'}
+        return render_template('desktop_waiting.html', api_key=authenticated_key, desktop_status=desktop_status), 200, {'Cache-Control': 'no-store'}
+    if not docker_service.is_kasm_running():
+        return "Kasm desktop is not running. Use the restart button in the sidebar.", 503
 
     # Read VNC password
     try:

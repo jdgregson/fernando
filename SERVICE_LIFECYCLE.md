@@ -35,6 +35,35 @@ Changes to `src/routes/websocket.py`, ACP internals, session-bound HTTP handlers
 
 During a web restart, existing chat/terminal streams and session-bound tool requests continue. New page/stateless HTTP requests may briefly receive 503; in-flight web-owned requests, including uploads, are not guaranteed to survive. This mode is not a rolling web deployment.
 
+## Desktop update lifecycle
+
+`scripts/start.sh` and `mac-start.sh` start nginx and the application without
+waiting for the desktop image build. A detached worker updates the desktop with
+`docker compose build --pull`, retaining Docker's build cache, then recreates
+only the desktop container. Existing desktop home/profile data stays mounted.
+
+During the update, the Desktop pane shows its current phase and bounded build
+log. Desktop MCP actions, HTTP proxy resources, and desktop keyboard commands
+are unavailable until an authenticated Kasm HTTP check and an X server check
+pass. The pane loads the desktop automatically afterward. A failed update stays
+unavailable with its error/log and a Retry button; it does not start an old image.
+
+Worker state and logs are private under `data/desktop-update`. Generation fencing
+and process identity checks prevent superseded workers from publishing Ready.
+Stop and subsequent startup cancel the previous worker before container teardown
+or a replacement update. Retry is a runtime-owned operation, so a web-only
+restart does not terminate its worker. An unexpectedly lost worker is reported
+as failed rather than remaining indefinitely in Updating.
+
+Linux's desktop-bridge OAuth callback listener is included in nginx only after
+the desktop network exists and readiness checks pass. This keeps a missing
+Docker bridge from blocking a fresh infrastructure start. macOS does not use
+that listener. API-key and VNC authentication remain in place throughout.
+
+`scripts/update-desktop.sh` uses the same coordinator, retains its explicit
+uncached rebuild, and waits for completion. The sidebar restart uses the existing
+image when Ready, or retries an update when the desktop is stopped or failed.
+
 ## MCP startup failures
 
 Each chat launch tracks the MCP servers selected by its resolved global and template configuration. Kiro startup notifications and OpenCode's authenticated process-local MCP status drive a persistent red failure alert above the chat. Successful servers produce no visible status list. Explicit failures show the server name and backend error; absent startup confirmation is reported as unconfirmed after 120 seconds, or 10 seconds after Kiro finishes loading the chat.

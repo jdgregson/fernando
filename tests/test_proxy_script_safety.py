@@ -20,6 +20,7 @@ class ProxyScriptSafetyTests(unittest.TestCase):
         self.upstream = Mock(content=b'<html><head></head><body></body></html>', status_code=200, headers={'content-type': 'text/html'})
         self.stack.enter_context(patch.object(web.requests, 'request', return_value=self.upstream))
         self.stack.enter_context(patch.object(web.docker_service, 'is_kasm_running', return_value=True))
+        self.stack.enter_context(patch('src.services.desktop_update.status', return_value={'ready': True, 'phase': 'ready', 'message': 'Ready'}))
         self.stack.enter_context(patch('src.services.jupyter.is_running', return_value=True))
         self.stack.enter_context(patch('src.services.jupyter.get_port', return_value=8888))
         self.stack.enter_context(patch('src.services.notebooks.get_notebook_port', return_value=3000))

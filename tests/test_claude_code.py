@@ -51,10 +51,11 @@ class ClaudeProviderTests(unittest.TestCase):
             html = environment.get_template('index.html').render(provider_settings=data)
             self.assertIn('data-provider="claude-code" onclick="createChatSession(this.dataset.provider)">', html)
             self.assertIn('data-setting="providers_claude_code"', html)
-            self.assertIn('auth login', html)
+            self.assertNotIn('<code>' + entry['login_command'] + '</code>', html)
             settings.set('providers_claude_code', False)
             html = environment.get_template('index.html').render(provider_settings=settings.get_provider_settings())
             self.assertIn('data-provider="claude-code" onclick="createChatSession(this.dataset.provider)" style="display: none">', html)
+            self.assertRegex(html, r'<select id="provider-model-claude-code"[^>]* disabled>')
 
     def test_missing_installation_and_signed_out_fail_explicitly(self):
         provider = get_provider('claude-code')
@@ -83,6 +84,8 @@ class ClaudeProviderTests(unittest.TestCase):
             options = params['_meta']['claudeCode']['options']
             self.assertEqual(options['settingSources'], [])
             self.assertTrue(options['strictMcpConfig'])
+            self.assertTrue(options['allowDangerouslySkipPermissions'])
+            self.assertEqual(params['configOptions'], [{'configId': 'mode', 'value': 'bypassPermissions'}])
             self.assertEqual(options['mcpServers']['selected']['args'], ['selected.py'])
             self.assertTrue(options['extraArgs']['append-system-prompt-file'].endswith('/claude01/steering.md'))
             self.assertEqual(options['model'], 'sonnet')
@@ -96,6 +99,13 @@ class ClaudeProviderTests(unittest.TestCase):
             'configOptions': [{'category': 'model', 'options': [{'value': 'new-model', 'name': 'New Model'}]}],
         }):
             self.assertEqual(provider.list_models(), {'models': [{'id': 'new-model', 'name': 'New Model'}]})
+
+    def test_permission_mode_must_be_confirmed_by_adapter(self):
+        provider = get_provider('claude-code')
+        provider.validate_session({'modes': {'currentModeId': 'bypassPermissions'}})
+        for response in ({}, {'modes': {'currentModeId': 'auto'}}, {'modes': {'currentModeId': 'default'}}):
+            with self.assertRaisesRegex(RuntimeError, 'hidden approval'):
+                provider.validate_session(response)
 
     def test_mcp_status_from_native_init_is_not_recorded_as_conversation(self):
         session = acp.ACPSession('claude01', backend='claude-code')
@@ -199,7 +209,15 @@ class ClaudeNativeTests(unittest.TestCase):
                     item.get('type') == 'tool_result' and item.get('tool_use_id') == 'toolu_fixture'
                     for item in message['content']) for message in body['messages'])
                 wants_tool = 'fixture-tool-request' in json.dumps(body['messages']) and not completed
-                if wants_tool and tool:
+                file_request = 'fixture-write:' in json.dumps(body['messages'])
+                file_completed = any(isinstance(message['content'], list) and any(
+                    item.get('type') == 'tool_result' and item.get('tool_use_id') == 'toolu_write'
+                    for item in message['content']) for message in body['messages'])
+                if file_request and not file_completed:
+                    content = {'type': 'tool_use', 'id': 'toolu_write', 'name': 'Write',
+                               'input': {'file_path': str(target), 'content': 'native permission check passed\n'}}
+                    stop = 'tool_use'
+                elif wants_tool and tool:
                     content = {'type': 'tool_use', 'id': 'toolu_fixture', 'name': tool, 'input': {}}
                     stop = 'tool_use'
                 elif wants_tool and any(item['name'] == 'ToolSearch' for item in body.get('tools', [])):
@@ -273,6 +291,10 @@ class ClaudeNativeTests(unittest.TestCase):
             self.assertTrue(any('tool_result' in json.dumps(body['messages']) and 'alpha' in json.dumps(body['messages']) for body in received))
             self.assertTrue(any('fixture response' in json.dumps(event) for event in events))
             self.assertEqual(session.mcp_startup.snapshot()['failures'], [])
+            target = root / 'native-write.txt'
+            session.send_prompt('fixture-write:' + str(target))
+            self.wait_for(lambda: not session._is_prompting)
+            self.assertEqual(target.read_text(), 'native permission check passed\n')
             session.unload()
             snapshot['documents'][0]['content'] = 'CLAUDE_CHANGED_STEERING'
             session.load(native_id)

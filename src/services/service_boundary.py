@@ -18,6 +18,7 @@ RUNTIME_ENDPOINTS = frozenset({
     'web.api_authorization_state', 'web.api_authorization_config',
     'web.api_authorization_revoke', 'web.api_mcp_call', 'web.jupyter_proxy',
     'web.auth_callback', 'runtime_status',
+    'web.api_desktop_update',
 })
 HOP_HEADERS = frozenset({
     'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',

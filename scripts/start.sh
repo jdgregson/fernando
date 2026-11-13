@@ -64,6 +64,7 @@ chmod 600 /tmp/fernando-vnc-password
 export VNC_PW="$VNC_PASSWORD"
 
 # Generate nginx.conf with VNC auth
+python "$REPO_DIR/scripts/desktop-update.py" prepare --nginx-port "$NGINX_PORT" --flask-port "$FLASK_PORT" || exit 1
 echo "Generating nginx configuration..."
 VNC_AUTH=$(echo -n "kasm_user:$VNC_PASSWORD" | base64)
 
@@ -85,21 +86,6 @@ mkdir -p "$REPO_DIR/data/notebooks"
 
 # Ensure Jupyter data dir exists
 mkdir -p "$REPO_DIR/data/jupyter"
-
-# Start Kasm desktop container with VNC_PW
-COMPOSE_FILE="${FERNANDO_COMPOSE_FILE:-docker-compose.yml}"
-echo "Starting Kasm desktop container (compose file: $COMPOSE_FILE)..."
-bash "$REPO_DIR/scripts/desktop-compose.sh" up -d --build fernando-desktop || exit 1
-
-# Wait for Kasm to be ready
-echo "Waiting for Kasm to be ready..."
-for i in {1..30}; do
-    if curl -sk https://localhost:6901 > /dev/null 2>&1; then
-        echo "Kasm is ready!"
-        break
-    fi
-    sleep 1
-done
 
 # Start crond for recurring subagent schedules if not already running (Linux only;
 # macOS uses launchd and has no crond binary)
@@ -125,6 +111,8 @@ pkill nginx 2>/dev/null
 sleep 1
 "$NGINX_BIN" -c "$REPO_DIR/nginx.conf" || exit 1
 
+FERNANDO_NGINX_BIN="$NGINX_BIN" python "$REPO_DIR/scripts/desktop-update.py" start || exit 1
+
 if [[ "${1:-}" == "--infrastructure" ]]; then
     : > /tmp/fernando-flask.log
     chmod 600 /tmp/fernando-flask.log
@@ -140,6 +128,7 @@ if [ "$DETACHED" = true ]; then
     echo "Access at http://localhost:$NGINX_PORT"
     echo "Logs: tail -f /tmp/fernando-flask.log"
 else
+    trap 'python "$REPO_DIR/scripts/desktop-update.py" cancel' EXIT
     echo "Access at http://localhost:$NGINX_PORT"
     echo "Logs: tail -f /tmp/fernando-flask.log"
     # -u keeps output unbuffered so both the terminal and the log file stay live

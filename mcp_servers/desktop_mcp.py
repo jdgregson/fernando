@@ -18,6 +18,7 @@ from mcp.server import Server
 from mcp.types import Tool, TextContent, ImageContent
 from browser_cdp import browser
 from desktop_process import run_desktop, run_process
+from src.services.desktop_update import require_ready
 
 
 CDP_PORT = 9222
@@ -583,6 +584,7 @@ async def list_tools() -> list[Tool]:
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent | ImageContent]:
+    require_ready()
     result = await dispatch_tool(name, arguments)
     if name in OBSERVED_ACTIONS and arguments.get("observe", False):
         result.extend(await screenshot_content())

@@ -82,14 +82,44 @@ function ensureDesktopIframe(browser) {
     let iframe = browser.querySelector('iframe');
     if (!iframe) {
         iframe = document.createElement('iframe');
-        iframe.src = '/kasm/?resize=remote&api_key=' + encodeURIComponent(window.FERNANDO_API_KEY) + '#show_control_bar=1';
+        iframe.src = '/kasm/?resize=remote&enable_ime=1&api_key=' + encodeURIComponent(window.FERNANDO_API_KEY) + '#show_control_bar=1';
         iframe.allow = 'autoplay; clipboard-read; clipboard-write';
         iframe.setAttribute('allowfullscreen', '');
         iframe.setAttribute('webkitallowfullscreen', '');
         iframe.setAttribute('mozallowfullscreen', '');
         browser.appendChild(iframe);
     }
+    monitorDesktopUpdate();
     return iframe;
+}
+
+let desktopUpdateTimer = null;
+function monitorDesktopUpdate() {
+    if (desktopUpdateTimer !== null) return;
+    desktopUpdateTimer = setTimeout(async () => {
+        const frames = [...document.querySelectorAll('iframe')].filter(frame => frame.src.startsWith(window.location.origin + '/kasm/'));
+        if (frames.length) {
+            try {
+                const response = await fetch('/api/desktop/status?logs=0', {headers: {'X-API-Key': window.FERNANDO_API_KEY}, cache: 'no-store'});
+                if (response.ok) {
+                    const state = await response.json();
+                    for (const frame of frames) {
+                        const waiting = frame.contentDocument?.getElementById('desktopUpdatePage');
+                        const updateId = state.id || 'not-started';
+                        if (!state.ready && !waiting && frame.dataset.desktopUpdate !== updateId) {
+                            frame.dataset.desktopUpdate = updateId;
+                            frame.src = frame.src;
+                        }
+                        if (state.ready) delete frame.dataset.desktopUpdate;
+                    }
+                }
+            } catch (error) {
+                console.error('Desktop status check failed', error);
+            }
+        }
+        desktopUpdateTimer = null;
+        if (frames.length) monitorDesktopUpdate();
+    }, 3000);
 }
 
 function toggleKasmKeyboard() {
@@ -326,10 +356,6 @@ socket.on('notebook_error', (data) => {
 function restartDesktop() {
     showConfirm('Restart the desktop container? This will kill all running desktop applications.').then(confirmed => {
         if (!confirmed) return;
-        [1, 2].forEach(n => {
-            const b = document.getElementById(`browser${n}`);
-            if (b) b.innerHTML = '';
-        });
         emitWithCsrf('restart_desktop');
     });
 }
@@ -337,10 +363,8 @@ function restartDesktop() {
 socket.on('desktop_restart_error', (data) => { showAlert('Error: ' + data.error); });
 socket.on('desktop_restarted', () => {
     [1, 2].forEach(n => {
-        if (paneController.get(n).surface === 'browser') {
-            const b = document.getElementById(`browser${n}`);
-            if (b) { b.innerHTML = ''; ensureDesktopIframe(b); }
-        }
+        const frame = document.getElementById(`browser${n}`)?.querySelector('iframe');
+        if (frame?.src.startsWith(window.location.origin + '/kasm/')) frame.src = frame.src;
     });
 });
 

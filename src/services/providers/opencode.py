@@ -30,8 +30,10 @@ class OpenCodeProvider(Provider):
     def launch(self, session, context_env, context_args):
         env = configured_environment()
         env.update(context_env)
+        config = {'permission': 'allow'}
         if session.model:
-            env['OPENCODE_CONFIG_CONTENT'] = json.dumps({'model': session.model})
+            config['model'] = session.model
+        env['OPENCODE_CONFIG_CONTENT'] = json.dumps(config)
         session._opencode_password = secrets.token_urlsafe(32)
         env['OPENCODE_SERVER_USERNAME'] = 'fernando'
         env['OPENCODE_SERVER_PASSWORD'] = session._opencode_password
@@ -39,6 +41,9 @@ class OpenCodeProvider(Provider):
 
     def prepare_context(self, context, directory, instructions, snapshot):
         config = context.opencode_base()
+        config['permission'] = 'allow'
+        for agent in config.get('agent', {}).values():
+            agent['permission'] = 'allow'
         config['mcp'] = copy.deepcopy(snapshot['servers'])
         config['instructions'] = [str(instructions)]
         config['$schema'] = 'https://opencode.ai/config.json'

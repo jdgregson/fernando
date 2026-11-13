@@ -1,35 +1,4 @@
 #!/bin/bash
-# Rebuild the Kasm desktop container to pull latest rolling updates
-
 set -e
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$REPO_DIR"
-
-# Preserve VNC password across container recreation
-if [ -f /tmp/fernando-vnc-password ]; then
-    export VNC_PW="$(cat /tmp/fernando-vnc-password)"
-else
-    echo "Warning: /tmp/fernando-vnc-password not found, generating new password"
-    VNC_PW="$(openssl rand -base64 16)"
-    echo "$VNC_PW" > /tmp/fernando-vnc-password
-    chmod 600 /tmp/fernando-vnc-password
-    export VNC_PW
-fi
-
-BASE_IMAGE=$(grep '^FROM ' "$REPO_DIR/Dockerfile.desktop" | head -1 | awk '{print $2}')
-echo "Pulling latest base image ($BASE_IMAGE)..."
-docker pull "$BASE_IMAGE"
-
-echo "Rebuilding desktop container..."
-bash "$REPO_DIR/scripts/desktop-compose.sh" build --no-cache
-
-echo "Restarting container..."
-bash "$REPO_DIR/scripts/desktop-compose.sh" down
-bash "$REPO_DIR/scripts/desktop-compose.sh" up -d
-
-# Regenerate nginx VNC auth header to match
-VNC_AUTH=$(echo -n "kasm_user:$VNC_PW" | base64)
-sed -i "s|proxy_set_header Authorization \"Basic [^\"]*\"|proxy_set_header Authorization \"Basic $VNC_AUTH\"|" "$REPO_DIR/nginx.conf"
-nginx -c "$REPO_DIR/nginx.conf" -s reload 2>/dev/null || true
-
-echo "Desktop container updated."
+exec "$REPO_DIR/venv/bin/python" "$REPO_DIR/scripts/desktop-update.py" start --no-cache --wait

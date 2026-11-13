@@ -305,18 +305,15 @@
                     {% for provider in provider_settings.providers %}
                     <div class="mcp-server-item settings-provider-card">
                         <div style="display:flex;align-items:center;gap:10px;">
-                            <input type="checkbox" id="provider-{{ provider.id }}" data-provider-enabled="{{ provider.id }}" data-setting="{{ provider.enabled_setting or '' }}" onchange="saveProviderValue(this.dataset.setting, this.checked)"{% if provider.enabled %} checked{% endif %}{% if not provider.enabled_setting %} disabled{% endif %}>
+                            <input type="checkbox" id="provider-{{ provider.id }}" data-provider-enabled="{{ provider.id }}" data-setting="{{ provider.enabled_setting or '' }}" onchange="setProviderEnabled(this)"{% if provider.enabled %} checked{% endif %}{% if not provider.enabled_setting %} disabled{% endif %}>
                             <label for="provider-{{ provider.id }}" style="display:flex;flex-direction:column;gap:2px;"><div class="mcp-server-name">{{ provider.name }}</div><div class="mcp-server-desc">{{ provider.name }} agent backend{% if not provider.enabled_setting %} (always enabled){% endif %}</div></label>
                         </div>
                         <div class="settings-row" style="margin:0;padding-left:26px;">
                             <label class="settings-label" for="provider-model-{{ provider.id }}">Model</label>
-                            <select id="provider-model-{{ provider.id }}" data-provider-model="{{ provider.id }}" data-setting="{{ provider.model_setting }}" class="settings-select" onchange="saveProviderValue(this.dataset.setting, this.value)">
-                                <option value="">Loading...</option>
+                            <select id="provider-model-{{ provider.id }}" data-provider-model="{{ provider.id }}" data-setting="{{ provider.model_setting }}" class="settings-select" onchange="saveProviderValue(this.dataset.setting, this.value)"{% if not provider.enabled %} disabled{% endif %}>
+                                <option value="">{{ 'Loading...' if provider.enabled else 'Disabled' }}</option>
                             </select>
                         </div>
-                        {% if provider.setup_instructions %}
-                        <div class="mcp-server-desc" style="padding-left:26px;overflow-wrap:anywhere;">{{ provider.setup_instructions }}<br><code>{{ provider.login_command }}</code></div>
-                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
