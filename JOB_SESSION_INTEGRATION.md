@@ -22,12 +22,12 @@ Job's requested workflow still uses independent worker/reviewer ACP conversation
 | Context and shared chrome | Persisted name/state, open Job group membership, pane descriptions, group colors and shared selection styles | Pane-context, custom title and both embedded group-color checks passed; backend context includes open Job metadata |
 | Cross-view updates | Runtime broadcasts metadata revisions and view registration; parent passes updates through the checked shared bridge | Both browser views synchronized; separate live Socket.IO observer received authoritative updates |
 | Native-input/mobile policy | Existing host focus policy and mobile controls, rather than Job-specific focus handlers | Shared native-focus regressions and mobile layout passed. Touch synthesis generated no click on either Job or an ordinary host-button positive control, so native touch is explicitly unverified |
-| View cleanup and retained state | Switching/closing disposes the document while retaining Job data; Close does not stop, accept, waive or delete workflow obligations | Backend running-job close test, browser disposal/reopen and live retained-draft checks passed |
+| View cleanup and retained state | Switching disposes the document while retaining Job data. Closing pauses the Job and closes its owned agents without accepting, waiving or deleting obligations | Native-process regression verifies owned processes exit while an unrelated process remains running; explicit Resume restores the interrupted assignment |
 | Security and runtime ownership | Existing API-key/CSRF/source checks; runtime-owned ledger and dispatcher | Changed API tests and live authenticated WebSocket/HTTP checks passed; served assets matched source |
 
 ## Explicit behavior boundaries
 
-* Close closes the view. Job execution continues unless paused using Job's own execution controls. Retained Jobs reopen through the Jobs picker.
+* Close pauses the Job and closes its associated agent sessions, retaining evidence and conversation histories. Reopening leaves it paused until Resume. This coupled behavior supersedes the original view-only Close policy at the user's request.
 * Job's existing Pause/Resume, operator requests and requirement waivers are workflow operations, not ACP Sleep/Wake or chat archive operations.
 * A group's normal archive/restore metadata behavior remains available. There is no individual ACP-style Job archive, chat fork, transcript export or conversation-content-search integration.
 * Worker/reviewer conversations retain their existing ACP features through their own Chat sessions. Job provides links to them without becoming a Chat session itself.

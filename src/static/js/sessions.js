@@ -1522,7 +1522,7 @@ function updateSessionList(sessions, chatSessions, data) {
         if (session.hidden && !searchingConversations) continue;
         const element = paneController.sidebarItem(session);
         if (session.pinned) fragment.appendChild(element);
-        else allItems[session.key] = { element, groupId: _cachedSessionGroups[session.key] || null };
+        else allItems[session.key] = { element, groupId: _cachedSessionGroups[session.groupKey || session.key] || null };
     }
 
     // Get local group order, merge with server groups

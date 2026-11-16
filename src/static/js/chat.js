@@ -136,6 +136,7 @@ function highlightSearchText(element, text, query) {
 function switchToActive() {
     if (!showArchived) return;
     showArchived = false;
+    document.getElementById('archiveSubagentFilter').hidden = true;
     document.getElementById('switchLabelActive').classList.add('active');
     document.getElementById('switchLabelArchived').classList.remove('active');
     const search = document.getElementById('archiveSearch');
@@ -150,6 +151,7 @@ function switchToActive() {
 function switchToArchived() {
     if (showArchived) return;
     showArchived = true;
+    document.getElementById('archiveSubagentFilter').hidden = false;
     document.getElementById('switchLabelActive').classList.remove('active');
     document.getElementById('switchLabelArchived').classList.add('active');
     const search = document.getElementById('archiveSearch');
@@ -196,7 +198,8 @@ function filterArchivedEntries(query) {
         const hit = conversationSearchMatches.get(item.dataset.session);
         const groupId = group?.dataset.groupId || '__ungrouped__';
         const inGroup = !parsed.group || parsed.group === groupId;
-        const matched = inGroup && (parsed.times.length || parsed.excluded.length ? !!hit : (!q || groupMatch || (quoted ? name.textContent : name.textContent.toLowerCase()).includes(q) || hit));
+        const includeSubagent = !showArchived || item.dataset.subagent !== 'true' || document.getElementById('includeArchivedSubagents').checked || !!query.trim();
+        const matched = includeSubagent && inGroup && (parsed.times.length || parsed.excluded.length ? !!hit : (!q || groupMatch || (quoted ? name.textContent : name.textContent.toLowerCase()).includes(q) || hit));
         item.style.display = matched ? '' : 'none';
         if (matched && item.dataset.session?.startsWith('chat:')) count++;
         if (q) {
@@ -344,6 +347,8 @@ socket.on('acp_archived_list', (data) => {
         const item = document.createElement('div');
         item.className = 'session-item archived-item';
         item.dataset.session = 'chat:' + s.id;
+        item.dataset.subagent = String(!!s.is_subagent);
+        if (s.job_id) item.classList.add('job-agent-row');
         const name = document.createElement('span');
         name.className = 'session-name';
         name.textContent = s.name;
@@ -355,6 +360,11 @@ socket.on('acp_archived_list', (data) => {
         restoreBtn.setAttribute('aria-label', 'Restore');
         restoreBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 7 5 3 9 7"/><path d="M5 3v6a4 4 0 0 0 4 4h2"/></svg>';
         restoreBtn.onclick = (e) => { e.stopPropagation(); emitWithCsrf('acp_restore', { session_id: s.id }); };
+        if (s.job_id) {
+            restoreBtn.title = 'Open owning Job';
+            restoreBtn.setAttribute('aria-label', 'Open owning Job');
+            restoreBtn.onclick = event => { event.stopPropagation(); paneController.open('job:' + s.job_id); };
+        }
         const delBtn = document.createElement('button');
         delBtn.className = 'close-btn';
         delBtn.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg>';

@@ -46,7 +46,7 @@ def prepare(destination):
 
 def fixture():
     spec = {'key': 'R1', 'work': 'Verify the requested operation', 'source': 'Test the target.', 'acceptance': 'Correct component and controls', 'preconditions': 'Target reachable', 'access': 'Fixture only', 'dependencies': [], 'evidence': 'Original tool events', 'controls': 'Positive and negative controls'}
-    return {'id': 'a' * 32, 'name': 'Job fixture', 'state': 'running', 'paused': 0, 'view_open': 1, 'session_revision': 1, 'draft_revision': 0, 'draft': None, 'group_id': '11111111', 'scope': 'Test the target. <img src=x onerror=window.injected=true>', 'source_sha256': 'b' * 64, 'scope_sha256': 'b' * 64, 'uploaded_source': None, 'worker': {'backend': 'kiro', 'model': 'claude-sonnet-4.6'}, 'reviewer': {'backend': 'kiro', 'model': 'claude-sonnet-4.6'}, 'plan_accepted': 1, 'plan': None, 'updated': 1,
+    return {'id': 'a' * 32, 'name': 'Job fixture', 'state': 'running', 'paused': 0, 'max_workers': 5, 'reuse_workers': False, 'view_open': 1, 'session_revision': 1, 'draft_revision': 0, 'draft': None, 'group_id': '11111111', 'scope': 'Test the target. <img src=x onerror=window.injected=true>', 'source_sha256': 'b' * 64, 'scope_sha256': 'b' * 64, 'uploaded_source': None, 'worker': {'backend': 'kiro', 'model': 'claude-sonnet-4.6'}, 'reviewer': {'backend': 'kiro', 'model': 'claude-sonnet-4.6'}, 'plan_accepted': 1, 'plan': None, 'updated': 1,
             'requirements': [{'id': 'r1', 'spec': spec, 'state': 'review_pending', 'waiver': None}],
             'operator_requests': [{'id': 'o1', 'requirement_id': 'r1', 'request': 'Please supply the missing target access.', 'answer': None}],
             'attempts': [{'id': 'attempt1', 'requirement_id': 'r1', 'state': 'review_pending', 'conclusion': 'Target tested', 'limitations': 'Fixture only', 'outcome': 'Defect observed', 'versions': ['sha256:' + 'd' * 64], 'evidence': ['event1']}],
@@ -55,7 +55,7 @@ def fixture():
             'job_events': [{'created': time.time(), 'kind': 'created', 'detail': 'Fixture started'}]}
 
 
-def run(directory, integration=False):
+def run(directory, integration=False, agents=False):
     import websocket
     job = fixture()
     errors = []
@@ -112,12 +112,14 @@ def run(directory, integration=False):
                 job['name'] = 'New Job'
                 job['group_id'] = data.get('group_id')
                 job['draft_revision'] = 0
-                job['draft'] = {'name': '', 'scope': '', 'source_id': None, 'source_name': '', 'worker': job['worker'], 'reviewer': job['reviewer']}
+                job['draft'] = {'name': '', 'scope': '', 'source_id': None, 'source_name': '', 'worker': job['worker'], 'reviewer': job['reviewer'], 'max_workers': 5, 'reuse_workers': False}
             elif self.path.endswith('/draft'):
                 if data['revision'] != job['draft_revision']:
                     self.send({'error': 'Draft changed in another view'}, status=400)
                     return
                 job['draft'] = data['draft']
+                job['max_workers'] = data['draft']['max_workers']
+                job['reuse_workers'] = data['draft']['reuse_workers']
                 job['draft_revision'] += 1
                 job['name'] = data['draft']['name'] or 'New Job'
                 if data.get('submit'):
@@ -150,7 +152,7 @@ def run(directory, integration=False):
 
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    url = 'http://127.0.0.1:' + str(server.server_port) + ('/workspace' if integration else '/jobs/new')
+    url = 'http://127.0.0.1:' + str(server.server_port) + ('/workspace' if integration or agents else '/jobs/new')
     target = json.load(urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:9222/json/new?' + url, method='PUT')))
     ws = websocket.create_connection(target['webSocketDebuggerUrl'], timeout=15, suppress_origin=True)
     sequence = 0
@@ -189,6 +191,64 @@ def run(directory, integration=False):
     try:
         command('Runtime.enable')
         command('Page.bringToFront')
+        if agents:
+            wait("document.querySelector('[data-session=\"job:'+'a'.repeat(32)+'\"]')")
+            command('Emulation.setDeviceMetricsOverride', {'width': 1100, 'height': 850, 'deviceScaleFactor': 1, 'mobile': False})
+            js("""(()=>{
+                localStorage.removeItem('fernando_collapsed_parents');
+                const id='a'.repeat(32);
+                const agents=Array.from({length:100},(_,i)=>({id:(i+1000).toString(16).padStart(8,'0'),name:'Worker '+i+' '+('long task description '.repeat(20)),job_id:id,job_role:'worker',is_subagent:true,loaded:false,status:'idle'}));
+                const ordinary={id:'ffffffff',name:'Standalone conversation',is_subagent:false,loaded:false};
+                const fork={id:'fffffffe',name:'Independent fork',is_subagent:false,session_kind:'fork',loaded:false};
+                const helper={id:'fffffffd',name:'General helper',is_subagent:true,parent_id:'ffffffff',session_kind:'subagent',loaded:false};
+                window.fixtureAgentRows=agents;
+                window.fixtureArchiveRows=[ordinary,fork,helper,...agents];
+                updateSessionList([], [ordinary,...agents], {job_sessions:[{id,name:'Job with 100 agents',state:'running',view_open:1,paused:0,session_revision:100}],groups:[{id:'11111111',name:'Fixture group',color:'#b8860b'}],session_groups:{['job:'+id]:'11111111'}});
+                const prior=window.emitWithCsrf;
+                window.emitWithCsrf=(name,data)=>{
+                    if(name==='acp_list_archived'){for(const h of fixtureHandlers.get('acp_archived_list'))h({sessions:window.fixtureArchiveRows,groups:[],session_groups:{}});return;}
+                    if(name==='acp_search_conversations'){for(const h of fixtureHandlers.get('acp_conversation_search_results'))h({...data,state:'complete',total:103,completed:103,sessions:[{id:agents[0].id,snippet:'hidden evidence',match:'Tool content'}]});return;}
+                    return prior(name,data);
+                };
+            })()""")
+            assert js("document.querySelectorAll('.job-agent-row').length===100")
+            metrics = js("[...document.querySelectorAll('.job-agent-row')].map(row=>{const s=getComputedStyle(row),label=row.querySelector('.session-name > span');return {padding:[s.paddingTop,s.paddingRight,s.paddingBottom,s.paddingLeft],height:row.getBoundingClientRect().height,nowrap:getComputedStyle(label).whiteSpace,ellipsis:getComputedStyle(label).textOverflow,truncated:label.scrollWidth>label.clientWidth};})")
+            assert all(row['padding'] == ['0px'] * 4 and row['height'] < 25 and row['nowrap'] == 'nowrap' and row['ellipsis'] == 'ellipsis' and row['truncated'] for row in metrics), metrics[:2]
+            checks.append('100 owned agents have zero row padding and single-line ellipsis')
+            image = command('Page.captureScreenshot', {'format': 'png'})
+            (directory / 'job-agents-expanded.png').write_bytes(base64.b64decode(image['data']))
+            js("document.querySelector('[data-session=\"job:'+'a'.repeat(32)+'\"] .parent-chevron').click()")
+            assert js("document.querySelectorAll('.job-agent-row').length===0 && document.querySelector('[data-session=\"chat:ffffffff\"]')!==null")
+            checks.append('Job collapse hides its agents without hiding unrelated chats')
+            image = command('Page.captureScreenshot', {'format': 'png'})
+            (directory / 'job-agents-collapsed.png').write_bytes(base64.b64decode(image['data']))
+            js("document.querySelector('[data-session=\"job:'+'a'.repeat(32)+'\"] .parent-chevron').click()")
+            assert js("document.querySelectorAll('.job-agent-row').length===100")
+            js("document.getElementById('switchLabelArchived').click()")
+            visible = "[...document.querySelectorAll('.archived-item')].filter(row=>row.style.display!=='none').length"
+            assert js(visible) == 2
+            checks.append('archived Job agents and ordinary subagents are hidden by default; forks remain visible')
+            image = command('Page.captureScreenshot', {'format': 'png'})
+            (directory / 'archive-subagents-hidden.png').write_bytes(base64.b64decode(image['data']))
+            js("document.getElementById('includeArchivedSubagents').click()")
+            assert js(visible) == 103
+            js("document.getElementById('includeArchivedSubagents').click()")
+            assert js(visible) == 2
+            checks.append('Include subagents checkbox toggles all archived subagents')
+            js("const input=document.getElementById('archiveSearch');input.value='hidden evidence';input.dispatchEvent(new Event('input',{bubbles:true}))")
+            wait(visible + '===1')
+            assert js("document.querySelector('[data-session=\"chat:000003e8\"].archived-item').style.display!== 'none' && !document.getElementById('includeArchivedSubagents').checked")
+            assert js("document.querySelector('[data-session=\"chat:000003e8\"].archived-item').getBoundingClientRect().height<25")
+            checks.append('matching content search reveals a hidden subagent without changing the checkbox')
+            image = command('Page.captureScreenshot', {'format': 'png'})
+            (directory / 'archive-subagent-search.png').write_bytes(base64.b64decode(image['data']))
+            js("document.getElementById('clearConversationSearch').click()")
+            assert js(visible) == 2
+            checks.append('clearing search restores the default hidden-subagent view')
+            assert not errors, errors
+            (directory / 'agent-results.json').write_text(json.dumps({'checks': checks, 'row_metrics': metrics[:2], 'exceptions': errors}, indent=2))
+            print(json.dumps({'passed': len(checks), 'checks': checks}))
+            return
         if integration:
             wait("document.querySelector('[data-session=\"job:' + 'a'.repeat(32) + '\"]')")
             js("openNewSessionModal('11111111')")
@@ -292,6 +352,8 @@ def run(directory, integration=False):
             print(json.dumps({'passed': len(checks), 'checks': checks, 'native_touch': touch_result['status']}))
             return
         wait("document.querySelector('#workerModel')?.options.length === 1 && document.querySelector('#reviewerModel')?.options.length === 1")
+        assert js("document.getElementById('jobMaxWorkers').value==='5' && !document.getElementById('jobReuseWorkers').checked")
+        checks.append('execution defaults are five workers and fresh worker attempts')
         for width in (1440, 390, 320):
             command('Emulation.setDeviceMetricsOverride', {'width': width, 'height': 850, 'deviceScaleFactor': 1, 'mobile': width < 500})
             wait('document.documentElement.clientWidth === ' + str(width))
@@ -299,9 +361,12 @@ def run(directory, integration=False):
             image = command('Page.captureScreenshot', {'format': 'png'})
             (directory / f'job-create-{width}.png').write_bytes(base64.b64decode(image['data']))
             checks.append(f'create layout {width}')
-        js("document.getElementById('jobName').value='Evidence review'; document.getElementById('jobScope').value='Test the target. <img src=x onerror=window.injected=true>'; document.getElementById('jobCreateButton').click()")
+        js("document.getElementById('jobName').value='Evidence review'; document.getElementById('jobScope').value='Test the target. <img src=x onerror=window.injected=true>'; document.getElementById('jobMaxWorkers').value='2'; document.getElementById('jobReuseWorkers').click(); document.getElementById('jobCreateButton').click()")
         wait("document.querySelector('#jobCreate').hidden && document.querySelector('#jobView').textContent.includes('0 / 1')")
         assert not js('Boolean(window.injected)')
+        assert job['max_workers'] == 2 and job['reuse_workers'] is True
+        assert js("document.getElementById('jobView').textContent.includes('Max workers: 2')")
+        checks.append('selected concurrency and reuse settings persist into the job')
         checks.append('create job and safe scope rendering')
         js("document.querySelector('details[data-key=scope]').open=true; document.querySelector('details[data-key=r1]').open=true; document.querySelector('details[data-key=attempt1]').open=true")
         js("[...document.querySelectorAll('button')].find(b=>b.textContent==='Evidence event1').click()")
@@ -341,8 +406,9 @@ if __name__ == '__main__':
     parser.add_argument('--prepare', type=Path)
     parser.add_argument('--run', type=Path)
     parser.add_argument('--integration', action='store_true')
+    parser.add_argument('--agents', action='store_true')
     args = parser.parse_args()
     if args.prepare:
         prepare(args.prepare)
     else:
-        run(args.run, args.integration)
+        run(args.run, args.integration, args.agents)

@@ -112,7 +112,14 @@ const paneController = {
     },
 
     inventory(data) {
-        return [...this.sessionTypes.values()].sort((a, b) => (a.sidebarOrder || 0) - (b.sidebarOrder || 0)).flatMap(adapter => adapter.sessions(data).map(session => ({ ...session, adapter })));
+        const sessions = [...this.sessionTypes.values()].sort((a, b) => (a.sidebarOrder || 0) - (b.sidebarOrder || 0)).flatMap(adapter => adapter.sessions(data).map(session => ({ ...session, adapter })));
+        const children = new Map();
+        for (const session of sessions) {
+            if (!session.parentKey) continue;
+            if (!children.has(session.parentKey)) children.set(session.parentKey, []);
+            children.get(session.parentKey).push(session);
+        }
+        return sessions.filter(session => !session.parentKey).flatMap(session => [session, ...(children.get(session.key) || [])]);
     },
 
     sidebarItem(session) {
@@ -194,7 +201,7 @@ const paneController = {
         } : null;
         item.addEventListener('click', event => this.select(key, event, item, rename));
         this.bindContextMenu(item, (event, x, y) => showSessionContextMenu(key, x, y, rename, close, view.sleep, view.clone, view.collapse));
-        if (!session.pinned) {
+        if (!session.pinned && view.draggable !== false) {
             makeSessionDraggable(item, key);
         }
         return item;

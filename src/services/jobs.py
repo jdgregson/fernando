@@ -3,6 +3,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import secrets
 import socketserver
 import sqlite3
@@ -32,12 +33,44 @@ def text(value, maximum=20000):
     return value.strip()
 
 
+def execution_settings(max_workers=5, reuse_workers=False):
+    if type(max_workers) is not int or not 1 <= max_workers <= 9223372036854775807:
+        raise ValueError('Max workers must be a positive integer')
+    if type(reuse_workers) is not bool:
+        raise ValueError('Reuse workers must be a boolean')
+    return max_workers, reuse_workers
+
+
+def migrate_assignment_sessions(path):
+    db = sqlite3.connect(path, timeout=15)
+    try:
+        db.execute('PRAGMA foreign_keys=OFF')
+        with db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='assignments'").fetchone()
+            if row and re.search(r'\bsession_id\s+TEXT\s+UNIQUE\b', row[0], re.I):
+                schema = re.sub(r'\bsession_id\s+TEXT\s+UNIQUE\b', 'session_id TEXT', row[0], flags=re.I)
+                schema, count = re.subn(r'^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"assignments"|assignments)(?=\s|\()', 'CREATE TABLE assignments_updated', schema, count=1, flags=re.I)
+                if count != 1:
+                    raise RuntimeError('Unsupported assignments schema')
+                columns = ','.join('"' + item[1].replace('"', '""') + '"' for item in db.execute('PRAGMA table_info(assignments)'))
+                db.execute(schema)
+                db.execute(f'INSERT INTO assignments_updated (rowid,{columns}) SELECT rowid,{columns} FROM assignments ORDER BY rowid')
+                db.execute('DROP TABLE assignments')
+                db.execute('ALTER TABLE assignments_updated RENAME TO assignments')
+                if db.execute('PRAGMA foreign_key_check').fetchall():
+                    raise RuntimeError('Assignment migration failed its foreign-key integrity check')
+    finally:
+        db.close()
+
+
 class JobStore:
     def __init__(self, path):
         self.path = Path(path)
         self.changed = threading.Event()
         self.suspended_groups = set()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        migrate_assignment_sessions(self.path)
         with self.connect() as db:
             db.executescript('''
                 PRAGMA journal_mode=WAL;
@@ -57,7 +90,7 @@ class JobStore:
                 );
                 CREATE TABLE IF NOT EXISTS assignments (
                     id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES jobs(id),
-                    requirement_id TEXT, role TEXT NOT NULL, session_id TEXT UNIQUE,
+                    requirement_id TEXT, role TEXT NOT NULL, session_id TEXT,
                     state TEXT NOT NULL DEFAULT 'reserved', prompt TEXT NOT NULL DEFAULT '',
                     created REAL NOT NULL, delivered REAL, finished REAL,
                     continuations INTEGER NOT NULL DEFAULT 0
@@ -101,16 +134,27 @@ class JobStore:
                     id TEXT PRIMARY KEY, job_id TEXT REFERENCES jobs(id), filename TEXT NOT NULL,
                     sha256 TEXT NOT NULL, extracted TEXT NOT NULL, original BLOB NOT NULL
                 );
-                CREATE UNIQUE INDEX IF NOT EXISTS one_active_job_assignment
-                    ON assignments(job_id) WHERE state IN ('reserved','active');
             ''')
             db.execute('BEGIN IMMEDIATE')
+            db.execute('DROP INDEX IF EXISTS one_active_job_assignment')
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_requirement_assignment ON assignments(requirement_id) WHERE requirement_id IS NOT NULL AND state IN ('reserved','active')")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_plan_assignment ON assignments(job_id) WHERE requirement_id IS NULL AND state IN ('reserved','active')")
+            db.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_active_session_assignment ON assignments(session_id) WHERE session_id IS NOT NULL AND state IN ('reserved','active')")
+            db.execute('CREATE INDEX IF NOT EXISTS assignment_sessions ON assignments(session_id)')
+            if 'reused' not in {row['name'] for row in db.execute('PRAGMA table_info(assignments)')}:
+                db.execute('ALTER TABLE assignments ADD COLUMN reused INTEGER NOT NULL DEFAULT 0')
             if 'paused' not in {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}:
                 db.execute('ALTER TABLE jobs ADD COLUMN paused INTEGER NOT NULL DEFAULT 0')
             columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)')}
-            for name, definition in {'draft': 'TEXT', 'draft_revision': 'INTEGER NOT NULL DEFAULT 0', 'session_revision': 'INTEGER NOT NULL DEFAULT 0', 'view_open': 'INTEGER NOT NULL DEFAULT 1'}.items():
+            for name, definition in {'draft': 'TEXT', 'draft_revision': 'INTEGER NOT NULL DEFAULT 0', 'session_revision': 'INTEGER NOT NULL DEFAULT 0', 'view_open': 'INTEGER NOT NULL DEFAULT 1', 'max_workers': 'INTEGER NOT NULL DEFAULT 5', 'reuse_workers': 'INTEGER NOT NULL DEFAULT 0'}.items():
                 if name not in columns:
                     db.execute(f'ALTER TABLE jobs ADD COLUMN {name} {definition}')
+            for row in db.execute("SELECT id,draft,max_workers,reuse_workers FROM jobs WHERE state='draft' AND draft IS NOT NULL").fetchall():
+                draft = json.loads(row['draft'])
+                if 'max_workers' not in draft or 'reuse_workers' not in draft:
+                    draft.setdefault('max_workers', row['max_workers'])
+                    draft.setdefault('reuse_workers', bool(row['reuse_workers']))
+                    db.execute('UPDATE jobs SET draft=? WHERE id=?', (json.dumps(draft), row['id']))
         os.chmod(self.path, 0o600)
 
     @contextmanager
@@ -131,7 +175,8 @@ class JobStore:
         db.execute('UPDATE jobs SET updated=?,session_revision=session_revision+1 WHERE id=?', (time.time(), job_id))
         self.changed.set()
 
-    def create(self, name, scope, worker, reviewer, group_id=None, source_name='Pasted description', source_sha256=None, source_id=None):
+    def create(self, name, scope, worker, reviewer, group_id=None, source_name='Pasted description', source_sha256=None, source_id=None, max_workers=5, reuse_workers=False):
+        max_workers, reuse_workers = execution_settings(max_workers, reuse_workers)
         scope = text(scope, 200000)
         job_id = identifier()
         now = time.time()
@@ -143,7 +188,8 @@ class JobStore:
                 source_name, source_sha256 = source['filename'], source['sha256']
             db.execute('INSERT INTO jobs(id,name,scope,source_name,source_sha256,worker,reviewer,group_id,created,updated) VALUES(?,?,?,?,?,?,?,?,?,?)',
                        (job_id, text(name, 120), scope, source_name, source_sha256 or hashlib.sha256(scope.encode()).hexdigest(),
-                        json.dumps(worker), json.dumps(reviewer), group_id, now, now))
+                         json.dumps(worker), json.dumps(reviewer), group_id, now, now))
+            db.execute('UPDATE jobs SET max_workers=?,reuse_workers=? WHERE id=?', (max_workers, int(reuse_workers), job_id))
             if source_id:
                 db.execute('UPDATE job_sources SET job_id=? WHERE id=?', (job_id, source_id))
             self.event(db, job_id, 'created', {'source': source_name})
@@ -151,7 +197,20 @@ class JobStore:
 
     def list(self):
         with self.connect() as db:
-            return [{**dict(row), 'group_suspended': row['group_id'] in self.suspended_groups} for row in db.execute('SELECT id,name,state,paused,created,updated,group_id,session_revision,view_open FROM jobs ORDER BY created DESC')]
+            agents = {}
+            for row in db.execute('SELECT job_id,session_id FROM assignments WHERE session_id IS NOT NULL ORDER BY rowid'):
+                if row['session_id'] not in agents.setdefault(row['job_id'], []):
+                    agents[row['job_id']].append(row['session_id'])
+            return [{**dict(row), 'agent_sessions': agents.get(row['id'], []), 'group_suspended': row['group_id'] in self.suspended_groups} for row in db.execute('SELECT id,name,state,paused,created,updated,group_id,session_revision,view_open FROM jobs ORDER BY created DESC')]
+
+    def agent_owners(self):
+        with self.connect() as db:
+            return {row['session_id']: {'job_id': row['job_id'], 'job_role': row['role']} for row in db.execute('SELECT session_id,job_id,role FROM assignments WHERE session_id IS NOT NULL')}
+
+    def agent_owner(self, session_id):
+        with self.connect() as db:
+            row = db.execute('SELECT job_id,role AS job_role FROM assignments WHERE session_id=?', (session_id,)).fetchone()
+            return dict(row) if row else None
 
     def list_sessions(self):
         return [job for job in self.list() if job['view_open']]
@@ -165,6 +224,7 @@ class JobStore:
         if not row:
             raise ValueError('Job not found')
         job = dict(row)
+        job['reuse_workers'] = bool(job['reuse_workers'])
         job['group_suspended'] = job['group_id'] in self.suspended_groups
         job['scope_sha256'] = hashlib.sha256(job['scope'].encode()).hexdigest()
         source = db.execute('SELECT filename,sha256,extracted FROM job_sources WHERE job_id=?', (job_id,)).fetchone()
@@ -175,6 +235,7 @@ class JobStore:
             job[table] = [dict(item) for item in db.execute(f'SELECT * FROM {table} WHERE job_id=? ORDER BY rowid', (job_id,))]
         for item in job['assignments']:
             item.pop('prompt')
+        job['agent_sessions'] = list(dict.fromkeys(item['session_id'] for item in job['assignments'] if item['session_id']))
         for item in job['requirements']:
             item['spec'] = json.loads(item['spec'])
         for item in job['attempts']:
@@ -189,7 +250,7 @@ class JobStore:
         if not row:
             raise PermissionError('This session has no active job assignment')
         job = db.execute('SELECT * FROM jobs WHERE id=?', (row['job_id'],)).fetchone()
-        if job['state'] in ('complete', 'cancelled'):
+        if not job['view_open'] or job['state'] in ('complete', 'cancelled'):
             raise PermissionError('Job is not accepting agent submissions')
         return row, job
 
@@ -382,7 +443,7 @@ class JobStore:
 def guidance(job, assignment):
     role = assignment['role']
     nonce = secrets.token_hex(16)
-    payload = {key: job[key] for key in ('id', 'name', 'scope', 'scope_sha256', 'source_name', 'source_sha256')}
+    payload = {key: job[key] for key in ('id', 'name', 'scope', 'scope_sha256', 'source_name', 'source_sha256', 'max_workers', 'reuse_workers')}
     if job['uploaded_source'] and job['uploaded_source']['extracted'] != job['scope']:
         payload['uploaded_source'] = job['uploaded_source']
         payload['scope_authority'] = 'The user reviewed and confirmed scope at job creation; it is the agreed scope.'
@@ -399,7 +460,7 @@ def guidance(job, assignment):
         payload['plan'] = job['plan']
         payload['reviews'] = [item for item in job['reviews'] if item['attempt_id'] is None][-3:]
     instructions = {
-        'planner': 'Decompose the complete ORIGINAL scope into individually testable obligations. Preserve every obligation, no scope expansion. Submit using job_plan. Each source must be an exact quotation. Include preconditions, access, dependencies, required evidence and positive/negative controls where appropriate; say not applicable with a reason where appropriate. Use stable local keys. Address earlier decomposition review reasons.',
+        'planner': 'Decompose the complete ORIGINAL scope into individually testable obligations. Preserve every obligation, no scope expansion. Submit using job_plan. Each source must be an exact quotation. Include preconditions, access, dependencies, required evidence and positive/negative controls where appropriate; say not applicable with a reason where appropriate. Independent requirements may execute concurrently up to max_workers. Declare dependencies for required ordering and conflicting shared resources. Use stable local keys. Address earlier decomposition review reasons.',
         'plan_reviewer': 'Independently compare every original obligation against the proposed decomposition, including implied acceptance conditions and dependencies. Accept only complete faithful coverage. Do not add new scope. Submit job_review with accepted or needs_rework and specific reasons. This is a decomposition review, not an execution review.',
         'worker': 'Perform ONLY the assigned requirement, meeting its acceptance criteria and controls. Prior reviews and operator answers are included. Submit a candidate using job_submit with conclusion, outcome, limitations, exact recorded tool event IDs, and source/configuration/artifact versions (hashes/commits where relevant). job_evidence lists your tool events and retrieves original raw evidence. Include execution inputs AND outputs, not just printed assertions. You cannot accept work, waive scope, or complete the job. Request missing access or user decisions with job_operator.',
         'reviewer': 'Independently review the pending attempt for the assigned requirement. Retrieve EVERY evidence event using job_evidence(event_id), following next_offset to the end. Worker summaries are claims, not evidence. Check actual execution, intended component, unrelated failures, controls, versions and whether conclusions exceed observations. Reproduce consequential claims or obtain independent observations when necessary within scope. A redirect is not backend TLS rejection; printed success is not an observation; shell short-circuiting can skip commands; algorithm rejection does not prove claim validation. Accept genuine success without inventing scope. A valid test finding a defect can be accepted as completed work. Submit job_review with inspected_evidence containing all submitted IDs, reasons tied to criteria, and independent evidence_refs if collected. Request operator help for missing access.',
@@ -427,7 +488,7 @@ class JobController:
             for job in self.store.list():
                 if job['group_id'] in self.suspended_groups:
                     continue
-                if not job['paused'] and job['state'] not in ('draft', 'blocked_operator', 'complete', 'cancelled'):
+                if job['view_open'] and not job['paused'] and job['state'] not in ('draft', 'blocked_operator', 'complete', 'cancelled'):
                     try:
                         self.advance(job['id'])
                     except Exception:
@@ -441,57 +502,93 @@ class JobController:
     def advance(self, jid):
         with self.store.connect() as db:
             job = self.store.snapshot(db, jid)
-            active = next((item for item in job['assignments'] if item['state'] in ('reserved', 'active')), None)
-            if active:
-                active['prompt'] = db.execute('SELECT prompt FROM assignments WHERE id=?', (active['id'],)).fetchone()[0]
-            if not active:
-                if job['state'] == 'blocked_operator':
-                    return
-                previous = next((item for item in reversed(job['assignments']) if item['state'] == 'finished'), None)
-                if previous and previous['session_id']:
-                    session = self.manager.get_session(previous['session_id'])
-                    if session and (session._is_prompting or session._turn_finishing):
-                        terminal = any(event.get('ts', 0) >= previous['finished'] and
-                                       (event.get('result', {}).get('stopReason') or event.get('type') in ('prompt_cancelled', 'acp_error'))
-                                       for event in session.history)
-                        if not terminal:
-                            return
-                rid = None
-                if not job['plan_accepted']:
+            active = [item for item in job['assignments'] if item['state'] in ('reserved', 'active')]
+            latest = {item['requirement_id']: item for item in job['assignments']}
+            settling = {rid for rid, item in latest.items() if self.turn_pending(item)}
+            if not job['plan_accepted']:
+                if not active and not settling:
                     last_answer = max((item['resolved'] or 0 for item in job['operator_requests']), default=0)
                     rejections = sum(item['attempt_id'] is None and item['verdict'] == 'needs_rework' and item['created'] > last_answer for item in job['reviews'])
                     if rejections >= 3 and job['state'] == 'planning':
                         self.store.block(db, jid, None, 'Decomposition rejected three times. Review the feedback and provide guidance.')
                         return
                     role = 'plan_reviewer' if job['state'] == 'plan_review' else 'planner'
-                else:
-                    unfinished = [item for item in job['requirements'] if item['state'] not in ('accepted', 'waived')]
-                    if not unfinished:
-                        db.execute("UPDATE jobs SET state='complete' WHERE id=?", (jid,))
-                        self.store.event(db, jid, 'complete', {'accepted_or_waived': len(job['requirements'])})
-                        return
-                    done = {item['id'] for item in job['requirements'] if item['state'] in ('accepted', 'waived')}
-                    requirement = None
-                    for item in unfinished:
-                        if item['state'] == 'blocked_operator':
-                            continue
-                        if item['failures'] >= 3:
-                            self.store.block(db, jid, item['id'], 'Three unsuccessful attempts. Review the evidence and provide guidance before retrying.')
-                            continue
-                        if set(item['spec']['dependency_ids']) <= done:
-                            requirement = item
-                            break
-                    if not requirement:
-                        return
+                    active.append(self.reserve(db, job, None, role))
+            elif None not in settling:
+                unfinished = [item for item in job['requirements'] if item['state'] not in ('accepted', 'waived')]
+                if not unfinished and not active and not settling:
+                    db.execute("UPDATE jobs SET state='complete' WHERE id=?", (jid,))
+                    self.store.event(db, jid, 'complete', {'accepted_or_waived': len(job['requirements'])})
+                    return
+                occupied = {item['requirement_id'] for item in active} | settling
+                slots = max(0, job['max_workers'] - len(occupied))
+                done = {item['id'] for item in job['requirements'] if item['state'] in ('accepted', 'waived')}
+                for requirement in sorted(unfinished, key=lambda item: item['state'] != 'review_pending'):
+                    if not slots:
+                        break
                     rid = requirement['id']
+                    if rid in occupied or requirement['state'] == 'blocked_operator':
+                        continue
+                    if requirement['failures'] >= 3:
+                        self.store.block(db, jid, rid, 'Three unsuccessful attempts. Review the evidence and provide guidance before retrying.')
+                        continue
+                    if not set(requirement['spec']['dependency_ids']) <= done:
+                        continue
                     role = 'reviewer' if requirement['state'] == 'review_pending' else 'worker'
-                    if role == 'worker':
-                        db.execute("UPDATE requirements SET state='running' WHERE id=?", (rid,))
-                active = {'id': identifier(), 'job_id': jid, 'requirement_id': rid, 'role': role, 'session_id': None, 'state': 'reserved', 'created': time.time(), 'delivered': None, 'continuations': 0}
-                active['prompt'] = guidance(job, active)
-                db.execute('INSERT INTO assignments(id,job_id,requirement_id,role,prompt,created) VALUES(?,?,?,?,?,?)',
-                           (active['id'], jid, rid, role, active['prompt'], active['created']))
-                self.store.event(db, jid, 'assigned', {'assignment': active['id'], 'role': role, 'requirement': rid})
+                    active.append(self.reserve(db, job, rid, role))
+                    occupied.add(rid)
+                    slots -= 1
+            for assignment in active:
+                assignment['prompt'] = db.execute('SELECT prompt FROM assignments WHERE id=?', (assignment['id'],)).fetchone()[0]
+        for assignment in active:
+            self.service_assignment(job, assignment)
+
+    def turn_pending(self, assignment):
+        if assignment['state'] != 'finished' or not assignment['session_id']:
+            return False
+        session = self.manager.get_session(assignment['session_id'])
+        if not session or not (session._is_prompting or session._turn_finishing):
+            return False
+        return not any(event.get('ts', 0) >= assignment['finished'] and
+                       (event.get('result', {}).get('stopReason') or event.get('type') in ('prompt_cancelled', 'acp_error'))
+                       for event in session.history)
+
+    def reusable_worker(self, job, rid):
+        if not job['reuse_workers']:
+            return None
+        workers = [item for item in job['assignments'] if item['requirement_id'] == rid and item['role'] == 'worker' and item['session_id']]
+        if not workers:
+            return None
+        sid = workers[-1]['session_id']
+        if sum(item['session_id'] == sid for item in workers) >= 3:
+            return None
+        session = self.manager.get_session(sid)
+        if session:
+            if session._is_prompting or session._turn_finishing or session._reloading or session._retry_pending:
+                return None
+            return sid
+        if any(item['id'] == sid for item in self.manager.list_archived()):
+            return sid
+        return None
+
+    def reserve(self, db, job, rid, role):
+        sid = self.reusable_worker(job, rid) if role == 'worker' else None
+        assignment = {'id': identifier(), 'job_id': job['id'], 'requirement_id': rid, 'role': role, 'session_id': sid,
+                      'state': 'reserved', 'created': time.time(), 'delivered': None, 'continuations': 0, 'reused': int(sid is not None)}
+        assignment['prompt'] = '[JOB ASSIGNMENT ' + assignment['id'] + ']\n' + guidance(job, assignment)
+        db.execute('INSERT INTO assignments(id,job_id,requirement_id,role,session_id,prompt,created,reused) VALUES(?,?,?,?,?,?,?,?)',
+                   (assignment['id'], job['id'], rid, role, sid, assignment['prompt'], assignment['created'], assignment['reused']))
+        if role == 'worker':
+            db.execute("UPDATE requirements SET state='running' WHERE id=?", (rid,))
+        self.store.event(db, job['id'], 'assigned', {'assignment': assignment['id'], 'role': role, 'requirement': rid, 'reused': bool(sid)})
+        return assignment
+
+    def service_assignment(self, job, active):
+        jid = job['id']
+        with self.store.connect() as db:
+            state = db.execute('SELECT state FROM assignments WHERE id=?', (active['id'],)).fetchone()
+            if not state or state['state'] not in ('reserved', 'active'):
+                return
         if not active['session_id']:
             model = job['reviewer'] if active['role'] in ('reviewer', 'plan_reviewer') else job['worker']
             sid = self.manager.create_session(on_event=self.manager.default_on_event, backend=model['backend'], model=model['model'], group_id=job['group_id'], use_template_prompt=False)
@@ -500,16 +597,25 @@ class JobController:
             self.manager.rename_session(sid, job['name'][:60] + ' / ' + active['role'])
             return
         session = self.manager.get_session(active['session_id'])
+        if not session and active['reused']:
+            if self.manager.restore_session(active['session_id'], on_event=self.manager.default_on_event, sleeping=True):
+                self.manager.reload_session(active['session_id'])
+                return
         if not session:
             self.abandon(active, 'Assigned agent session was removed. Review its last recorded work before retrying.')
             return
         if active['state'] == 'reserved':
-            delivery_time = time.time()
-            result = self.manager.deliver_scheduled_prompt(session.id, active['prompt'], initial=True)
-            if result in ('delivered', 'already_started'):
+            marker = '[JOB ASSIGNMENT ' + active['id'] + ']'
+            receipt = next((event for event in session.history if event.get('type') == 'user_prompt' and
+                            (marker in event.get('text', '') or event.get('text') == active['prompt'])), None)
+            delivery_time = receipt['ts'] if receipt else time.time()
+            result = 'delivered' if receipt else self.manager.deliver_scheduled_prompt(session.id, active['prompt'], initial=not active['reused'])
+            if result == 'delivered':
                 with self.store.connect() as db:
-                    db.execute("UPDATE assignments SET state='active',delivered=? WHERE id=? AND state='reserved'", (active['created'] if result == 'already_started' else delivery_time, active['id']))
+                    db.execute("UPDATE assignments SET state='active',delivered=? WHERE id=? AND state='reserved'", (delivery_time, active['id']))
                     self.store.event(db, jid, 'dispatched', {'assignment': active['id'], 'session': session.id})
+            elif result == 'already_started':
+                self.abandon(active, 'The agent received a different prompt before this assignment was dispatched. Inspect its recorded actions before retrying.')
             elif time.time() - active['created'] > 300:
                 self.abandon(active, 'Agent could not start within five minutes. Check provider availability.')
             return
@@ -518,6 +624,9 @@ class JobController:
         if not session.ready or not session.is_loaded:
             self.manager.reload_session(session.id)
             return
+        with self.store.connect() as db:
+            if db.execute('SELECT state FROM assignments WHERE id=?', (active['id'],)).fetchone()['state'] != 'active':
+                return
         terminal = [event for event in session.history if event.get('ts', 0) >= active['delivered'] and
                     (event.get('result', {}).get('stopReason') or event.get('type') in ('prompt_cancelled', 'acp_error'))]
         if not terminal and not session.has_unfinished_turn():
@@ -537,7 +646,9 @@ class JobController:
 
     def abandon(self, assignment, reason):
         with self.store.connect() as db:
-            db.execute("UPDATE assignments SET state='interrupted',finished=? WHERE id=?", (time.time(), assignment['id']))
+            changed = db.execute("UPDATE assignments SET state='interrupted',finished=? WHERE id=? AND state IN ('reserved','active')", (time.time(), assignment['id']))
+            if not changed.rowcount:
+                return
             self.store.block(db, assignment['job_id'], assignment['requirement_id'], reason)
             self.store.event(db, assignment['job_id'], 'interrupted', {'assignment': assignment['id'], 'reason': reason})
 

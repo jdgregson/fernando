@@ -53,7 +53,7 @@ def create():
     data = request.get_json()
     if not isinstance(data, dict):
         raise ValueError('Expected a job object')
-    job = session_service.create(name=data.get('name'), scope=data.get('scope'), worker=selection(data.get('worker')), reviewer=selection(data.get('reviewer')), group_id=data.get('group_id'), source_id=data.get('source_id'))
+    job = session_service.create(name=data.get('name'), scope=data.get('scope'), worker=selection(data.get('worker')), reviewer=selection(data.get('reviewer')), group_id=data.get('group_id'), source_id=data.get('source_id'), max_workers=data.get('max_workers', 5), reuse_workers=data.get('reuse_workers', False))
     return job, 201
 
 

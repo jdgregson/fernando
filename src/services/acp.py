@@ -107,10 +107,11 @@ def set_parent(child_id, parent_id, *, kind=None, fork_turn=None):
             lineage[child_id]['kind'] = kind
             lineage[child_id]['fork_turn'] = fork_turn
         # Add to parent's children
-        if parent_id not in lineage:
-            lineage[parent_id] = {"parent": None, "children": []}
-        if child_id not in lineage[parent_id]["children"]:
-            lineage[parent_id]["children"].append(child_id)
+        if parent_id:
+            if parent_id not in lineage:
+                lineage[parent_id] = {"parent": None, "children": []}
+            if child_id not in lineage[parent_id]["children"]:
+                lineage[parent_id]["children"].append(child_id)
         _save_lineage(lineage)
 
 
@@ -1190,8 +1191,13 @@ class ACPManager:
 
     def _start_new(self, session_id, session, initial_prompt=None):
         try:
+            if self.get_session(session_id) is not session:
+                return
             session._load_history()
             session.start()
+            if self.get_session(session_id) is not session:
+                session.stop()
+                return
             session.ready = True
             session._reloading = False
             self._save()
@@ -1381,9 +1387,19 @@ class ACPManager:
 
     def _load_existing(self, session_id, session, acp_session_id, continuation=None, *, recover_interrupted=False):
         try:
+            if self.get_session(session_id) is not session:
+                return
             logger.info(f"_load_existing: starting for {session_id} acp={acp_session_id}")
             session.load(acp_session_id)
+            if self.get_session(session_id) is not session:
+                session.stop()
+                return
             logger.info(f"_load_existing: session {session_id} loaded, history_len={len(session.history)}")
+            from src.services.job_sessions import session_service
+            owner = session_service.agent_owners().get(session_id)
+            if owner and not session_service.store.get(owner['job_id'])['view_open']:
+                self.archive_session(session_id, job_owner=owner)
+                return
             self._save()  # Persist the loaded=True state
             self._save_pid_map()
             if continuation and continuation.get('session_id') != session_id:
@@ -1627,7 +1643,7 @@ class ACPManager:
                     rag.delete_session(removed_id)
         self._save()
 
-    def archive_session(self, session_id):
+    def archive_session(self, session_id, *, job_owner=None):
         """Stop the process and move session from active to archived. History is preserved."""
         from src.services.subagent_core import cancel_origin_schedule
         cancel_origin_schedule(self, session_id)
@@ -1639,10 +1655,17 @@ class ACPManager:
             session = self.sessions.pop(session_id, None)
         if not session:
             return
+        if job_owner is None:
+            from src.services.jobs import store as job_store
+            job_owner = job_store.agent_owner(session_id)
         acp_id = session.acp_session_id
         name = session.display_name
         backend = session.backend
         model = session.model
+        with _lineage_lock:
+            relation = _load_lineage().get(session_id, {})
+        parent_id = relation.get('parent')
+        session_kind = _session_origin(session, relation)[0]
         session.stop()
         self._save()
         with _archived_lock:
@@ -1652,6 +1675,9 @@ class ACPManager:
                 "name": name,
                 "backend": backend,
                 "model": model,
+                "parent_id": parent_id,
+                "session_kind": session_kind,
+                **(job_owner or {}),
                 "context_snapshot": session.context_snapshot,
                 **({'pinned_messages': session.pinned_messages} if session.pinned_messages else {}),
                 "archived_at": time.time()
@@ -1665,7 +1691,17 @@ class ACPManager:
             key=lambda x: x[1].get("archived_at", 0),
             reverse=True,
         )
-        return [{"id": sid, "name": info.get("name", "Chat-" + sid)} for sid, info in items]
+        with _lineage_lock:
+            lineage = _load_lineage()
+        result = []
+        for sid, info in items:
+            relation = lineage.get(sid, {})
+            parent = info.get('parent_id') or relation.get('parent')
+            kind = info.get('session_kind') or relation.get('kind')
+            if not kind and parent:
+                kind = 'fork' if re.search(r' \(fork(?:@\d+)?\)$', info.get('name', '')) or chat_history.reference(sid) else 'subagent'
+            result.append({'id': sid, 'name': info.get('name', 'Chat-' + sid), 'parent_id': parent, 'session_kind': kind, **{key: info[key] for key in ('job_id', 'job_role') if key in info}})
+        return result
 
     def restore_session(self, session_id, on_event=None, sleeping=False):
         """Restore an archived session back to active."""

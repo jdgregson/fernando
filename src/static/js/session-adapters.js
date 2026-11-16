@@ -93,7 +93,7 @@ paneController.register('notebook', {
 });
 
 paneController.register('chat', {
-    sidebarKey: session => [session.key, session.name, !!session.loaded, session.status || 'idle', session.scheduled_resume?.id, session.scheduled_resume?.resume_at, session.scheduled_resume?.status],
+    sidebarKey: session => [session.key, session.name, !!session.loaded, session.status || 'idle', session.job_id, session.job_role, session.scheduled_resume?.id, session.scheduled_resume?.resume_at, session.scheduled_resume?.status],
     syncOnClose: false,
     closeLabel: 'Archive',
     describeSession: session => session.key + (session.loaded === false ? ' (sleeping)' : ''),
@@ -116,7 +116,8 @@ paneController.register('chat', {
         matches: pane => paneController.elements(pane).browser.querySelector('iframe')?.src.includes('/chat/' + key.slice(5)),
         clearContent: false, emptyBrowser: true, fit: true,
     }),
-    sessions: data => sortChatSessions(data.chat_sessions || []).map(chat => ({ ...chat, key: 'chat:' + chat.id })),
+    sessions: data => sortChatSessions(data.chat_sessions || []).map(chat => ({ ...chat, key: 'chat:' + chat.id,
+        ...(chat.job_id ? {parentKey: 'job:' + chat.job_id, groupKey: 'job:' + chat.job_id, hidden: chat.hidden || !isParentExpanded('job:' + chat.job_id)} : {})})),
     sidebar: session => chatSidebarDescriptor(session),
 });
 
@@ -193,7 +194,7 @@ function sortChatSessions(chats) {
 }
 
 function chatSidebarDescriptor(chat) {
-    const groupId = _cachedSessionGroups[chat.key];
+    const groupId = _cachedSessionGroups[chat.job_id ? 'job:' + chat.job_id : chat.key];
     const group = groupId ? _cachedGroups.find(group => group.id === groupId) : null;
     const color = group ? group.color : '#4b8ce0';
     const highlighted = chat.loaded && ['working', 'unread'].includes(chat.status);
@@ -201,9 +202,11 @@ function chatSidebarDescriptor(chat) {
     const stroke = highlighted ? color : 'currentColor';
     const iconClass = chat.loaded && chat.status === 'working' ? 'chat-icon-working' : '';
     return {
-        className: 'chat-session-item',
+        className: 'chat-session-item' + (chat.job_id ? ' job-agent-row' : ''),
+        title: chat.name,
+        draggable: !chat.job_id,
         dataset: { treeId: chat.id, ...(chat.parent_id ? { treeParent: chat.parent_id } : {}) },
-        labelClass: chat._isChild ? 'child-session' : '',
+        labelClass: chat._isChild || chat.job_id ? 'child-session' : '',
         icon: '<svg class="chat-icon ' + iconClass + '" width="12" height="12" viewBox="0 0 16 16" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px"><path d="M2 3h12v8H6l-4 3V3z"/></svg>',
         label() {
             const element = document.createElement('span');

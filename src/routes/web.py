@@ -231,9 +231,8 @@ def _spawn_subagent(data, task_id=None):
         return {'error': str(error)}, 400
     if name:
         acp_manager.rename_session(session_id, name)
-    if parent_session_id:
-        from src.services.acp import set_parent
-        set_parent(session_id, parent_session_id)
+    from src.services.acp import set_parent
+    set_parent(session_id, parent_session_id, kind='subagent')
     from src.services.subagent_core import register_task_session
     register_task_session(task_id, session_id, parent_session_id)
 

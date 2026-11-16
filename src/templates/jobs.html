@@ -21,6 +21,11 @@
             <span class="sa-meta" id="jobDocumentName"></span>
             <label class="sa-form-label" for="jobScope">Scope: review the full text before creating the job</label>
             <textarea class="sa-input sa-textarea" id="jobScope" maxlength="200000" required></textarea>
+            <label class="sa-form-label" for="jobMaxWorkers">Max workers</label>
+            <input class="sa-input" id="jobMaxWorkers" type="number" min="1" step="1" value="5" required>
+            <div class="sa-meta">Parallel task slots, including tasks under review.</div>
+            <label class="sa-form-label" for="jobReuseWorkers">Worker reuse</label>
+            <label class="auth-card-checkbox-row" id="jobReuseControl"><input type="checkbox" id="jobReuseWorkers"><span class="session-name">Reuse workers for up to 3 attempts per test</span></label>
             {% for role in ['worker', 'reviewer'] %}
             <label class="sa-form-label" for="{{ role }}Provider">{{ role | capitalize }} provider</label>
             <select class="sa-input" id="{{ role }}Provider">{% for provider in providers if provider.enabled %}<option value="{{ provider.id }}">{{ provider.name }}</option>{% endfor %}</select>

@@ -61,20 +61,97 @@ def test_submit_starts_the_existing_draft_once(integration):
     assert len(ledger.list()) == 1
 
 
-def test_close_and_reopen_are_view_operations_not_chat_archival(integration):
+def test_close_pauses_dispatch_and_reopen_requires_explicit_resume(integration):
     service, ledger, controller = integration
     job = service.create(name='Running Job', scope='Do this work', worker=MODEL, reviewer=MODEL)
     closed = service.perform(job['id'], 'close', {})
-    assert closed['state'] == job['state'] and closed['paused'] == job['paused']
+    assert closed['state'] == job['state'] and closed['paused'] == 1
     assert closed['scope'] == job['scope']
     assert ledger.list_sessions() == []
     assert ledger.list()[0]['id'] == job['id']
     controller.tick()
-    controller.manager.create_session.assert_called_once()
+    controller.manager.create_session.assert_not_called()
     opened = service.perform(job['id'], 'open', {})
     assert opened['view_open'] == 1
-    assert len(opened['assignments']) == 1
+    assert len(opened['assignments']) == 0
+    assert opened['paused'] == 1
     controller.manager.archive_session.assert_not_called()
+    service.perform(job['id'], 'resume', {})
+    controller.tick()
+    controller.manager.create_session.assert_called_once()
+
+
+def test_close_stops_real_owned_processes_and_preserves_unrelated_session(integration, tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import threading
+    from src.services import acp
+    service, ledger, controller = integration
+    monkeypatch.setattr(acp, 'ARCHIVED_FILE', str(tmp_path / 'archived.json'))
+    monkeypatch.setattr(acp, 'LINEAGE_FILE', str(tmp_path / 'lineage.json'))
+    manager = acp.ACPManager.__new__(acp.ACPManager)
+    manager._lock = threading.Lock()
+    manager.sessions = {}
+    manager._save = Mock()
+    controller.manager = manager
+    job = service.create(name='Owned processes', scope='Fixture only', worker=MODEL, reviewer=MODEL)
+    processes = []
+    try:
+        for sid in ('11111111', '22222222', '33333333', '44444444'):
+            session = acp.ACPSession(sid)
+            session._save_history = Mock()
+            session.proc = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+            processes.append(session.proc)
+            manager.sessions[sid] = session
+        acp.set_parent('33333333', '11111111', kind='subagent')
+        with ledger.connect() as db:
+            for sid, state in (('11111111', 'active'), ('22222222', 'finished')):
+                db.execute('INSERT INTO assignments(id,job_id,role,session_id,state,created) VALUES(?,?,?,?,?,0)', (sid, job['id'], 'worker', sid, state))
+        result = service.perform(job['id'], 'close', {})
+        assert result['paused'] == 1 and result['view_open'] == 0
+        assert all(process.poll() is not None for process in processes[:3])
+        assert processes[3].poll() is None
+        assert set(manager.sessions) == {'44444444'}
+        archived = acp._load_archived_map()
+        assert set(archived) == {'11111111', '22222222', '33333333'}
+        assert all(info['job_id'] == job['id'] for info in archived.values())
+        assert ledger.get(job['id'])['assignments'][0]['state'] == 'active'
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.terminate()
+            process.wait(timeout=5)
+
+
+def test_resume_restores_the_interrupted_agent_only(integration):
+    from types import SimpleNamespace
+    service, ledger, controller = integration
+    job = service.create(name='Resume', scope='Fixture only', worker=MODEL, reviewer=MODEL)
+    with ledger.connect() as db:
+        db.execute("INSERT INTO assignments(id,job_id,role,session_id,state,created) VALUES('assignment',?,'planner','11111111','active',0)", (job['id'],))
+    live = {'11111111': SimpleNamespace(display_name='Planner')}
+    controller.manager.get_session.side_effect = live.get
+    controller.manager.archive_session.side_effect = lambda sid, **kwargs: live.pop(sid)
+    service.perform(job['id'], 'close', {})
+    controller.manager.archive_session.assert_called_once()
+    with pytest.raises(ValueError, match='Reopen'):
+        service.perform(job['id'], 'resume', {})
+    service.perform(job['id'], 'open', {})
+    controller.manager.restore_session.assert_not_called()
+    controller.manager.restore_session.return_value = True
+    service.perform(job['id'], 'resume', {})
+    controller.manager.restore_session.assert_called_once_with('11111111', on_event=None, sleeping=True)
+    controller.manager.reload_session.assert_called_once_with('11111111')
+
+
+def test_rootless_subagents_have_explicit_origin_without_a_fake_parent(tmp_path, monkeypatch):
+    from src.services import acp
+    monkeypatch.setattr(acp, 'LINEAGE_FILE', str(tmp_path / 'lineage.json'))
+    acp.set_parent('11111111', None, kind='subagent')
+    lineage = acp._load_lineage()
+    assert set(lineage) == {'11111111'}
+    assert lineage['11111111']['kind'] == 'subagent'
+    assert lineage['11111111']['parent'] is None
 
 
 def test_rename_and_group_move_preserve_work_and_existing_agent(integration):

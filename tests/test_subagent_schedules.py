@@ -310,7 +310,7 @@ class ScheduleRouteTests(unittest.TestCase):
             })
             self.assertEqual(response.status_code, 200)
             manager.create_session.assert_called_once()
-            lineage.assert_called_once_with('aaaaaaaa', 'bbbbbbbb')
+            lineage.assert_called_once_with('aaaaaaaa', 'bbbbbbbb', kind='subagent')
             self.assertEqual(self.scheduler.create.call_args.args[:3], ('aaaaaaaa', 'bbbbbbbb', '*/5 * * * *'))
             self.assertEqual(self.scheduler.create.call_args.args[-1], 'monitor')
             thread.assert_not_called()

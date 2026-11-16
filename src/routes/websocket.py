@@ -83,6 +83,8 @@ def register_handlers(socketio):
         chat_sessions = acp_manager.list_sessions()
         from src.services.file_browser import list_sessions as file_sessions
         from src.services.jobs import store as job_store
+        from src.services.job_sessions import session_service
+        chat_sessions = session_service.decorate_chats(chat_sessions)
         from src.services.notebooks import list_notebooks
         from src.services.settings import get_provider_settings
         from src.services import groups
@@ -565,6 +567,9 @@ def register_handlers(socketio):
         if session_key:
             try:
                 if session_key.startswith('chat:'):
+                    from src.services.job_sessions import session_service
+                    if session_service.agent_owners().get(session_key[5:]):
+                        raise ValueError('Move the owning Job to move its agents together')
                     if not acp_manager.move_chat_to_group(session_key[5:], group_id):
                         return
                 elif session_key.startswith('job:'):
@@ -751,6 +756,8 @@ def register_handlers(socketio):
         chat_sessions = acp_manager.list_sessions()
         from src.services.file_browser import list_sessions as file_sessions
         from src.services.jobs import store as job_store
+        from src.services.job_sessions import session_service
+        chat_sessions = session_service.decorate_chats(chat_sessions)
         from src.services.notebooks import list_notebooks
         from src.services.settings import get_provider_settings
         from src.services import groups
@@ -786,7 +793,11 @@ def register_handlers(socketio):
     job_controller.synchronize = session_service.synchronize_groups
     def broadcast_job_changes():
         broadcast_sessions_list()
-        socketio.emit('job_changed', {'jobs': job_controller.store.list()})
+        jobs = job_controller.store.list()
+        owners = session_service.agent_owners()
+        for job in jobs:
+            job['agent_sessions'] = [sid for sid, owner in owners.items() if owner['job_id'] == job['id']]
+        socketio.emit('job_changed', {'jobs': jobs})
     job_controller.notify = broadcast_job_changes
     job_controller.start(acp_manager)
 
@@ -1370,7 +1381,7 @@ def register_handlers(socketio):
             return
         from src.services import groups
         emit("acp_archived_list", {
-            "sessions": acp_manager.list_archived(),
+            "sessions": session_service.decorate_chats(acp_manager.list_archived()),
             "groups": groups.list_groups(archived=True),
             "session_groups": groups.get_session_groups(),
         })
@@ -1420,6 +1431,12 @@ def register_handlers(socketio):
             return
         sid = data.get("session_id")
         if sid:
+            owner = session_service.agent_owners().get(sid)
+            if owner:
+                job = session_service.store.get(owner['job_id'])
+                if not job['view_open'] or job['group_suspended']:
+                    emit('error', {'message': 'Reopen the owning Job and restore its group before restoring its agents'})
+                    return
             ok = acp_manager.restore_session(sid, on_event=acp_on_event)
             if ok:
                 # Check if session's group still exists, remove from group if not

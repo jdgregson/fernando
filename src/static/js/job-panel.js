@@ -15,11 +15,12 @@ const modelLoads = new Map();
 
 function draftValues() {
     const model = role => ({backend: document.getElementById(role + 'Provider').value, model: document.getElementById(role + 'Model').value});
-    return {name: document.getElementById('jobName').value, scope: document.getElementById('jobScope').value, source_id: sourceId, source_name: document.getElementById('jobDocumentName').textContent, worker: model('worker'), reviewer: model('reviewer')};
+    return {name: document.getElementById('jobName').value, scope: document.getElementById('jobScope').value, source_id: sourceId, source_name: document.getElementById('jobDocumentName').textContent, worker: model('worker'), reviewer: model('reviewer'), max_workers: Number(document.getElementById('jobMaxWorkers').value), reuse_workers: document.getElementById('jobReuseWorkers').checked};
 }
 
 function sameDraft(left, right) {
     return ['name', 'scope', 'source_id', 'source_name'].every(key => left[key] === right[key]) &&
+        (left.max_workers ?? 5) === (right.max_workers ?? 5) && !!left.reuse_workers === !!right.reuse_workers &&
         ['worker', 'reviewer'].every(role => left[role].backend === right[role].backend && left[role].model === right[role].model);
 }
 
@@ -168,6 +169,7 @@ function render(job) {
     const count = job.requirements.filter(item => ['accepted', 'waived'].includes(item.state)).length;
     field(progress, 'Progress', job.plan_accepted ? `${count} / ${job.requirements.length} requirements accepted or waived` : 'Decomposition and independent scope review');
     field(progress, 'Models', `Worker: ${job.worker.backend} / ${job.worker.model}\nReviewer: ${job.reviewer.backend} / ${job.reviewer.model}`);
+    field(progress, 'Execution', `Max workers: ${job.max_workers}\nWorker reuse: ${job.reuse_workers ? 'up to 3 attempts per test' : 'new worker per attempt'}`);
     if (!['draft', 'complete', 'cancelled'].includes(job.state)) {
         progress.append(button(job.paused ? 'Resume' : 'Pause dispatch', () => operator(job.paused ? 'resume' : 'pause')));
     }
@@ -318,6 +320,8 @@ async function loadDraft(job) {
     const values = pending?.values || job.draft;
     document.getElementById('jobName').value = values.name;
     document.getElementById('jobScope').value = values.scope;
+    document.getElementById('jobMaxWorkers').value = values.max_workers ?? 5;
+    document.getElementById('jobReuseWorkers').checked = !!values.reuse_workers;
     sourceId = values.source_id;
     document.getElementById('jobDocumentName').textContent = values.source_name || '';
     try {
@@ -351,7 +355,7 @@ window.FernandoPane.on('job-update', () => refresh().catch(error => { errorBox.t
         if (!provider) throw new Error('Enable an agent provider before creating a Job');
         const model = {backend: provider.id, model: provider.model};
         currentJob = {id: 'new', name: 'New Job', state: 'draft', updated: 0, draft_revision: 0,
-            draft: {name: '', scope: '', source_id: null, source_name: '', worker: model, reviewer: model}};
+            draft: {name: '', scope: '', source_id: null, source_name: '', worker: model, reviewer: model, max_workers: 5, reuse_workers: false}};
     }
     if (currentJob?.state === 'draft') await loadDraft(currentJob);
     else if (currentJob) render(currentJob);

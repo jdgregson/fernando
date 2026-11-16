@@ -7,6 +7,7 @@ const {JSDOM} = require('jsdom');
 test('archive groups render, search, restore without opening chats, and leave active view clean', () => {
     const dom = new JSDOM('<body><span id="switchLabelActive"></span><span id="switchLabelArchived"></span><div id="conversationSearch"><input id="archiveSearch"><button id="clearConversationSearch"></button><div id="conversationSearchStatus"></div></div><div id="sessionList"><div class="group-wrapper" id="activeGroup"><span class="group-name">Active</span><span class="group-chevron"></span><div class="group-body"></div></div></div></body>', {runScripts: 'outside-only'});
     const win = dom.window;
+    win.document.body.insertAdjacentHTML('afterbegin', '<div id="archiveSubagentFilter" hidden><input type="checkbox" id="includeArchivedSubagents"></div>');
     const events = new Map();
     const emitted = [];
     win.socket = {on: (name, handler) => events.set(name, handler)};

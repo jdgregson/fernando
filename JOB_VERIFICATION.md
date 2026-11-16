@@ -68,3 +68,19 @@ No Git commit or push was performed. Broad security scanning remains deferred un
 The original job socket handler assumed Linux `SO_PEERCRED` and `/proc` process metadata. This caused first-use failure on macOS. `unix_peer.py` now selects the platform's native socket credentials: Linux `SO_PEERCRED`, or macOS libSystem `getpeereid` plus `SOL_LOCAL` / `LOCAL_PEERPID`. Both use psutil for process ancestry. Credential and process-inspection failures deny the request inside the handler's error boundary.
 
 The Darwin constants and libc signature were checked against Apple's XNU `bsd/sys/un.h` and Libc `gen/FreeBSD/getpeereid.c`. Forty-nine focused tests passed, including native Linux Unix-socket credentials and process ancestry, sibling/dead-session rejection, Darwin API-contract tests with `SO_PEERCRED` absent, credential failure, invalid peer PID, role enforcement and structured credential-error responses. Native macOS execution is not represented as tested.
+
+## Coupled agents and compact sidebar
+
+The requested close policy now pauses a Job and archives its owned agent sessions, including nested subagents, retaining the unfinished assignment and histories. Startup/load guards prevent agents surviving a close race or automatically continuing a closed Job. Reopening stays paused; explicit Resume restores the interrupted assignment. Job ownership is included in active/archived session metadata and retained when an agent is archived.
+
+The focused lifecycle run passed 63 checks, including actual subprocess shutdown with an unrelated-process positive control. Additional subagent management/scheduling/restart checks passed after updating the expected explicit subagent-origin metadata. Twenty-five JavaScript checks passed. Six native-browser checks passed against 100 compact agent rows, Job collapse/expand, the archived checkbox, body-content search revealing hidden agents, and restoring the hidden state after clearing search. Screenshots were inspected at `/tmp/job-agents-expanded.png`, `/tmp/job-agents-collapsed.png`, `/tmp/archive-subagents-hidden.png` and `/tmp/archive-subagent-search.png`.
+
+## Parallel tasks and bounded worker reuse
+
+Creation now offers Max workers (default five) and optional reuse for up to three worker assignment attempts per test. Task slots include review and settling turns; dependencies remain enforced and blocked requirements release capacity. Reviewers always receive fresh sessions.
+
+Sixty-two focused tests passed, including five real subprocesses dispatched concurrently, task caps, dependency gating, same-test reuse, the three-use limit, reviewer independence, restart delivery receipts, stale-submission races, partial resume, and migration preserving assignment row IDs and foreign-key references. Thirteen browser checks passed, including default values and persistence of an explicit two-worker/reuse-enabled configuration. `/tmp/job-create-390.png` was inspected.
+
+Live job `70de1369fe024647b4d40edb0de104c6` ran three independent read-only checks with a limit of two. Two dispatched worker assignments overlapped; another task proceeded while the first was blocked for missing input. After that input was supplied, worker `2b8418b6` was reused for its original requirement. Reviewer sessions remained distinct from workers and each other, and all three requirements were accepted. The fixture Job and its agents were closed and its ledger rows removed.
+
+Evidence: `/tmp/opencode/job-parallel-live-0cfd3675.log` ends in `PARALLEL_AND_REUSE_PASSED`, `FIXTURE_CLOSED_AND_REMOVED` and `EXIT=0`. The result and ledger snapshots are in `/tmp/opencode/job-parallel-live-90d0cc71/`. Live creation controls and JavaScript bytes matched the working tree. No further runtime mutation was performed after the user's instruction to stop mutating.

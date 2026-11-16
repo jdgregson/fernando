@@ -159,6 +159,54 @@ test('sidebar updates retain an in-progress rename and Escape applies the latest
     assert.ok(!w.requests.some(request => request.data?.action === 'rename'));
 });
 
+test('job agents are contiguous beneath their collapsible owner', t => {
+    const w = workspace();
+    t.after(() => w.win.close());
+    const id = 'f'.repeat(32);
+    const chats = [{id: '11111111', name: 'worker', job_id: id, job_role: 'worker', loaded: false}, {id: '22222222', name: 'ordinary', loaded: false}, {id: '33333333', name: 'reviewer', job_id: id, job_role: 'reviewer', loaded: false}];
+    w.win.updateSessionList([], chats, {job_sessions: [{id, name: 'Job', state: 'running', view_open: 1, session_revision: 1}]});
+    const keys = () => [...w.win.document.querySelectorAll('#sessionList [data-session]')].map(element => element.dataset.session);
+    const before = keys();
+    assert.deepEqual(before.slice(before.indexOf('job:' + id), before.indexOf('job:' + id) + 3), ['job:' + id, 'chat:11111111', 'chat:33333333']);
+    assert.equal(w.win.document.querySelectorAll('.job-agent-row').length, 2);
+    w.win.document.querySelector('[data-session="job:' + id + '"] .parent-chevron').click();
+    assert.ok(!keys().includes('chat:11111111'));
+    assert.ok(keys().includes('chat:22222222'));
+    w.win.document.querySelector('[data-session="job:' + id + '"] .parent-chevron').click();
+    assert.ok(keys().includes('chat:33333333'));
+});
+
+test('archived subagents default hidden but checkbox and matching searches reveal them', t => {
+    const w = workspace();
+    t.after(() => w.win.close());
+    w.win.switchToArchived();
+    for (const handler of w.handlers.get('acp_archived_list')) handler({sessions: [
+        {id: '11111111', name: 'Independent chat', is_subagent: false},
+        {id: '22222222', name: 'Job worker', job_id: 'a'.repeat(32), is_subagent: true},
+        {id: '33333333', name: 'General helper', is_subagent: true},
+        {id: '44444444', name: 'Independent fork', session_kind: 'fork', is_subagent: false},
+    ]});
+    const visible = id => w.win.document.querySelector('[data-session="chat:' + id + '"]').style.display !== 'none';
+    assert.equal(visible('11111111'), true);
+    assert.equal(visible('22222222'), false);
+    assert.equal(visible('33333333'), false);
+    assert.equal(visible('44444444'), true);
+    w.win.document.getElementById('includeArchivedSubagents').checked = true;
+    w.win.filterArchivedEntries('');
+    assert.equal(visible('22222222'), true);
+    w.win.document.getElementById('includeArchivedSubagents').checked = false;
+    w.win.document.getElementById('archiveSearch').value = 'hidden evidence';
+    w.win.filterArchived();
+    const requestId = vm.runInContext('conversationSearchRequest', w.context);
+    for (const handler of w.handlers.get('acp_conversation_search_results')) handler({scope: 'archived', query: 'hidden evidence', request_id: requestId, sessions: [{id: '22222222', snippet: 'hidden evidence', match: 'Tool content'}]});
+    assert.equal(visible('22222222'), true);
+    assert.equal(visible('33333333'), false);
+    w.win.clearConversationSearch();
+    assert.equal(visible('22222222'), false);
+    w.win.switchToActive();
+    assert.equal(w.win.document.getElementById('archiveSubagentFilter').hidden, true);
+});
+
 test('job bridge rejects wrong windows and origins and opens agents in its owning pane', async t => {
     const w = workspace();
     t.after(() => w.win.close());

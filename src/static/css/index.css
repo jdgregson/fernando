@@ -242,6 +242,14 @@ body { font-family: 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', monospace; b
 .chat-session-item .chat-icon {
     flex-shrink: 0;
 }
+.job-agent-row { padding: 0; }
+.job-agent-row .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-agent-row .session-name > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-agent-row .close-btn { padding: 0; }
+.job-agent-row .session-tree { display: none; }
+#sessionList .job-agent-row.search-result { flex-wrap: nowrap; }
+.job-agent-row .conversation-search-preview { flex: 1; min-width: 0; display: block; margin-top: 0; white-space: nowrap; text-overflow: ellipsis; order: 1; }
+.job-agent-row > .close-btn, .job-agent-row > span:not(.session-name) { order: 2; }
 .session-origin-prefix {
     font-family: inherit;
     font-weight: 100;
@@ -814,9 +822,9 @@ button.notebook-delete-btn {
 .steering-inline-input.path { color: #6a7a8a; font-size: 12px; margin-top: 2px; }
 .steering-row .context-col-name { display: flex; flex-direction: column; }
 .steering-row .context-col-actions { align-self: flex-start; margin-top: 4px; }
-#settingsModal input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid #3465a3; border-radius: 3px; background: #091d35; cursor: pointer; vertical-align: middle; position: relative; flex-shrink: 0; }
-#settingsModal input[type="checkbox"]:checked { background: #3465a3; }
-#settingsModal input[type="checkbox"]:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; position: absolute; top: 0px; left: 4px; transform: rotate(45deg); }
+#settingsModal input[type="checkbox"], #archiveSubagentFilter input, #jobReuseControl input { appearance: none; -webkit-appearance: none; width: 16px; height: 16px; border: 1px solid #3465a3; border-radius: 3px; background: #091d35; cursor: pointer; vertical-align: middle; position: relative; flex-shrink: 0; }
+#settingsModal input[type="checkbox"]:checked, #archiveSubagentFilter input:checked, #jobReuseControl input:checked { background: #3465a3; }
+#settingsModal input[type="checkbox"]:checked::after, #archiveSubagentFilter input:checked::after, #jobReuseControl input:checked::after { content: ''; width: 4px; height: 8px; border: solid #fff; border-width: 0 2px 2px 0; position: absolute; top: 0px; left: 4px; transform: rotate(45deg); }
 .settings-row { margin-bottom: 16px; }
 .settings-row:first-of-type { padding-top: 10px; }
 .settings-label { display: block; font-size: 12px; color: #8899aa; margin-bottom: 6px; }

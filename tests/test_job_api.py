@@ -85,6 +85,21 @@ def test_no_new_styles_in_job_template(client):
     assert b'style=' not in page.data
 
 
+def test_execution_settings_persist_through_draft_submission(client):
+    browser, ledger = client
+    headers = {'X-API-Key': 'fixture-key'}
+    job = browser.post('/api/jobs/drafts', json={}, headers=headers).json
+    assert job['max_workers'] == 5 and job['reuse_workers'] is False
+    values = {**job['draft'], 'name': 'Configured', 'scope': 'Test configured scope', 'max_workers': 3, 'reuse_workers': True}
+    saved = browser.post('/api/jobs/' + job['id'] + '/draft', json={'draft': values, 'revision': 0}, headers=headers)
+    assert saved.status_code == 200
+    assert saved.json['draft']['max_workers'] == 3 and saved.json['draft']['reuse_workers'] is True
+    started = browser.post('/api/jobs/' + job['id'] + '/draft', json={'draft': values, 'revision': 1, 'submit': True}, headers=headers)
+    assert started.status_code == 200
+    assert started.json['max_workers'] == 3 and started.json['reuse_workers'] is True
+    assert started.json['state'] == 'planning'
+
+
 def test_ipc_derives_role_from_process_not_arguments(tmp_path, monkeypatch):
     ledger = JobStore(tmp_path / 'jobs.sqlite3')
     job = ledger.create('Fixture', 'Do work', MODEL, MODEL)

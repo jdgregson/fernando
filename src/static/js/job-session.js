@@ -4,7 +4,7 @@ let jobPickerGroup = null;
 function rememberJob(job) {
     const previous = jobSessionMetadata.get(job.id);
     if (!previous || previous.session_revision <= job.session_revision) {
-        jobSessionMetadata.set(job.id, Object.fromEntries(['id', 'name', 'state', 'paused', 'view_open', 'group_id', 'group_suspended', 'created', 'updated', 'session_revision'].map(key => [key, job[key]])));
+        jobSessionMetadata.set(job.id, Object.fromEntries(['id', 'name', 'state', 'paused', 'view_open', 'group_id', 'group_suspended', 'created', 'updated', 'session_revision', 'agent_sessions'].map(key => [key, job[key]])));
     }
 }
 
@@ -81,7 +81,7 @@ paneController.register('job', {
     sessions(data) {
         return (data.job_sessions || []).map(job => {
             rememberJob(job);
-            return {...jobSessionMetadata.get(job.id), key: 'job:' + job.id};
+            return {...jobSessionMetadata.get(job.id), key: 'job:' + job.id, agent_count: (data.chat_sessions || []).filter(chat => chat.job_id === job.id).length};
         });
     },
     beforeLeave: async ({frame}) => { if (frame?.contentWindow.saveJobDraft) await frame.contentWindow.saveJobDraft(); },
@@ -125,7 +125,13 @@ paneController.register('job', {
                 if (frame.jobOpening) await frame.jobOpening;
                 if (frame.contentWindow.saveJobDraft) await frame.contentWindow.saveJobDraft();
             }
-            if (key !== 'job:new') await jobSessionAction(key.slice(4), 'close');
+            if (key !== 'job:new') {
+                const closed = await jobSessionAction(key.slice(4), 'close');
+                if (!jobSessionMetadata.get(closed.id)?.view_open) {
+                    const agents = new Set((closed.agent_sessions || []).map(sid => 'chat:' + sid));
+                    for (const pane of paneController.panes.keys()) if (agents.has(paneController.get(pane).contentKey)) paneController.showTerminal(pane, {emptyBrowser: true, fit: true});
+                }
+            }
             for (const view of views) {
                 if (paneController.elements(view.pane).browser.querySelector('iframe') === view.frame && paneController.get(view.pane).openRequest === view.request) paneController.showTerminal(view.pane, {emptyBrowser: true, fit: true});
             }
@@ -137,15 +143,23 @@ paneController.register('job', {
         icon: '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-1px;margin-right:4px"><rect x="3" y="2" width="10" height="13" rx="1"/><path d="M5 6h6M5 9h6M5 12h4"/></svg>',
         closeLabel: 'Close',
         rename: name => jobSessionAction(job.id, 'rename', {name}).catch(error => showAlert(error.message)),
+        collapse: job.agent_count ? {isCollapsed: !isParentExpanded('job:' + job.id), toggle: () => toggleParentExpanded('job:' + job.id)} : null,
     }),
 });
 
 socket.on('job_changed', data => {
+    const closedAgents = new Set();
     for (const job of data.jobs || []) {
         rememberJob(job);
+        const current = jobSessionMetadata.get(job.id);
+        if (!current.view_open) for (const sid of current.agent_sessions || []) closedAgents.add('chat:' + sid);
     }
     for (const pane of paneController.panes.keys()) {
         const key = paneController.get(pane).contentKey;
+        if (closedAgents.has(key)) {
+            paneController.showTerminal(pane, {emptyBrowser: true, fit: true});
+            continue;
+        }
         if (!key?.startsWith('job:') || key === 'job:new') continue;
         const job = jobSessionMetadata.get(key.slice(4));
         const frame = paneController.elements(pane).browser.querySelector('iframe');
