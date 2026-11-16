@@ -4,15 +4,17 @@ import json
 import logging
 import os
 import secrets
-import socket
 import socketserver
 import sqlite3
-import struct
 import threading
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+
+import psutil
+
+from src.services.unix_peer import owning_session, peer_credentials
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -580,22 +582,12 @@ class JobServer(socketserver.ThreadingUnixStreamServer):
 class JobHandler(socketserver.StreamRequestHandler):
     def handle(self):
         self.request.settimeout(15)
-        pid, uid, gid = struct.unpack('3i', self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
         controller = self.server.controller
         try:
+            pid, uid, gid = peer_credentials(self.request)
             if uid != os.getuid():
                 raise PermissionError('Wrong operating-system account')
-            sid = None
-            for _ in range(32):
-                sid = next((item.id for item in list(controller.manager.sessions.values()) if item.proc and item.proc.poll() is None and item.proc.pid == pid), None)
-                if sid:
-                    break
-                status = Path(f'/proc/{pid}/status').read_text()
-                pid = int(next(line.split()[1] for line in status.splitlines() if line.startswith('PPid:')))
-                if pid <= 1:
-                    break
-            if not sid:
-                raise PermissionError('Caller is not a live assigned ACP session')
+            sid = owning_session(controller.manager, pid)
             raw = self.rfile.readline(262145)
             if len(raw) > 262144 or not raw.endswith(b'\n'):
                 raise ValueError('Request exceeds limit')
@@ -605,7 +597,7 @@ class JobHandler(socketserver.StreamRequestHandler):
             session = controller.manager.get_session(sid)
             result = controller.store.agent(sid, request['action'], request.get('data', {}), list(session.history))
             response = {'result': result}
-        except (ValueError, PermissionError, KeyError, OSError) as error:
+        except (ValueError, PermissionError, KeyError, OSError, psutil.NoSuchProcess, psutil.AccessDenied) as error:
             response = {'error': str(error)}
         self.wfile.write(json.dumps(response).encode() + b'\n')
 

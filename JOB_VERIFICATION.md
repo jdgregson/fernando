@@ -62,3 +62,9 @@ The final controller and UI changes are active.
 Current source hashes are recorded in `/tmp/opencode/job-live-0cfd3675/source-sha256.json`.
 
 No Git commit or push was performed. Broad security scanning remains deferred until product approval.
+
+## macOS peer-authentication correction
+
+The original job socket handler assumed Linux `SO_PEERCRED` and `/proc` process metadata. This caused first-use failure on macOS. `unix_peer.py` now selects the platform's native socket credentials: Linux `SO_PEERCRED`, or macOS libSystem `getpeereid` plus `SOL_LOCAL` / `LOCAL_PEERPID`. Both use psutil for process ancestry. Credential and process-inspection failures deny the request inside the handler's error boundary.
+
+The Darwin constants and libc signature were checked against Apple's XNU `bsd/sys/un.h` and Libc `gen/FreeBSD/getpeereid.c`. Forty-nine focused tests passed, including native Linux Unix-socket credentials and process ancestry, sibling/dead-session rejection, Darwin API-contract tests with `SO_PEERCRED` absent, credential failure, invalid peer PID, role enforcement and structured credential-error responses. Native macOS execution is not represented as tested.

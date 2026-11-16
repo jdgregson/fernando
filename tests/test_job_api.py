@@ -85,7 +85,7 @@ def test_no_new_styles_in_job_template(client):
     assert b'style=' not in page.data
 
 
-def test_ipc_derives_role_from_process_not_arguments(tmp_path):
+def test_ipc_derives_role_from_process_not_arguments(tmp_path, monkeypatch):
     ledger = JobStore(tmp_path / 'jobs.sqlite3')
     job = ledger.create('Fixture', 'Do work', MODEL, MODEL)
     with ledger.connect() as db:
@@ -104,12 +104,25 @@ def test_ipc_derives_role_from_process_not_arguments(tmp_path):
             connection.sendall(json.dumps({'action': 'review', 'session_id': 'reviewer', 'role': 'reviewer', 'data': {'verdict': 'accepted', 'reasons': 'I am reviewer'}}).encode() + b'\n')
             response = json.loads(connection.makefile('rb').readline())
         assert 'Only the assigned independent reviewer' in response['error']
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.connect(path)
+            connection.sendall(b'{"action":"status"}\n')
+            response = json.loads(connection.makefile('rb').readline())
+        assert response['result']['id'] == job['id']
         controller.manager.sessions = {}
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.connect(path)
             connection.sendall(b'{"action":"status","session_id":"worker-session"}\n')
             response = json.loads(connection.makefile('rb').readline())
         assert 'not a live assigned ACP' in response['error']
+        from src.services import jobs
+        def denied_peer(connection):
+            raise PermissionError('Peer credentials unavailable')
+        monkeypatch.setattr(jobs, 'peer_credentials', denied_peer)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+            connection.connect(path)
+            response = json.loads(connection.makefile('rb').readline())
+        assert response['error'] == 'Peer credentials unavailable'
     finally:
         server.shutdown()
         server.server_close()

@@ -34,7 +34,7 @@ The existing Chat MCP server exposes:
 * `job_review`
 * `job_operator`
 
-The runtime derives the caller from Unix `SO_PEERCRED` and its ancestry to a live ACP process. Tool arguments cannot assert a session or reviewer role. Planner, worker, decomposition reviewer and execution reviewer permissions are checked against the current assignment. There is no agent completion or waiver tool.
+The runtime derives the caller from kernel Unix-socket credentials and its ancestry to a live ACP process. Linux uses `SO_PEERCRED`; macOS uses libSystem `getpeereid` for the user/group and `SOL_LOCAL` / `LOCAL_PEERPID` for the process. Process ancestry uses psutil's native platform implementation, without requiring `/proc`. Credential or process-inspection failures deny access. Tool arguments cannot assert a session or reviewer role. Planner, worker, decomposition reviewer and execution reviewer permissions are checked against the current assignment. There is no agent completion or waiver tool.
 
 This is workflow-level role separation inside Fernando's existing trusted operating-system account. It does not sandbox arbitrary shell access from that account or make the database inaccessible to an agent with unrestricted host-file access. Review enforces evidence retrieval and assignment authority, not perfect model judgment. Instructions treat original scope, candidate summaries and evidence as task data rather than authority to change review roles or workflow.
 
