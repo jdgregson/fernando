@@ -49,7 +49,9 @@
             const dy = currentY - dragStartY;
             const scrollRange = el.scrollHeight - el.clientHeight;
             const trackRange = el.clientHeight - pill.offsetHeight;
-            el.scrollTop = dragStartScroll + (dy / trackRange) * scrollRange;
+            const top = Math.max(0, Math.min(scrollRange, dragStartScroll + (dy / trackRange) * scrollRange));
+            el.dispatchEvent(new CustomEvent('scroll-pill-input', {detail: {top}}));
+            el.scrollTop = top;
         }
         function endDrag() {
             dragging = false;

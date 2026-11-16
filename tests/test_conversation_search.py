@@ -14,14 +14,14 @@ class ConversationSearchTests(unittest.TestCase):
             '$and': [{'session_id': {'$in': ['aaaaaaaa']}}, {'role': {'$in': ['user']}}]
         })
 
-    def test_quoted_search_is_exact_case_insensitive_and_scoped(self):
+    def test_quoted_search_is_exact_case_sensitive_and_scoped(self):
         from src.services import rag
         identifier = 'a5055f9f-1234-5678-abcd-0123456789ab'
         collection = Mock()
         collection.count.return_value = 3
         collection.get.return_value = {
             'ids': ['wrong', 'embedded', 'exact'],
-            'documents': [identifier[:-1] + 'c', 'an unrelated UUID', 'Found ' + identifier.upper()],
+            'documents': [identifier[:-1] + 'c', identifier.upper(), 'Found ' + identifier],
             'metadatas': [{'session_id': sid, 'turn_index': 0} for sid in ['wrong', 'embedded', 'exact']],
         }
         with patch.object(rag, '_get_collection', return_value=collection):
@@ -42,8 +42,8 @@ class ConversationSearchTests(unittest.TestCase):
     def test_quotes_are_opt_in_and_support_smart_quotes(self):
         from src.services import rag
         self.assertIsNone(rag.exact_search_phrase('a5055f9f-1234-5678-abcd-0123456789ab'))
-        self.assertEqual(rag.exact_search_phrase('“Connection refused”'), 'connection refused')
-        self.assertEqual(rag.exact_search_phrase('"Connection refused"'), 'connection refused')
+        self.assertEqual(rag.exact_search_phrase('“Connection refused”'), 'Connection refused')
+        self.assertEqual(rag.exact_search_phrase('"Connection refused"'), 'Connection refused')
         self.assertIsNone(rag.exact_search_phrase('"unfinished'))
 
     def test_scope_is_applied_before_retrieval_and_sessions_are_deduplicated(self):

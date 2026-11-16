@@ -17,6 +17,33 @@ def chunk(text):
 
 
 class HistorySearchTests(unittest.TestCase):
+    def test_exact_phrase_group_and_exclusions_through_workers(self):
+        phrase = 'fuck my agent is stupid'
+        query, bounds = search.parse_time_filters('group:a5055f9f "' + phrase + '" -agent -tools')
+        text, group, excluded = search.parse_query(query)
+        self.write('aaaaaaaa', [
+            {'type': 'user_prompt', 'text': 'fuck my agent Is stupid'},
+            {'type': 'user_prompt', 'text': 'fuck stupid my is agent'},
+            {'type': 'agent_message', 'text': phrase},
+            {'params': {'update': {'sessionUpdate': 'tool_call', 'rawInput': phrase}}},
+            {'type': 'user_prompt', 'text': 'prefix ' + phrase + ' suffix ' + phrase},
+        ])
+        self.write('bbbbbbbb', [{'type': 'user_prompt', 'text': phrase}])
+        self.write('cccccccc', [{'type': 'agent_message', 'text': phrase}])
+        sessions = search.scoped_sessions([{'id': sid, 'name': phrase} for sid in ('aaaaaaaa', 'bbbbbbbb', 'cccccccc')], {'chat:aaaaaaaa': group, 'chat:bbbbbbbb': 'other', 'chat:cccccccc': group}, group)
+        for all_matches in (False, True):
+            with self.subTest(all_matches=all_matches):
+                search.cancel('test-client')
+                replies = []
+                with patch.object(search.chat_history, 'HISTORY_DIR', self.root), patch.object(search, 'rag_search') as semantic:
+                    thread = search.start('test-client', text, sessions, replies.append, excluded=excluded, all_matches=all_matches, bounds=bounds)
+                    thread.join(10)
+                self.assertFalse(thread.is_alive())
+                hits = [hit for reply in replies for hit in reply.get('sessions', [])]
+                self.assertEqual([(hit['id'], hit['event_index'], hit['match_text']) for hit in hits], [('aaaaaaaa', 4, phrase)] * (2 if all_matches else 1))
+                semantic.assert_not_called()
+                self.assertEqual(replies[-1]['state'], 'complete')
+
     def test_time_filter_parsing(self):
         text, bounds = search.parse_time_filters('needle after:2026-11-03 before:2026-11-04T12:30:00Z -user')
         self.assertEqual(text, 'needle -user')
@@ -132,11 +159,12 @@ class HistorySearchTests(unittest.TestCase):
         self.write('bbbbbbbb', [tool])
         self.write('cccccccc', [text, tool])
         for excluded, expected in (
-            (['text'], {'bbbbbbbb', 'cccccccc', 'dddddddd'}),
-            (['tools'], {'aaaaaaaa', 'cccccccc', 'dddddddd'}),
-            (['text', 'tools'], {'dddddddd'}),
+            (['text'], {'bbbbbbbb', 'cccccccc'}),
+            (['tools'], {'aaaaaaaa', 'cccccccc'}),
+            (['text', 'tools'], set()),
         ):
             with self.subTest(excluded=excluded):
+                search.cancel('test-client')
                 replies = []
                 with patch.object(search.chat_history, 'HISTORY_DIR', self.root):
                     thread = search.start('test-client', '"my-test-1"', sessions, replies.append, excluded=excluded)
@@ -314,7 +342,7 @@ class HistorySearchTests(unittest.TestCase):
             thread = search.start('test-client', '"needle"', [{'id': 'aaaaaaaa', 'name': 'needle'}], replies.append, excluded=['user'])
             thread.join(10)
         matches = [s for reply in replies for s in reply.get('sessions', [])]
-        self.assertEqual(matches[0]['match'], 'Title')
+        self.assertEqual(matches[0]['match'], 'Message content')
         self.assertEqual(matches[-1]['event_index'], 1)
         self.assertEqual(matches[-1]['source'], 'agent_message_chunk')
 
@@ -333,7 +361,7 @@ class HistorySearchTests(unittest.TestCase):
         from src.services import chat_history, acp, groups
         events = [{'type': 'user_prompt', 'text': 'hello'}, chunk('my-'), chunk('test-1'), {'result': {'stopReason': 'end_turn'}}]
         manager = Mock()
-        session = SimpleNamespace(history=events, mark_read=Mock(), is_loaded=True, ready=True, _reloading=False, _is_prompting=False, _retry_pending=False, model='test', backend='opencode')
+        session = SimpleNamespace(history=events, mark_read=Mock(), is_loaded=True, ready=True, _reloading=False, _is_prompting=False, _retry_pending=False, model='test', backend='opencode', provider=Mock(metadata=Mock(return_value={})), mcp_startup=Mock(snapshot=Mock(return_value={})))
         emitted = Mock()
         scope = {'validate_csrf': lambda data: True, 'logger': Mock(), 'request': SimpleNamespace(sid='socket'), 'acp_manager': manager, 'acp_subscribers': {}, 'acp_event_seq': {}, 'emit': emitted, 'replay_events': chat_history.replay_events, 'project_images': project_images, 'time': SimpleNamespace(time=lambda: 0)}
         tree = ast.parse(Path('src/routes/websocket.py').read_text())

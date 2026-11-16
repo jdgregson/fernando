@@ -1,3 +1,31 @@
+const persistentLayoutEnabled = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const persistentLayoutKey = 'fernando_ios_layout_v1';
+const persistentLayoutParams = ['session', 'session2', 'split', 'active', 'collapsed'];
+
+function persistIosLayout() {
+    if (!persistentLayoutEnabled) return;
+    const current = new URLSearchParams(window.location.search);
+    const saved = new URLSearchParams();
+    for (const name of persistentLayoutParams) {
+        if (current.has(name)) saved.set(name, current.get(name));
+    }
+    localStorage.setItem(persistentLayoutKey, saved.toString());
+}
+
+if (persistentLayoutEnabled) {
+    const current = new URLSearchParams(window.location.search);
+    if (persistentLayoutParams.some(name => current.has(name))) {
+        persistIosLayout();
+    } else {
+        const saved = new URLSearchParams(localStorage.getItem(persistentLayoutKey) || '');
+        for (const name of persistentLayoutParams) {
+            if (saved.has(name)) current.set(name, saved.get(name));
+        }
+        const query = current.toString();
+        history.replaceState(null, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash);
+    }
+}
+
 // --- Foreground / Reconnect ---
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden) handleForeground();
@@ -509,6 +537,7 @@ function setCollapsedGroups(collapsed) {
     }
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     history.replaceState(null, '', newUrl);
+    persistIosLayout();
 }
 function isGroupExpanded(groupId) {
     return !getCollapsedGroups().has(groupId);
@@ -1331,7 +1360,11 @@ function showGroupContextMenu(groupId, x, y, sessionCount, archived = false) {
     archiveBtn.textContent = 'Archive';
     archiveBtn.onclick = () => {
         menu.remove();
-        emitWithCsrf('group_archive', { group_id: groupId });
+        let saving;
+        try { saving = paneController.flushGroup(groupId); }
+        catch (error) { showAlert(error.message); return; }
+        if (saving) saving.then(() => emitWithCsrf('group_archive', { group_id: groupId })).catch(error => showAlert(error.message));
+        else emitWithCsrf('group_archive', { group_id: groupId });
     };
     menu.appendChild(archiveBtn);
 
@@ -1477,6 +1510,7 @@ function updateSessionList(sessions, chatSessions, data) {
     const searchingConversations = !!document.getElementById('archiveSearch').value.trim();
     const newKey = JSON.stringify(inventory.map(({ adapter, ...session }) => JSON.stringify(adapter.sidebarKey ? adapter.sidebarKey(session) : session)).sort()) + '|' + groupsKey + '|' + collapsedKey + '|' + searchingConversations;
     if (sessionListInitialized && lastSessionsKey === newKey) return;
+    if (document.querySelector('#sessionList .session-rename-input')) return;
     sessionListInitialized = true;
     lastSessionsKey = newKey;
 
@@ -1656,6 +1690,7 @@ function syncUrlParams() {
     if (isSplit && s2) { params.set('session2', s2); params.set('split', '1'); params.set('active', String(activeTerminal)); }
     const newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     try { history.replaceState(null, '', newUrl); } catch(e) {}
+    persistIosLayout();
     // Notify backend which chat sessions are in active panes (for idle protection)
     syncActiveChatPanes();
 }

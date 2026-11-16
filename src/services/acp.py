@@ -15,6 +15,7 @@ import copy
 
 from src.services import rag, chat_history
 from src.services.mcp_startup import MCPStartup
+from src.services.provider_errors import is_policy_rejection
 from src.services.providers import get_provider, legacy_provider
 
 logger = logging.getLogger(__name__)
@@ -303,6 +304,7 @@ class ACPSession:
         self._max_retries = 5  # give up after this many consecutive failures
         self._retry_backoff_base = 5  # seconds, doubles each retry
         self._retry_pending = False  # True while a retry is waiting to fire
+        self._policy_retry_pending = False
         self._reloading = False  # True while reload is in progress (prevents race)
         self._start_on_open = False
         self.mcp_startup = MCPStartup(self._publish_mcp_status)
@@ -414,6 +416,7 @@ class ACPSession:
             )):
                 return
             was_prompting = self._is_prompting
+            self._policy_retry_pending = False
             # Claim the turn before a concurrent group move can claim the restart.
             self._is_prompting = True
         logger.info(f"[{self.id}] send_prompt: {len(text)} chars, alive={self._alive}, proc_poll={self.proc.poll() if self.proc else 'N/A'}, was_prompting={was_prompting}")
@@ -611,7 +614,8 @@ class ACPSession:
             },
         })
 
-    def cancel(self):
+    def cancel(self, *, policy_rejection=False):
+        self._policy_retry_pending = policy_rejection
         if not self.acp_session_id:
             return
         if self._is_prompting or self._retry_pending:
@@ -757,6 +761,7 @@ class ACPSession:
         method = msg.get("method", "")
         if method == "session/update" or msg.get("result", {}).get("stopReason"):
             msg.setdefault("ts", time.time())
+            msg.setdefault("event_id", uuid.uuid4().hex)
             msg.setdefault("model", self.model)
             msg['backend'] = self.backend
             self.history.append(msg)
@@ -895,8 +900,30 @@ class ACPSession:
             except Exception:
                 pass
 
+    def report_provider_error(self, text, terminal=False):
+        event = {'type': 'system_message', 'text': 'Provider error: ' + text,
+                 'level': 'error', 'ts': time.time()}
+        if terminal:
+            event['text'] += ' Stopping this attempt.'
+            self.cancel(policy_rejection=True)
+        self.history.append(event)
+        self._save_history()
+        if self.on_event and self._broadcasting:
+            self.on_event(self.id, event)
+
+    def _retry_policy_once(self):
+        self._policy_retry_pending = False
+        for event in reversed(self.history):
+            if event.get('type') != 'user_prompt':
+                continue
+            if event.get('error_retry'):
+                return
+            break
+        self.send_prompt('Continue', error_retry=True)
+
     def _stderr_loop(self, process):
         """Drain stderr to prevent pipe buffer deadlock and log any output."""
+        pending = b''
         try:
             while self._alive and self.proc is process and process.poll() is None:
                 ready, _, _ = select.select([process.stderr], [], [], 1.0)
@@ -905,9 +932,13 @@ class ACPSession:
                 chunk = process.stderr.read1(65536)
                 if not chunk:
                     break
-                for line in chunk.decode(errors="replace").splitlines():
+                lines = (pending + chunk).split(b'\n')
+                pending = lines.pop()
+                for raw_line in lines:
+                    line = raw_line.decode(errors="replace")
                     if line.strip():
                         logger.warning(f"[{self.id}] {self.provider.name} stderr: {line.rstrip()}")
+                        self.provider.handle_stderr(self, line)
                         if "Transport" in line and "closed" in line:
                             logger.error(f"[{self.id}] MCP transport crash detected, scheduling auto-reload")
                             threading.Thread(target=self._auto_reload, daemon=True).start()
@@ -1011,6 +1042,8 @@ class ACPSession:
             if stop_reason:
                 with self._lock:
                     self._turn_finishing = False
+                    if self._policy_retry_pending:
+                        self._retry_policy_once()
                     self._drain_agent_messages()
             return
 
@@ -1050,6 +1083,9 @@ class ACPSession:
             self._save_history()
             if self.on_event and self._broadcasting:
                 self.on_event(self.id, error_evt)
+            if is_policy_rejection(json.dumps(err)):
+                self._retry_policy_once()
+                return
             if "Transport" in err_text and "closed" in err_text:
                 logger.error(f"[{self.id}] MCP transport crash detected via ACP error, scheduling auto-reload")
                 threading.Thread(target=self._auto_reload, kwargs={"error_retry": True}, daemon=True).start()
@@ -1195,7 +1231,10 @@ class ACPManager:
                 color = '#' + color
             parts.append(f'group_name: "{group["name"]}", group_id: {group_id}, group_color: {color}')
             chats = {'chat:' + chat['id']: chat['loaded'] for chat in self.list_sessions()}
+            from src.services.jobs import store as job_store
+            jobs = job_store.list_sessions()
             active_keys = set(pty_service.list_sessions()) | set(chats)
+            active_keys.update('job:' + job['id'] for job in jobs)
             active_keys.update('notebook:' + nb['name'] for nb in list_notebooks() if nb['running'])
             active_keys.update('jupyter:' + name for name in _open_jupyter.copy())
             members = [
@@ -1205,6 +1244,10 @@ class ACPManager:
             ]
             if members:
                 parts.append('group_members: ' + ', '.join(members))
+            group_jobs = [{'key': 'job:' + job['id'], 'name': job['name'], 'state': 'paused' if job['paused'] else job['state']}
+                          for job in jobs if group_data['session_groups'].get('job:' + job['id']) == group_id]
+            if group_jobs:
+                parts.append('group_jobs: ' + json.dumps(group_jobs))
         return '[Pane context: ' + ', '.join(parts) + ']'
 
     def checkpoint_restart(self):

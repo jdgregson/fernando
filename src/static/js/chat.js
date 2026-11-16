@@ -116,8 +116,8 @@ function closeConversationSearchHelp() {
 function highlightSearchText(element, text, query) {
     element.replaceChildren();
     const quoted = query.match(/^"([^"]+)"$|^“([^”]+)”$/u);
-    const tokens = quoted ? [(quoted[1] || quoted[2]).toLocaleLowerCase()] : query.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
-    const lower = text.toLocaleLowerCase();
+    const tokens = quoted ? [quoted[1] || quoted[2]] : query.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) || [];
+    const lower = quoted ? text : text.toLocaleLowerCase();
     let start = 0;
     while (start < text.length) {
         const matches = tokens.map(token => ({index: lower.indexOf(token, start), length: token.length})).filter(match => match.index >= 0).sort((a, b) => a.index - b.index || b.length - a.length);
@@ -185,7 +185,7 @@ function filterArchived() {
 function filterArchivedEntries(query) {
     const parsed = parseConversationQuery(query);
     const quoted = parsed.text.match(/^"([^"]+)"$|^“([^”]+)”$/u);
-    const q = (quoted ? quoted[1] || quoted[2] : parsed.text).toLowerCase();
+    const q = quoted ? quoted[1] || quoted[2] : parsed.text.toLowerCase();
     let count = 0;
     const ranges = [];
     document.querySelectorAll(showArchived ? '.archived-item' : '#sessionList .session-item:not(.archived-item)').forEach(item => {
@@ -196,7 +196,7 @@ function filterArchivedEntries(query) {
         const hit = conversationSearchMatches.get(item.dataset.session);
         const groupId = group?.dataset.groupId || '__ungrouped__';
         const inGroup = !parsed.group || parsed.group === groupId;
-        const matched = inGroup && (parsed.times.length ? !!hit : (!q || groupMatch || name.textContent.toLowerCase().includes(q) || hit));
+        const matched = inGroup && (parsed.times.length || parsed.excluded.length ? !!hit : (!q || groupMatch || (quoted ? name.textContent : name.textContent.toLowerCase()).includes(q) || hit));
         item.style.display = matched ? '' : 'none';
         if (matched && item.dataset.session?.startsWith('chat:')) count++;
         if (q) {
@@ -205,13 +205,14 @@ function filterArchivedEntries(query) {
             while ((node = walker.nextNode())) {
                 const tokens = quoted ? [q] : q.match(/[\p{L}\p{N}_]+/gu) || [];
                 for (const token of tokens) {
-                    let offset = node.textContent.toLowerCase().indexOf(token);
+                    const searchable = quoted ? node.textContent : node.textContent.toLowerCase();
+                    let offset = searchable.indexOf(token);
                     while (offset >= 0) {
                         const range = document.createRange();
                         range.setStart(node, offset);
                         range.setEnd(node, offset + token.length);
                         ranges.push(range);
-                        offset = node.textContent.toLowerCase().indexOf(token, offset + token.length);
+                        offset = searchable.indexOf(token, offset + token.length);
                     }
                 }
             }

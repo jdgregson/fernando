@@ -87,7 +87,7 @@ def in_time_range(event, bounds):
     return type(timestamp) in (int, float) and timestamp > bounds.get('after', float('-inf')) and timestamp < bounds.get('before', float('inf'))
 
 
-def scan(root, session_id, terms, report=None, excluded=(), bounds=None):
+def scan(root, session_id, terms, report=None, excluded=(), bounds=None, exact=False):
     tail = ''
     previous = None
     overlap = max(map(len, terms), default=1) - 1
@@ -112,7 +112,7 @@ def scan(root, session_id, terms, report=None, excluded=(), bounds=None):
             if not streaming or previous != key:
                 tail, found = '', set()
             combined = tail + text
-            folded = combined.casefold()
+            folded = combined if exact else combined.casefold()
             for term in terms:
                 position = folded.find(term)
                 if position >= 0:
@@ -125,7 +125,7 @@ def scan(root, session_id, terms, report=None, excluded=(), bounds=None):
     return None
 
 
-def scan_matches(root, session_id, terms, excluded=(), bounds=None):
+def scan_matches(root, session_id, terms, excluded=(), bounds=None, exact=False):
     text_parts = []
     segments = []
     length = 0
@@ -136,7 +136,7 @@ def scan_matches(root, session_id, terms, excluded=(), bounds=None):
         if not terms:
             yield {'snippet': text[:380], 'event_index': positions[0][1], 'source': source, 'match_text': '', 'match': 'Tool content' if source.startswith('tool:') else 'Message content'}
             return
-        folded = text.casefold()
+        folded = text if exact else text.casefold()
         if not all(term in folded for term in terms):
             return
         offset = 0
@@ -173,11 +173,11 @@ def scan_matches(root, session_id, terms, excluded=(), bounds=None):
                 continue
             if streaming:
                 text_parts.append(text)
-                length += len(text.casefold())
+                length += len(text if exact else text.casefold())
                 segments.append((length, index))
             else:
                 tool_id = event.get('params', {}).get('update', {}).get('toolCallId') if key.startswith('tool:') else None
-                yield from matches(text, key, [(len(text.casefold()), index)], tool_id)
+                yield from matches(text, key, [(len(text if exact else text.casefold()), index)], tool_id)
             previous = key if streaming else None
     if text_parts:
         yield from matches(''.join(text_parts), previous, segments)
@@ -189,11 +189,11 @@ def main():
         def progress(count):
             print(json.dumps({'progress': count, 'id': job['id']}), flush=True)
         if job.get('all_matches'):
-            for result in scan_matches(job['root'], job['id'], job['terms'], job['excluded'], job.get('bounds')):
+            for result in scan_matches(job['root'], job['id'], job['terms'], job['excluded'], job.get('bounds'), job.get('exact', False)):
                 print(json.dumps({'id': job['id'], 'match': result}), flush=True)
             result = None
         else:
-            result = scan(job['root'], job['id'], job['terms'], progress, job['excluded'], job.get('bounds'))
+            result = scan(job['root'], job['id'], job['terms'], progress, job['excluded'], job.get('bounds'), job.get('exact', False))
         print(json.dumps({'id': job['id'], 'result': result}), flush=True)
 
 

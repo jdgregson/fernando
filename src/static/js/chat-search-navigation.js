@@ -207,7 +207,8 @@ class ChatSearchNavigation {
         }
         let index = -text.length;
         for (let count = 0; count <= occurrence; count++) {
-            index = joined.toLowerCase().indexOf(text.toLowerCase(), index + text.length);
+            const exact = /"[^"]+"|“[^”]+”/u.test(this.query);
+            index = (exact ? joined : joined.toLowerCase()).indexOf(exact ? text : text.toLowerCase(), index + text.length);
             if (index < 0) return null;
         }
         if (index < 0) return null;

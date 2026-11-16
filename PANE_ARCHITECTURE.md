@@ -11,7 +11,7 @@ The records replace the separate `paneTypes`, `currentSession1`, `currentSession
 - `register(type, adapter)` validates and registers an integration. Required functions are `matches`, `mount`, `context`, `sessions`, and `sidebar`.
 - `open(key)` resolves the adapter, prepares service-specific parameters, transitions the pane, mounts content, and updates shared chrome and URL state. Applications do not call `showBrowser` or `finishOpen` themselves.
 - `close(key)` invokes the service-specific close operation and applies the declared dismissal policy. View disposal is distinct from terminating a PTY, archiving a chat, or stopping a container.
-- `ready(key)` completes asynchronous mounting and refreshes shared state. `unmount(context)` is an optional view-resource cleanup hook when content is replaced or disposed.
+- `ready(key)` completes asynchronous mounting and refreshes shared state. `unmount(context)` supplies application-owned view-resource cleanup when content is replaced or disposed. Cleanup remains required whether supplied by this hook or by the shared lifecycle.
 - `inventory(data)` obtains sessions from every adapter. `sidebarItem(session)` supplies click/touch handling, inline rename, buttons, context menus, long press, drag-to-group, and mobile sidebar dismissal. Adapters supply presentation and operations rather than wiring those handlers.
 - `restore(availableTerminalSessions)` handles both restoration entry points, retaining their distinct availability rules. `prepare` decodes a serialized key before mounting.
 - `sessionKey(pane)` supplies sidebar highlighting and borders; `locationKey(pane)` optionally uses the adapter's `serialize(key, state)` for URL persistence.
@@ -22,6 +22,8 @@ The records replace the separate `paneTypes`, `currentSession1`, `currentSession
 PTY attachment and output routing remain terminal-specific mounting operations. PTY viewer identity is distinct from displayed pane identity. Terminal attachment still moves the single rendered terminal and detaches its old viewer. Chats can still appear in both panes; re-opening the same chat in the same pane reuses its iframe. Notebook startup and Jupyter navigation retain their asynchronous lifecycle. Existing public opening functions are thin delegates to `open`.
 
 ## Adding an application
+
+Completion is governed by [SESSION_INTEGRATION.md](SESSION_INTEGRATION.md). Registration alone is not full integration. Load the shared bridge in the actual embedded application and verify the complete session-platform contract. Optional API hooks below do not authorize omission of user-facing features.
 
 Register an adapter in `session-adapters.js` (or load an application-owned registration script before restoration). Its `sessions(data)` returns records with stable `key` and `name` values from the application's backend data. `mount({key, pane, browser, state, options})` mounts application content into the supplied container. Shared opening, sidebar refresh, URL persistence, group placement, focus policy, and mobile controls are automatic. Application backend operations and the source of its session data remain application-specific.
 
@@ -42,9 +44,9 @@ paneController.register('example', {
 
 Authentication of the example application route is its application's responsibility; existing integrations continue to provide the API key required by their routes.
 
-Optional sidebar descriptor fields: `icon` (trusted application SVG), `label` (returns `{element, title}`), `className`, `labelClass`, `dataset`, `rename(name)`, `optimisticRename`, `closeLabel`, `sleep`, `clone`, `collapse`, and `button: {icon, run}`. Session records can be `pinned` or `hidden`. Default close dismissal removes matching browser views and synchronizes the URL. Existing adapters explicitly override this where legacy behavior differs.
+Sidebar descriptor extension points: `icon` (trusted application SVG), `label` (returns `{element, title}`), `className`, `labelClass`, `dataset`, `rename(name)`, `optimisticRename`, `closeLabel`, `sleep`, `clone`, `collapse`, and `button: {icon, run}`. Omit type-specific callbacks that do not apply: a non-chat session does not need ACP sleep, fork or archival behavior. Shared pane, focus, group and view behavior remains mandatory. Session records can be `pinned` or `hidden`. Default close dismissal removes matching browser views and synchronizes the URL. Existing adapters explicitly override this where legacy behavior differs.
 
-Optional adapter hooks/policies include `prepare`, `beforeMount`, `afterOpen`, `ready`, `firstReadyOnly`, `unmount`, `serialize`, `navigate`, `selectInactiveOnly`, `activateExisting`, `selectionKey`, `toggle`, and `dismiss`. `mobileClass` declares existing control styling; new embedded applications default to hiding terminal controls. `priority` resolves overlapping matchers; the legacy unprefixed terminal matcher has the lowest priority. `description` in context supplies agent-readable text for a new type without a chat-template branch.
+Adapter hooks/policies include `prepare`, `beforeMount`, `afterOpen`, `beforeLeave`, `ready`, `firstReadyOnly`, `unmount`, `serialize`, `navigate`, `selectInactiveOnly`, `activateExisting`, `selectionKey`, `toggle`, and `dismiss`. Verify required shared behavior through the actual application, including behavior implemented entirely by defaults. `beforeLeave` can await saving an embedded editor before its document is replaced; a failure keeps the current view open. `mobileClass` declares existing control styling; new embedded applications default to hiding terminal controls. `priority` resolves overlapping matchers; the legacy unprefixed terminal matcher has the lowest priority. `description` in context supplies agent-readable text for a new type without a chat-template branch.
 
 ## Application-to-host bridge contract
 

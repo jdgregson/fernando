@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Job</title>
+    <link rel="stylesheet" href="/static/css/index.css">
+    <link rel="stylesheet" href="/static/css/select.css">
+    <script src="/static/js/pane-bridge.js" data-activate-on="click"></script>
+</head>
+<body>
+    <header class="sa-panel-header"><span id="jobTitle">New Job</span><span id="jobState" class="sa-badge"></span></header>
+    <main class="sa-panel-body">
+        <p id="jobError" class="sa-task" role="alert"></p>
+        <form id="jobCreate" class="subagent-card" {% if job_id != 'new' and (not job or job.state != 'draft') %}hidden{% endif %}>
+            <label class="sa-form-label" for="jobName">Name</label>
+            <input class="sa-input" id="jobName" maxlength="120" required>
+            <label class="sa-form-label" for="jobDocument">Upload scope document (TXT, Markdown, DOCX)</label>
+            <input id="jobDocument" type="file" accept=".txt,.md,.markdown,.docx" hidden>
+            <button class="sa-btn" id="jobChooseDocument" type="button">Choose document</button>
+            <span class="sa-meta" id="jobDocumentName"></span>
+            <label class="sa-form-label" for="jobScope">Scope: review the full text before creating the job</label>
+            <textarea class="sa-input sa-textarea" id="jobScope" maxlength="200000" required></textarea>
+            {% for role in ['worker', 'reviewer'] %}
+            <label class="sa-form-label" for="{{ role }}Provider">{{ role | capitalize }} provider</label>
+            <select class="sa-input" id="{{ role }}Provider">{% for provider in providers if provider.enabled %}<option value="{{ provider.id }}">{{ provider.name }}</option>{% endfor %}</select>
+            <label class="sa-form-label" for="{{ role }}Model">{{ role | capitalize }} model</label>
+            <select class="sa-input" id="{{ role }}Model" required></select>
+            {% endfor %}
+            <button class="sa-btn sa-btn-primary" id="jobCreateButton" type="submit">Create Job</button>
+        </form>
+        <div id="jobView"></div>
+    </main>
+    <script>window.jobConfig = {{ {'id': job_id, 'apiKey': api_key, 'providers': providers, 'job': job | default(None)} | tojson }};</script>
+    <script src="/static/js/job-panel.js"></script>
+</body>
+</html>

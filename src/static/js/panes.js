@@ -39,6 +39,11 @@ const paneController = {
         const request = (state.openRequest || 0) + 1;
         state.openRequest = request;
         const iframe = this.elements(pane).browser.querySelector('iframe');
+        const previousAdapter = this.adapter(state.contentKey);
+        if (previousAdapter?.beforeLeave && state.contentKey !== key) {
+            try { await previousAdapter.beforeLeave({pane, state, frame: iframe}); }
+            catch (error) { showAlert(error.message); return false; }
+        }
         if (iframe && new URL(iframe.src, window.location.href).pathname.startsWith('/jupyter/')) {
             const notebook = iframe.contentWindow.Jupyter?.notebook;
             if (notebook?.dirty) {
@@ -93,6 +98,17 @@ const paneController = {
         if (!adapter.closeBeforeDismiss) adapter.close(key);
         if (adapter.syncOnClose) syncUrlParams();
         if (adapter.dismiss) updateKbdBtn();
+    },
+
+    flushGroup(groupId) {
+        const saves = [];
+        for (const pane of this.panes.keys()) {
+            const state = this.get(pane);
+            if (_cachedSessionGroups[state.contentKey] !== groupId) continue;
+            const adapter = this.adapter(state.contentKey);
+            if (adapter?.beforeLeave) saves.push(adapter.beforeLeave({pane, state, frame: this.elements(pane).browser.querySelector('iframe')}));
+        }
+        return saves.length ? Promise.all(saves) : null;
     },
 
     inventory(data) {
@@ -152,19 +168,26 @@ const paneController = {
             label.replaceWith(input);
             input.focus();
             input.select();
+            let settled = false;
             const commit = () => {
-                if (!input.parentNode) return;
+                if (settled || !input.parentNode) return;
+                settled = true;
                 const name = input.value.trim();
                 input.replaceWith(label);
                 if (name && name !== oldName) {
                     if (view.optimisticRename) title.textContent = name;
                     view.rename(name);
                 }
+                updateSessionList(_cachedSessions, _cachedChatSessions, _cachedData);
             };
             input.addEventListener('keydown', event => {
                 event.stopPropagation();
                 if (event.key === 'Enter') { event.preventDefault(); commit(); }
-                if (event.key === 'Escape') input.replaceWith(label);
+                if (event.key === 'Escape') {
+                    settled = true;
+                    input.replaceWith(label);
+                    updateSessionList(_cachedSessions, _cachedChatSessions, _cachedData);
+                }
             });
             input.addEventListener('blur', commit);
             input.addEventListener('click', event => event.stopPropagation());
@@ -208,7 +231,7 @@ const paneController = {
             if (!isSplit) toggleSplit();
             if (available(second)) this.open(second);
             const active = parseInt(params.get('active'));
-            if (active === 1) setActiveTerminal(1);
+            if (active === 1 || active === 2) setActiveTerminal(active, true);
             if (sessions) {
                 const key = active === 1 ? first : second;
                 if (key) highlightSidebarItem(key);

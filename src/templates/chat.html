@@ -2456,21 +2456,52 @@
 
     let _userScrolledUp = false;
     let _lastScrollTop = 0;
-    let _programmaticScroll = false;
+    let _resumeFollowingOnScroll = false;
+    let _scrollTouchY = null;
     const _messagesEl = document.getElementById('messages');
 
     CopyControls.observe(_messagesEl);
 
     _messagesEl.addEventListener('scroll', () => {
-        if (_programmaticScroll || _suppressScroll) return;
+        if (_suppressScroll) return;
         const current = _messagesEl.scrollTop;
         const distFromBottom = _messagesEl.scrollHeight - current - _messagesEl.clientHeight;
-        if (current < _lastScrollTop && distFromBottom > 3) {
-            _userScrolledUp = true;
-        } else if (distFromBottom < 20) {
+        if (_resumeFollowingOnScroll && current > _lastScrollTop && distFromBottom < 20) {
             _userScrolledUp = false;
         }
         _lastScrollTop = current;
+    });
+
+    function chatScrollInput(direction, destination) {
+        if (!direction) return;
+        _resumeFollowingOnScroll = direction > 0;
+        if (direction < 0) _userScrolledUp = true;
+        else if (_messagesEl.scrollHeight - (destination ?? _messagesEl.scrollTop) - _messagesEl.clientHeight < 20) {
+            _userScrolledUp = false;
+        }
+    }
+
+    _messagesEl.addEventListener('wheel', event => {
+        if (!event.ctrlKey) chatScrollInput(event.deltaY);
+    }, {passive: true});
+    _messagesEl.addEventListener('touchstart', event => {
+        _scrollTouchY = event.touches.length === 1 ? event.touches[0].clientY : null;
+    }, {passive: true});
+    _messagesEl.addEventListener('touchmove', event => {
+        const y = event.touches.length === 1 ? event.touches[0].clientY : null;
+        if (y !== null && _scrollTouchY !== null) chatScrollInput(_scrollTouchY - y);
+        _scrollTouchY = y;
+    }, {passive: true});
+    _messagesEl.addEventListener('touchend', () => { _scrollTouchY = null; }, {passive: true});
+    _messagesEl.addEventListener('touchcancel', () => { _scrollTouchY = null; }, {passive: true});
+    document.addEventListener('keydown', event => {
+        if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey
+            || event.target.closest('input, textarea, select, button, [contenteditable="true"], [role="dialog"]')) return;
+        const direction = {ArrowUp: -1, PageUp: -1, Home: -1, ArrowDown: 1, PageDown: 1, End: 1, ' ': event.shiftKey ? -1 : 1}[event.key];
+        chatScrollInput(direction);
+    });
+    _messagesEl.addEventListener('scroll-pill-input', event => {
+        chatScrollInput(event.detail.top - _messagesEl.scrollTop, event.detail.top);
     });
 
     let _suppressScroll = false;
@@ -2505,12 +2536,13 @@
     });
     function scrollToBottom(force) {
         if (_suppressScroll) return;
-        if (force) _userScrolledUp = false;
+        if (force) {
+            _userScrolledUp = false;
+            _resumeFollowingOnScroll = false;
+        }
         if (_userScrolledUp) return;
-        _programmaticScroll = true;
         _messagesEl.scrollTop = _messagesEl.scrollHeight;
         _lastScrollTop = _messagesEl.scrollTop;
-        requestAnimationFrame(() => { _programmaticScroll = false; });
     }
 
     function collapseCodeBlocks(container, maxLines) {
@@ -2823,7 +2855,7 @@
             }
         }
         document.getElementById('messages').appendChild(el);
-        scrollToBottom(true);
+        scrollToBottom();
         return el;
     }
 
@@ -2842,7 +2874,7 @@
             el.addEventListener('click', () => showContinuationModal(text));
         }
         document.getElementById('messages').appendChild(el);
-        scrollToBottom(true);
+        scrollToBottom();
     }
 
     function formatMessageContext(text) {
@@ -2972,7 +3004,7 @@
         };
         if (!existing) {
             document.getElementById('messages').appendChild(element);
-            scrollToBottom(true);
+            scrollToBottom();
         }
         for (const overlay of document.querySelectorAll('[data-resume-modal]')) {
             if (overlay.dataset.resumeModal !== row.id) continue;
@@ -3049,7 +3081,7 @@
         el.dataset.fromSession = fromSession;
         el.addEventListener('click', () => showAgentMessageModal(fromSession, text));
         document.getElementById('messages').appendChild(el);
-        scrollToBottom(true);
+        scrollToBottom();
     }
 
     function showAgentMessageModal(fromSession, text) {
@@ -3232,7 +3264,7 @@
 
         // Restore scroll and scroll once
         _suppressScroll = false;
-        scrollToBottom(true);
+        scrollToBottom();
 
         _replayingHistory = false;
 
@@ -3288,7 +3320,7 @@
         // Ask server for any pending auth request now that we've finished rendering
         socket.emit('acp_check_pending_auth', {csrf_token: csrfToken, session_id: sessionId});
         requestAnimationFrame(() => {
-            scrollToBottom(true);
+            scrollToBottom();
             searchNavigation.loaded();
             chatImages.resume();
         });
@@ -3662,7 +3694,7 @@
             return;
         }
         if (evt.type === 'system_message') {
-            addSystemMessage(evt.text);
+            addSystemMessage(evt.text, evt.level === 'error' ? 'error' : undefined);
             if (evt.text && evt.text.startsWith('Model unavailable. Retrying')) {
                 setStatus('working', evt.text);
             }

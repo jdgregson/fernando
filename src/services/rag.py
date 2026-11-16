@@ -132,7 +132,7 @@ def _delete_session(session_id):
 
 def exact_search_phrase(query):
     match = re.fullmatch(r'"([^"]+)"|“([^”]+)”', query.strip())
-    return (match.group(1) or match.group(2)).casefold() if match else None
+    return (match.group(1) or match.group(2)) if match else None
 
 
 def search(query, limit=5, session_ids=None, distinct_sessions=False, roles=None):
@@ -158,10 +158,10 @@ def search(query, limit=5, session_ids=None, distinct_sessions=False, roles=None
             page = collection.get(limit=256, offset=offset, include=['documents', 'metadatas'], **scope)
             for document, meta in zip(page['documents'], page['metadatas']):
                 key = meta['session_id'] if distinct_sessions else (meta['session_id'], meta['turn_index'])
-                if key in seen or phrase not in document.casefold():
+                if key in seen or phrase not in document:
                     continue
                 seen.add(key)
-                start = max(0, document.casefold().index(phrase) - 120)
+                start = max(0, document.index(phrase) - 120)
                 hits.append({'session_id': meta['session_id'], 'session_name': meta.get('session_name', ''), 'turn_index': meta.get('turn_index', 0), 'snippet': document[start:start + 500], 'score': 0})
                 if len(hits) >= limit:
                     return hits

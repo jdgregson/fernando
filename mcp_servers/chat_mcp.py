@@ -6,6 +6,7 @@ Tools: schedule_resume, cancel_resume, set_chat_name, save_memory, attach_file, 
 """
 import _mcp_common  # noqa: F401  (activates venv + sys.path)
 from _mcp_common import PROJECT_ROOT, read_api_key, find_my_session_id
+from job_tools import TOOLS as JOB_TOOLS, call as call_job_tool
 
 import asyncio
 import json
@@ -138,12 +139,14 @@ async def list_tools() -> list[Tool]:
                 "required": ["html"],
             },
         ),
-    ]
+    ] + JOB_TOOLS
 
 
 @app.call_tool()
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    if name in {'schedule_resume', 'cancel_resume'}:
+    if name.startswith('job_'):
+        result = call_job_tool(name, arguments)
+    elif name in {'schedule_resume', 'cancel_resume'}:
         session_id = find_my_session_id()
         if not session_id:
             raise ValueError('Cannot identify the current chat')

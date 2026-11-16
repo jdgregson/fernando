@@ -11,12 +11,27 @@ test('quoted highlighting preserves punctuation and never marks individual words
     const preview = win.document.getElementById('preview');
     for (const query of ['"my-test-1"', '“my-test-1”']) {
         win.highlightSearchText(preview, 'my test 1 my-test-2 MY-TEST-1 my-test-1', query);
-        assert.deepEqual([...preview.querySelectorAll('mark')].map(mark => mark.textContent), ['MY-TEST-1', 'my-test-1']);
+        assert.deepEqual([...preview.querySelectorAll('mark')].map(mark => mark.textContent), ['my-test-1']);
         win.highlightSearchText(preview, 'my test 1 my-test-2', query);
         assert.equal(preview.querySelector('mark'), null);
     }
     win.highlightSearchText(preview, 'my test 1', 'my-test-1');
     assert.deepEqual([...preview.querySelectorAll('mark')].map(mark => mark.textContent), ['my', 'test', '1']);
+    dom.window.close();
+});
+
+test('scoped quoted phrase highlights only the complete case-sensitive string', () => {
+    const dom = new JSDOM('<div id="preview"></div>', {runScripts: 'outside-only'});
+    const win = dom.window;
+    win.socket = {on() {}};
+    win.eval(fs.readFileSync(require('node:path').join(__dirname, '../src/static/js/chat.js'), 'utf8'));
+    const phrase = 'fuck my agent is stupid';
+    const parsed = win.parseConversationQuery('group:a5055f9f "' + phrase + '" -agent -tools');
+    const preview = win.document.getElementById('preview');
+    win.highlightSearchText(preview, 'fuck my agent Is stupid; fuck stupid my is agent; ' + phrase, parsed.text);
+    assert.deepEqual([...preview.querySelectorAll('mark')].map(mark => mark.textContent), [phrase]);
+    assert.equal(parsed.group, 'a5055f9f');
+    assert.deepEqual(Array.from(parsed.excluded), ['-tools', '-agent']);
     dom.window.close();
 });
 
@@ -29,7 +44,7 @@ test('exclusions preserve exact mode, group changes, and literal quoted operator
     const input = win.document.getElementById('archiveSearch');
     input.value = '"my-test-1" -text -tools -agent -user';
     win.filterArchived();
-    assert.match(win.document.getElementById('conversationSearchStatus').textContent, /1 exact matches.*-text -tools/);
+    assert.match(win.document.getElementById('conversationSearchStatus').textContent, /0 exact matches.*-text -tools/);
     win.searchConversationGroup('a5055f9f');
     assert.equal(input.value, 'group:a5055f9f "my-test-1" -text -tools -agent -user');
     assert.equal(win.parseConversationQuery('"-agent" -user').text, '"-agent"');

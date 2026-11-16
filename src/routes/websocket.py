@@ -82,6 +82,7 @@ def register_handlers(socketio):
         sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
         from src.services.file_browser import list_sessions as file_sessions
+        from src.services.jobs import store as job_store
         from src.services.notebooks import list_notebooks
         from src.services.settings import get_provider_settings
         from src.services import groups
@@ -93,6 +94,7 @@ def register_handlers(socketio):
             "running_notebooks": running_notebooks,
             "running_jupyter": list(_open_jupyter),
             "file_sessions": file_sessions(),
+            "job_sessions": job_store.list_sessions(),
             "groups": group_data["groups"],
             "session_groups": group_data["session_groups"],
             "provider_settings": get_provider_settings(),
@@ -513,7 +515,10 @@ def register_handlers(socketio):
         group_id = data.get("group_id")
         if group_id:
             with _group_archive_lock:
-                groups.delete_group(group_id)
+                from src.services.job_sessions import session_service
+                with session_service.controller.lock:
+                    groups.delete_group(group_id)
+                    session_service.synchronize_groups()
             emit("group_deleted", {"group_id": group_id}, broadcast=True)
 
     @socketio.on("group_archive")
@@ -562,6 +567,9 @@ def register_handlers(socketio):
                 if session_key.startswith('chat:'):
                     if not acp_manager.move_chat_to_group(session_key[5:], group_id):
                         return
+                elif session_key.startswith('job:'):
+                    from src.services.job_sessions import session_service
+                    session_service.move(session_key[4:], group_id)
                 else:
                     groups.move_session_to_group(session_key, group_id)
             except (ValueError, OSError) as error:
@@ -742,6 +750,7 @@ def register_handlers(socketio):
         sessions = pty_service.list_sessions()
         chat_sessions = acp_manager.list_sessions()
         from src.services.file_browser import list_sessions as file_sessions
+        from src.services.jobs import store as job_store
         from src.services.notebooks import list_notebooks
         from src.services.settings import get_provider_settings
         from src.services import groups
@@ -753,6 +762,7 @@ def register_handlers(socketio):
             "running_notebooks": running_notebooks,
             "running_jupyter": list(_open_jupyter),
             "file_sessions": file_sessions(),
+            "job_sessions": job_store.list_sessions(),
             "groups": group_data["groups"],
             "session_groups": group_data["session_groups"],
             "provider_settings": get_provider_settings(),
@@ -771,6 +781,14 @@ def register_handlers(socketio):
     resume_scheduler.start(acp_manager)
     from src.services.chat_resumes import chat_resume_scheduler
     chat_resume_scheduler.start(acp_manager)
+    from src.services.jobs import controller as job_controller
+    from src.services.job_sessions import session_service
+    job_controller.synchronize = session_service.synchronize_groups
+    def broadcast_job_changes():
+        broadcast_sessions_list()
+        socketio.emit('job_changed', {'jobs': job_controller.store.list()})
+    job_controller.notify = broadcast_job_changes
+    job_controller.start(acp_manager)
 
     @socketio.on("acp_create")
     def acp_create(data):

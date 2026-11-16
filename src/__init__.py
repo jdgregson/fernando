@@ -31,10 +31,11 @@ def create_app(config_name=None):
             path=os.environ.get("SOCKET_PATH", "socket.io"),
         )
 
-    from src.routes import web, file_browser
+    from src.routes import web, file_browser, jobs
 
     app.register_blueprint(web.bp)
     app.register_blueprint(file_browser.bp)
+    app.register_blueprint(jobs.bp)
     if role != 'web':
         from src.routes import websocket
         websocket.register_handlers(socketio)

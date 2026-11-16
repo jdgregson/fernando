@@ -122,6 +122,9 @@ class Provider(ABC):
     def handle_notification(self, session, method, params):
         return False
 
+    def handle_stderr(self, session, line):
+        return None
+
     def fork_session(self, session, history=None, boundary=None, turn_index=None):
         raise ValueError(f'{self.name} does not support conversation forks')
 

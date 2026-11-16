@@ -30,8 +30,8 @@ for (const type of ['acp_error']) {
         addSystemMessage(text, kind) { messages.push({text, kind}); },
         setTimeout(callback, delay) { timers.push({callback, delay}); },
     });
-    vm.runInContext(extract('closeThought') + '\n' + extract('finishTurn') + '\n' + extract('processEvent'), context);
-    context.processEvent({event: {type, error: 'Response failed'}});
+    vm.runInContext(extract('closeThought') + '\n' + extract('finishTurn') + '\n' + extract('renderEvent'), context);
+    context.renderEvent({event: {type, error: 'Response failed'}});
     assert.deepEqual(messages, [{text: 'Error: Response failed', kind: 'error'}]);
     assert.equal(thought.style.display, 'none');
     assert.equal(context.status, 'error');
@@ -40,5 +40,14 @@ for (const type of ['acp_error']) {
     timers[0].callback();
     assert.equal(context.status, 'ready');
     assert.deepEqual(messages, [{text: 'Error: Response failed', kind: 'error'}]);
+}
+{
+    const messages = [];
+    const context = vm.createContext({
+        addSystemMessage(text, kind) { messages.push({text, kind}); },
+    });
+    vm.runInContext(extract('renderEvent'), context);
+    context.renderEvent({event: {type: 'system_message', level: 'error', text: 'Provider error: rejected'}});
+    assert.deepEqual(messages, [{text: 'Provider error: rejected', kind: 'error'}]);
 }
 console.log('Chat script syntax and thinking-state error rendering passed');

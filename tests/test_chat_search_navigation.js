@@ -25,6 +25,21 @@ function setup(hash = '') {
     return {dom, win, navigation, failures, paused: () => paused};
 }
 
+test('quoted navigation counts only case-sensitive whole-phrase occurrences', () => {
+    const {dom, win, navigation} = setup();
+    const phrase = 'fuck my agent is stupid';
+    navigation.query = 'group:a5055f9f "' + phrase + '" -agent -tools';
+    const element = win.document.getElementById('user');
+    element.textContent = 'fuck my agent Is stupid; ' + phrase + '; fuck my stupid agent is; ' + phrase;
+    const first = navigation.highlight(element, phrase, 0);
+    const second = navigation.highlight(element, phrase, 1);
+    assert.equal(first.toString(), phrase);
+    assert.equal(first.startOffset, element.textContent.indexOf(phrase));
+    assert.equal(second.startOffset, element.textContent.lastIndexOf(phrase));
+    assert.equal(navigation.highlight(element, phrase, 2), null);
+    dom.window.close();
+});
+
 test('opens the indexed match after history loads, not an earlier identical phrase', () => {
     const {dom, win, navigation, failures, paused} = setup('#search-event=8&search-text=my-test-1');
     navigation.register({}, win.document.getElementById('agent'), 1, 4);

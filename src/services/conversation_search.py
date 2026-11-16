@@ -166,10 +166,10 @@ def _run(client, cancelled, query, sessions, send, preferred, excluded, all_matc
         pending = deque()
         for session in sorted(sessions, key=lambda s: s['id'] != preferred):
             words = re.findall(r'\w+', session['name'].casefold())
-            title_match = not query or (phrase is not None and phrase in session['name'].casefold())
+            title_match = not query or (phrase is not None and phrase in session['name'])
             if phrase is None and terms:
                 title_match = all(any(term in word or (len(term) >= 4 and SequenceMatcher(None, term, word).ratio() >= .78) for word in words) for term in terms)
-            if title_match and not bounds:
+            if title_match and not bounds and not excluded:
                 match(session, {'snippet': '', 'match': 'Title'})
             if (query or bounds) and (search_text or search_tools):
                 pending.append(session)
@@ -181,7 +181,7 @@ def _run(client, cancelled, query, sessions, send, preferred, excluded, all_matc
             semantic_done.set()
 
         def dispatch(process, session):
-            process.stdin.write((json.dumps({'root': str(chat_history.HISTORY_DIR), 'id': session['id'], 'terms': terms, 'excluded': excluded, 'all_matches': all_matches, 'bounds': bounds}) + '\n').encode())
+            process.stdin.write((json.dumps({'root': str(chat_history.HISTORY_DIR), 'id': session['id'], 'terms': terms, 'excluded': excluded, 'all_matches': all_matches, 'bounds': bounds, 'exact': phrase is not None}) + '\n').encode())
             process.stdin.flush()
             selector.register(process.stdout, selectors.EVENT_READ, (process, session))
 

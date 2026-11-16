@@ -1,6 +1,7 @@
 import copy
 import json
 import os
+import re
 import secrets
 import subprocess
 from urllib.parse import quote
@@ -9,6 +10,7 @@ import psutil
 import requests
 
 from src.services.providers.base import Capabilities, Launch, Provider, configured_environment
+from src.services.provider_errors import is_policy_rejection
 
 
 class OpenCodeProvider(Provider):
@@ -37,7 +39,22 @@ class OpenCodeProvider(Provider):
         session._opencode_password = secrets.token_urlsafe(32)
         env['OPENCODE_SERVER_USERNAME'] = 'fernando'
         env['OPENCODE_SERVER_PASSWORD'] = session._opencode_password
-        return Launch([self.executable, 'acp', '--hostname', '127.0.0.1', '--port', '0', '--mdns=false'], env)
+        return Launch([self.executable, 'acp', '--print-logs', '--log-level', 'ERROR', '--hostname', '127.0.0.1', '--port', '0', '--mdns=false'], env)
+
+    def handle_stderr(self, session, line):
+        if 'message="stream error"' not in line:
+            return
+        native = re.search(r'\bsession\.id=([^\s]+)', line)
+        if native is None or native.group(1) != session.acp_session_id:
+            return
+        message = re.search(r'\berror\.error\.error\.message=("(?:[^"\\]|\\.)*")', line)
+        code = re.search(r'\berror\.error\.error\.code=([^\s]+)', line)
+        if message is None:
+            return
+        text = json.loads(message.group(1))
+        if code:
+            text = f'{code.group(1)}: {text}'
+        session.report_provider_error(text, terminal=is_policy_rejection(text))
 
     def prepare_context(self, context, directory, instructions, snapshot):
         config = context.opencode_base()
